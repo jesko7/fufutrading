@@ -602,7 +602,15 @@ specifications at the end / new ideas:
 
 -integrated news windows
 -for the ai to implement strategies / indicators use claude cli, you should be able to select mode, effort and thinking and it should be an easy builtin workflow
+-the ai shouldnt just be -> message and it gives output it shuld be message -> ai does something and gets feed back in a loop -> output. so that the ai (claude) doesnt have to guess if a strategy will do good or if a indicator will work.
+-i really want the ai tool to feel inbuilt and polished this is one of the main inivations
 -if you load in at the start you should be able to select presets or empty and then you should be able to save presets ...
 -if you select empty it really should be mostly empty so you can decide how much you want to display, if you are more of a simplist or else..
 -along the way push to git
+-this project is just for me and not meant to go public but still make it work on any machine
+-create a  app link
+-but the bot accounts in autostart so they run in the bakcground
+-push to git along the way and at the end,
+-do rigorus testing, i want to have something that works.
+-this machine is a linux ubuntu but it shjould also 100% work on windows.
 -... any ideas you have try it out
