@@ -1,0 +1,608 @@
+# Build a Fast, Modular Crypto Trading Platform with Electron
+
+## 1. Overview
+
+Build a beautiful, fast, simple, and modular trading platform inspired by TradingView. The application must run on Electron and focus exclusively on cryptocurrency trading.
+
+The supported assets are:
+
+- Bitcoin (BTC)
+- Ethereum (ETH)
+- Solana (SOL)
+
+All live market data must come from Binance.
+
+The goal is to create a lightweight, responsive trading platform that combines live charts, market data, customizable indicators, strategy development, backtesting, historical market replay, and paper trading in one application.
+
+The interface should look modern and polished, be easy to navigate, and prioritize performance. Despite its advanced capabilities, the platform should remain simple to use.
+
+## 2. Live Market Data and Performance
+
+Retrieve live market data directly from Binance.
+
+Price updates and chart movements should be as fast as possible. Target a visible update latency of less than 500 milliseconds wherever possible, depending on Binance's data delivery, network latency, and the type of market data being displayed.
+
+The application should prioritize:
+
+- Fast live price updates.
+- Smooth chart rendering, even with large amounts of historical data.
+- Minimal unnecessary processing and memory usage.
+- Efficient handling of live market data.
+- Responsive interactions without noticeable lag.
+- Reliable synchronization between live data and historical data.
+
+### Robust live-data handling
+
+Implement a robust market-data pipeline that handles:
+
+- WebSocket disconnections and automatic reconnections.
+- Missed messages and data gaps.
+- Duplicate and out-of-order events.
+- Synchronization between historical data and incoming live updates.
+- Consistent candle construction from incoming market data.
+
+The application must detect when data may be incomplete and recover missing data where possible instead of silently displaying incorrect prices or market information.
+
+## 3. Charts and Timeframes
+
+The platform must support all standard timeframes and arbitrary custom timeframes.
+
+Examples include:
+
+- Standard timeframes such as 1m, 5m, 15m, 1h, and 1d.
+- Custom timeframes such as 30 seconds and 7 minutes.
+
+Users must be able to switch between different chart types:
+
+- Standard candlesticks.
+- Heikin-Ashi candles.
+- Renko charts.
+
+Charts should update with live Binance data and allow users to select the asset, timeframe, and chart type independently.
+
+Custom timeframes must work even when Binance does not provide a matching native candle interval. Construct these timeframes from the underlying historical and live market data, ensuring that candles are built and updated consistently.
+
+Chart rendering and calculations must remain responsive when displaying large amounts of historical data.
+
+## 4. Modular Layout and Multiple Windows
+
+The application must have a modular layout system. Users should be able to open multiple independent chart windows or modules and configure each one separately.
+
+Examples of modules include:
+
+- BTC chart using 5-minute Heikin-Ashi candles.
+- BTC order book.
+- ETH chart using 30-second standard candles.
+- SOL chart using a custom timeframe.
+
+Each module should have its own configuration, so changing the asset, timeframe, or chart type in one module does not unintentionally affect the others.
+
+The user should be able to combine different types of market information into a single customized workspace.
+
+### Resizable and detachable modules
+
+Users must be able to:
+
+- Resize modules.
+- Rearrange modules within the workspace.
+- Duplicate existing modules.
+- Detach modules into separate application windows.
+- Configure the asset and settings of each module independently.
+
+For example, a user should be able to keep a BTC chart on one monitor, an order book on another, and an ETH chart in the main application window.
+
+### Save and restore workspaces
+
+Users must be able to save complete workspaces and restore them later.
+
+A saved workspace should preserve the relevant layout and configuration, including:
+
+- Open charts and order books.
+- Assets and timeframes.
+- Chart types.
+- Active indicators and their settings.
+- Module positions, sizes, and window arrangements.
+
+Restoring a workspace should recreate its previous layout and configurations as closely as possible, without requiring the user to rebuild it manually.
+
+## 5. Live Market Data and Order-Book Tools
+
+Provide dedicated modules for displaying Binance market data, including order books.
+
+### Professional order-book tools
+
+The order-book module should support:
+
+- A live order book displaying bids and asks.
+- Order-book imbalance calculations.
+- Market depth charts.
+- Liquidity heatmaps.
+- Visualization of large resting orders.
+
+The user should be able to inspect liquidity distribution and compare buying and selling pressure at different price levels.
+
+Order-book imbalance should be calculated from available bid and ask liquidity, with configurable calculation methods where appropriate.
+
+Liquidity heatmaps should help visualize how liquidity changes over time, including the appearance, movement, and disappearance of large resting orders.
+
+Distinguish observable order-book liquidity from executed trades. Large resting orders do not necessarily indicate genuine trading intent and should not automatically be interpreted as reliable support or resistance.
+
+The order-book tools must use actual Binance market data and remain responsive under heavy update rates.
+
+## 6. Paper Trading Simulator
+
+Implement a paper trading simulator that allows users to create multiple simulated trading accounts.
+
+When creating an account, users must be able to configure the initial account balance and select presets for trading costs.
+
+The simulator must support configurable:
+
+- Trading fees.
+- Slippage.
+- Initial account balance.
+- Order execution settings.
+
+### Order types and trade management
+
+Users must be able to place simulated market and limit orders.
+
+They must also be able to set and manage stop-loss (SL) and take-profit (TP) levels by dragging them directly on the chart.
+
+The simulator should make it easy to manage open positions and their associated orders visually.
+
+### Trading cost presets
+
+Provide presets for common fee and execution models, including:
+
+- **Binance:** A preset based on approximately 0.2% round-trip trading costs for market orders. The exact fee assumptions should be configurable.
+- **TradingView-style flat fee:** A preset using a flat fee of €1.
+
+Users must be able to modify presets and configure their own trading costs.
+
+The simulator should calculate the effects of fees and slippage on simulated trade execution and performance.
+
+### Account risk management
+
+Each simulated account should provide a clear overview of its financial state, including:
+
+- Initial and current account balance.
+- Available balance.
+- Open positions and exposure.
+- Realized profit and loss (P&L).
+- Unrealized profit and loss.
+- Fees paid.
+- Configurable position-risk limits.
+
+Risk information should update as trades are opened, modified, closed, or affected by changes in market prices.
+
+Account balances, positions, and trade histories should be maintained independently for each simulated account.
+
+## 7. Indicators and Scripting Languages
+
+Users must be able to use existing indicators and build their own custom indicators.
+
+The platform must support **both Pine Script and Python** as scripting languages for custom indicators and strategies. These are the required languages, not alternatives from which only one should be chosen.
+
+### Pine Script
+
+Support Pine Script syntax and aim for compatibility with existing TradingView indicators and strategies wherever feasible.
+
+Users familiar with TradingView should be able to transfer their knowledge and, where supported, reuse their existing scripts.
+
+Clearly document any unsupported syntax, language features, built-in functions, or behavioral differences. Do not silently produce incorrect results when a script uses unsupported functionality.
+
+### Python
+
+Allow users to develop custom indicators and strategies in Python.
+
+Python scripts should be able to access the platform's supported market data, historical data, indicator calculations, and strategy execution interfaces through a clearly defined API.
+
+The Python environment should be designed to support numerical calculations and large datasets efficiently.
+
+### Common requirements
+
+Both languages should support:
+
+- Configurable inputs and parameters.
+- Calculations using historical and live market data.
+- Custom indicator visualizations on charts.
+- Strategy entry and exit conditions.
+- Integration with paper trading and backtesting.
+- Different supported timeframes and chart types.
+- Clear error reporting when a script fails or uses unsupported functionality.
+
+Where possible, the two languages should use consistent market-data conventions, execution semantics, and backtesting rules so that comparable strategies can be evaluated consistently.
+
+The scripting system must be designed for performance and extensibility. Expensive script calculations must not freeze chart rendering or interrupt live market-data updates.
+
+## 8. Strategies and Backtesting
+
+Users must be able to use existing strategies and create their own custom strategies using either Pine Script or Python.
+
+Strategy development should be inspired by TradingView's workflow while supporting the additional flexibility of Python.
+
+### Historical data and backtesting scale
+
+The backtesting engine must support large amounts of historical data without an arbitrary limitation such as TradingView's commonly encountered 5,000-bar limit.
+
+Users should be able to backtest strategies over as much historical data as is available, subject to the available data and system resources.
+
+The engine should be designed for large datasets, efficient data processing, and fast strategy execution.
+
+### Historical tick and trade data
+
+Support historical trades and finer-grained market data in addition to standard OHLCV candles, wherever the relevant historical data is available.
+
+The backtesting engine should be able to use appropriate data resolutions for different strategies, allowing users to test strategies that depend on intrabar price movements or trade-level information rather than relying exclusively on candle-based approximations.
+
+Clearly distinguish between results calculated from candle data and results calculated from finer-grained trade data. Do not imply that historical tick-level data is available for every period unless it has actually been obtained and stored.
+
+The data model and backtesting engine should allow additional data resolutions to be supported in the future.
+
+### Backtest analytics
+
+Provide detailed performance analytics for completed backtests, including:
+
+- Total profit and loss.
+- Maximum drawdown.
+- Sharpe ratio.
+- Profit factor.
+- Win rate.
+- Equity curve.
+- Individual trade history.
+- Monthly performance breakdown.
+
+The analytics should help users understand not just whether a strategy was profitable, but also its risk, consistency, and behavior over time.
+
+Backtest calculations must account for the configured account settings, fees, slippage, and execution assumptions.
+
+### Strategy optimization and out-of-sample testing
+
+Allow users to test different combinations of strategy parameters to identify how those parameters affect performance.
+
+Provide a way to evaluate strategies across separate in-sample and out-of-sample historical periods.
+
+The purpose is to help users distinguish between strategies that perform well only on the data used to develop them and strategies that also perform well on unseen historical data.
+
+Clearly separate training, validation, and test periods where applicable. Avoid introducing lookahead bias or using future information during strategy evaluation.
+
+Optimization should support large backtests without unnecessarily blocking live chart updates or other interactions.
+
+Both Pine Script and Python strategies must be able to use the backtesting engine, subject to the capabilities supported by each language.
+
+## 9. Historical Market-Data Storage
+
+Implement reliable local storage for historical market data to support fast chart loading, large backtests, and market replay.
+
+The application should cache downloaded historical data locally and reuse it when possible.
+
+When the user requests data that is already stored, the application should load it from local storage instead of downloading it again.
+
+When only part of the requested historical range is missing, download only the missing data where possible.
+
+The storage system should support efficient retrieval across:
+
+- BTC, ETH, and SOL.
+- Different timeframes.
+- Historical candles.
+- Historical trades and finer-grained data where available.
+
+The architecture should support large historical datasets without requiring the entire dataset to be loaded into memory at once.
+
+Provide a reliable way to detect missing data and maintain consistency between the local historical cache and incoming live market data.
+
+Local storage should reduce repeated downloads, improve startup and chart-loading performance, and make large backtests more efficient.
+
+## 10. Historical Market Replay
+
+Implement a market-replay mode that allows users to replay historical market data and practice trading without seeing future prices.
+
+Users should be able to select a historical period and replay the market at adjustable speeds, including slower playback, real-time playback, and faster playback.
+
+During replay, charts and supported market-data modules should update according to the historical point reached in the replay.
+
+Users should be able to interact with the paper trading simulator during replay, place simulated orders, manage positions, and evaluate trading decisions.
+
+The replay engine must prevent strategies, indicators, and the user interface from accessing future information beyond the current replay point.
+
+Replay should use the available underlying historical data and respect its actual resolution. It should not fabricate tick-level movements when only candle data is available.
+
+The replay system should integrate with the platform's historical-data storage and backtesting infrastructure.
+
+## 11. Alerts and Notifications
+
+Implement a flexible alert system.
+
+Users should be able to create alerts triggered by:
+
+- Price levels and price movements.
+- Indicator values.
+- Custom strategy conditions.
+- Order-book measurements, including imbalance and liquidity-related conditions.
+
+Alerts should support configurable conditions and should be evaluated using the relevant market data.
+
+The system should make it easy to create, manage, enable, disable, and remove alerts without unnecessarily complicating the interface.
+
+Alerts should be designed to work efficiently with live data and should not significantly impact chart rendering or strategy execution performance.
+
+## 12. Presets and Configuration
+
+Presets should be available throughout the application wherever configuration is needed.
+
+For example, users should be able to select a trading-account preset rather than manually configuring every fee and execution parameter.
+
+Presets should provide convenient starting configurations while still allowing users to customize individual settings.
+
+The platform should make common configurations easy to access without preventing advanced users from controlling the underlying parameters.
+
+## 13. Keyboard Shortcuts and Quick Trading
+
+Provide keyboard shortcuts for frequent actions, including:
+
+- Switching assets.
+- Changing timeframes.
+- Managing charts and modules.
+- Opening and closing relevant panels.
+- Placing paper trades.
+- Managing simulated positions and orders.
+- Controlling chart interactions.
+
+The shortcuts should make the application faster to operate while remaining intuitive and consistent.
+
+Users should be able to discover the available shortcuts, and shortcuts must not interfere with normal text entry in inputs or the scripting editor.
+
+Quick-trading actions must operate on the intended account, asset, and chart context to help prevent accidental orders.
+
+## 14. Themes and Visual Design
+
+The interface must have a polished, modern visual design.
+
+Support both dark and light themes.
+
+Users should be able to switch between themes without losing their workspace configuration.
+
+Chart colors and styling should be customizable, including the appearance of candles and other chart visualizations.
+
+The design should maintain a consistent visual language across charts, order books, indicators, paper trading, backtesting, settings, and detached windows.
+
+The interface should prioritize readability, efficient use of screen space, and fast access to frequently used actions.
+
+## 15. High-Performance Application Architecture
+
+Design the application with clear boundaries between its major components.
+
+Separate the responsibilities of:
+
+- Binance market-data ingestion.
+- Historical market-data storage.
+- Live-data synchronization.
+- Chart rendering.
+- Indicator execution.
+- Pine Script execution and compatibility.
+- Python script execution.
+- Strategy execution.
+- Backtesting.
+- Market replay.
+- Paper trading and account management.
+- User interface and workspace management.
+
+The architecture should prevent computationally expensive operations, such as large backtests or strategy optimization, from freezing the user interface or delaying live price updates.
+
+Use appropriate background execution, efficient data structures, and batching or incremental calculations where beneficial.
+
+Avoid unnecessary duplication of market data and calculations between modules.
+
+Python execution and Pine Script execution should be isolated from the user interface. A failing or resource-intensive script must not be able to crash the entire application.
+
+The application must remain maintainable and modular, so new indicators, chart modules, data resolutions, and trading features can be added without rewriting unrelated components.
+
+Performance should be evaluated using realistic live-data update rates and large historical datasets, not just small demonstration datasets.
+
+## 16. Application Quality and Reliability
+
+The platform should behave consistently across its different modules.
+
+Important requirements include:
+
+- Correct historical and live candle construction.
+- Consistent results between supported chart views and their underlying market data.
+- Reliable paper-trading accounting.
+- Accurate application of fees and slippage.
+- Correct synchronization between charts and market-data modules.
+- Reliable local data storage and recovery.
+- Prevention of lookahead bias in backtests and market replay.
+- Responsive UI behavior during expensive calculations.
+- Clear errors when data is unavailable or a script cannot be executed.
+- Consistent and documented behavior across Pine Script and Python.
+
+Where relevant data or functionality is unavailable, the application should communicate that limitation rather than silently displaying misleading results.
+
+## 17. Design Philosophy
+
+The platform should follow three main principles.
+
+**Beautiful:** A polished, modern trading interface with a consistent visual design, dark and light themes, and customizable chart styling.
+
+**Fast:** Responsive charts, low-latency market updates, efficient processing of historical and live data, and a scalable architecture that keeps the UI responsive during backtesting and optimization.
+
+**Simple:** Advanced functionality should be available without making the interface unnecessarily complicated. Presets, modular workspaces, keyboard shortcuts, and intuitive controls should make common tasks easy.
+
+The final result should feel like a streamlined, modular alternative to TradingView designed specifically for crypto trading, with integrated paper trading, customizable indicators, professional order-book tools, market replay, and extensive backtesting capabilities.
+
+## 18. Implementation Approach
+
+Before implementing the application, evaluate the technical architecture for Electron, live Binance data, local historical storage, chart rendering, Pine Script compatibility, Python execution, and large-scale backtesting.
+
+Plan how both languages will integrate with the same market-data interfaces, backtesting engine, indicators, and paper trading simulator.
+
+Pay particular attention to performance, language compatibility, isolation of user scripts, and preventing expensive calculations from blocking the user interface.
+
+Then implement the platform as a coherent, working application rather than a collection of disconnected demonstrations. Keep the code modular and prioritize a reliable foundation for live data, charts, paper trading, scripting, and backtesting.
+
+The result should be a usable desktop application with real Binance data, independently configurable modules, persistent workspaces, local historical data, both Pine Script and Python support, and integrated trading simulation and analysis.
+## 19. Additional Requirements and Selected Feature Extensions
+
+This section adds requirements to the original prompt. It does not replace, remove, or rewrite any of the preceding requirements; all original requirements remain in force. Treat the features below as the specific additions selected for this version.
+
+The feature list is a minimum product outline, not a ceiling on engineering quality or creative problem-solving. Use sound technical judgment to design a coherent, production-quality application, identify necessary supporting capabilities, and make sensible improvements that fit the product. Do not artificially limit the solution to the exact implementation examples below. At the same time, do not turn every advanced capability into a visible control or add unrelated major feature sets merely for the sake of feature count. Keep the product focused, simple to understand, and powerful underneath.
+
+### 19.1 Selected native charting and market-visualization functionality
+
+From the charting suggestions, include the following:
+
+- Multiple synchronized charts with shared crosshairs.
+- Logarithmic and percentage price scales.
+- Compare the performance of BTC, ETH, and SOL on the same chart.
+- Overlay multiple assets on a single chart.
+- Display higher-timeframe or multi-timeframe overlays on a chart.
+
+For the charting, volume-analysis, and order-flow areas covered by the first three groups of feature suggestions, add only capabilities that genuinely need dedicated native platform support, special chart rendering, chart interaction, or access to underlying market data that a normal Pine Script or Python indicator cannot reliably provide. Do not duplicate ordinary indicator functionality as separate built-in modules when users could create it in Pine Script or Python.
+
+Native features in this scope include:
+
+- A useful native drawing-tool set, including horizontal and vertical lines, rays, trendlines, channels, and Fibonacci retracements, extensions, and time-zone tools.
+- Drawing objects that can be selected, moved, edited, hidden, locked, duplicated, copied between compatible charts, and deleted. Persist drawings where appropriate with the relevant chart or workspace.
+- Native chart-level support for the selected synchronized-chart, scaling, asset-comparison, asset-overlay, and multi-timeframe-overlay interactions above.
+- Where supported by available underlying data, a dedicated Footprint chart mode with bid/ask or buyer-/seller-initiated trade volume at individual price levels and visual highlighting of stacked imbalances. Do not fabricate bid/ask classifications or price-level volume where the source data cannot substantiate them.
+- Where the interaction benefits from native chart integration, an interactive Volume Profile for a visible, fixed, or session-selected range, including POC, Value Area High, and Value Area Low. Recalculate and render it consistently as the selected range or relevant data changes.
+
+The existing order-book and liquidity functionality in the original prompt remains required. Do not add every suggested order-flow or volume indicator as a separate native feature. Indicator-style calculations, signals, divergences, oscillators, and similar logic should generally be implementable through Pine Script or Python using the documented supported data API. When a proposed visualization depends on raw trades, order-book updates, or price-level data, clearly state which underlying data is available and which is required.
+
+### 19.2 Selected scripting and strategy-development additions
+
+Add the following capabilities to the existing Pine Script and Python system:
+
+- A built-in library of indicators and strategies.
+- Favorites and pinned scripts.
+- Import existing Pine Script files.
+- Import Python scripts from local files.
+- Export scripts to standalone files.
+- A flowchart-based strategy-construction interface.
+- AI-assisted script generation.
+- AI explanations of existing scripts.
+- AI-assisted debugging and error explanations.
+- Automatic warnings for suspicious lookahead behavior.
+- Warnings for indicators or strategies that may repaint.
+- Autocomplete for Pine Script and Python.
+- Syntax highlighting and code navigation.
+- An integrated debugger for Python strategies.
+- Step-by-step inspection of strategy execution.
+- Display intermediate indicator values on the chart and let users inspect the values at a selected bar or point in time.
+
+The flowchart builder should be a useful optional entry point, not a replacement for direct coding. Users must retain full access to the Pine Script and Python editors. Generated code must be visible and editable, and the platform must report unsupported language behavior honestly rather than pretending to provide full compatibility. AI-generated code must use the same documented market-data, indicator, backtesting, and execution interfaces as manually written code.
+
+### 19.3 Selected backtesting additions
+
+Extend the existing backtesting engine with the following:
+
+- Configurable limit-order fill assumptions.
+- Partial fills when supported by the selected execution model and available market data.
+- Borrowing costs where applicable, using the correct instrument and historical cost assumptions when such data is available.
+- Benchmark each strategy against buy-and-hold over the same asset and period.
+- Include a cash or zero-return benchmark.
+- Evaluate strategy performance across different historical market regimes.
+- Walk-forward testing.
+- Sensitivity analysis for trading fees.
+
+Backtest reports must make comparisons fair and understandable: use matching date ranges and clearly stated assumptions, apply appropriate costs, and distinguish actual historical data from simulated execution assumptions. Borrowing costs must only be applied where they are relevant to the instrument and period, using supported cost data and clearly stated assumptions. Do not silently assume spot, margin, and futures have identical costs or behavior.
+
+Walk-forward testing must keep each test segment chronologically separate from the data used to choose parameters. Fee sensitivity analysis should let users vary fees over a defined range and see how important metrics change. The cash and buy-and-hold benchmarks must be calculated consistently with the chosen backtest period and report assumptions.
+
+### 19.4 Strategy optimization and research additions
+
+Implement all of the following strategy-optimization and research capabilities:
+
+- Grid-search parameter optimization.
+- Random-search parameter optimization.
+- Bayesian optimization.
+- Genetic-algorithm optimization.
+- Multi-objective optimization for return, drawdown, and consistency.
+- Optimization subject to maximum-drawdown limits.
+- Optimization for risk-adjusted returns rather than raw profit alone.
+- Parameter-versus-performance heatmaps.
+- Three-dimensional optimization surfaces where useful.
+- Comparison of neighboring parameter combinations.
+- Detection of narrow parameter peaks that may indicate overfitting.
+- Ranking of strategy configurations by multiple metrics.
+- A history of optimization runs.
+- Saving and comparing parameter sets.
+- Parameter-stability tests across market regimes.
+- Automatic walk-forward optimization.
+- Visualization of training, validation, and test partitions where applicable.
+- Purged and embargoed time-series validation options where appropriate.
+- Randomized entry-time robustness tests.
+- Bootstrap confidence intervals for performance metrics.
+- Corrections or diagnostics for multiple strategy trials and selection bias.
+- A strategy experiment tracker with notes and results.
+
+These methods must not leak future data into past decisions. Use chronological partitions and apply each validation method appropriately to the type of strategy and data. Label the objective and constraints of each optimization run, record the chosen data range and cost assumptions, and preserve reproducibility. Do not present the highest historical score as proof that a strategy will remain profitable. Where computationally expensive, run optimization in background workers or processes so live data, charts, and the main interface remain responsive.
+
+### 19.5 Two types of paper-trading accounts: manual and bot
+
+The paper-trading system must support two clearly distinguished account types:
+
+**Manual account:** The user operates the account directly by placing, modifying, and closing simulated orders through the interface, chart, order book, or supported quick-trading controls.
+
+**Bot account:** The user assigns a compatible Pine Script or Python strategy to the account. The bot evaluates that strategy using the configured market data and automatically places and manages simulated orders according to the strategy's entry, exit, sizing, and risk logic.
+
+When creating a bot account, let the user select a strategy, configure its exposed parameters, select the supported asset and timeframe or data context, and choose the account's initial balance, cost settings, and applicable risk or rule preset. Make it easy to pause, resume, stop, reset, or inspect the bot. Show the active strategy, current state, recent signals, orders, positions, P&L, errors, and the reason for each generated action. Keep each account's funds, positions, orders, settings, and history isolated. A strategy error must not crash the application or silently leave the account behaving unpredictably.
+
+Keep manual and bot accounts simple to create and understand. The distinction should be visible in account creation and account management, but it should not require users to learn a complicated account hierarchy. The original paper-trading simulation, fees, slippage, order management, and risk-accounting requirements continue to apply. These account types refer to simulated trading; do not silently introduce real exchange order execution as part of this addition.
+
+### 19.6 Prop-firm rule presets
+
+Provide selectable rule presets for FTMO and Lucid Trading (LUCID), alongside the original generic paper-trading account presets. The goal is to simulate the selected program's applicable account rules accurately, not to use one generic set of limits for every account at a firm.
+
+The account-creation flow should let the user select the firm, the relevant program or account type, account size, and applicable evaluation or funded phase. Support distinct rule profiles whenever the firm's products differ. Model each applicable rule explicitly, including as relevant:
+
+- Profit targets and evaluation phases.
+- Daily loss limits and maximum overall loss.
+- Whether drawdown is static, intraday, end-of-day trailing, balance-based, or equity-based.
+- The reference balance/equity, reset time, timezone, and exact rule-calculation method.
+- Minimum trading days and consistency or best-day rules.
+- Maximum position size, permitted instruments, trading hours, and other relevant restrictions.
+- Fees, commissions, funding, and other trading costs where the selected program requires them.
+- What happens when a soft daily limit is reached versus when an account is breached.
+- Account progression, reset behavior, and rule differences between evaluation and funded stages.
+
+Use each firm's current official documentation as the authoritative source for the corresponding product. Build the profiles as versioned, maintainable rule configurations rather than scattered hardcoded conditionals. Record the official source URLs, the date the rules were last verified, the applicable program/version, and which rules are implemented. Recheck official sources when updating the profiles. If a rule cannot be verified or is ambiguous, disclose the limitation instead of guessing. Do not assume that a firm's name alone identifies a single stable ruleset; firms may change products, phases, account sizes, and rules.
+
+Official starting points for verification include:
+- FTMO 1-Step Challenge: https://ftmo.com/en/1-step-challenge/
+- FTMO 2-Step Challenge: https://ftmo.com/en/2-step-challenge/
+- FTMO Trading Objectives: https://ftmo.com/en/trading-objectives/
+- Lucid Trading Help Center, Rules and Guidelines: https://support.lucidtrading.com/en/collections/12931279-rules-and-guidelines
+
+Important scope and accuracy constraint: the original platform remains focused on BTC, ETH, and SOL market data from Binance. A prop firm's product may use different instruments, market feeds, contract specifications, costs, or execution rules. Separate rule-accounting accuracy from instrument and fill-model accuracy. Where a firm's program cannot be faithfully reproduced using the application's available Binance market data and supported instruments, clearly label the account as a rule simulation, explain the mismatch, and do not claim the app reproduces that firm's actual trading environment or execution. Never silently substitute an unrelated instrument or invent missing costs or data.
+
+Show the most important rules in a concise account dashboard: current equity/balance, remaining daily and total loss allowance, profit-target progress, any trading-day/consistency progress, current phase, and whether the account is compliant, restricted, or breached. Provide detailed rules on demand, rather than putting every rule on the main screen. Check limits continuously at the correct moments and using the correct balance/equity definition, time boundary, fees, and open-position P&L specified by that program.
+
+these simulated prop firm accounts should also obviously have  the option to be a bot account and a manual account
+
+### 19.7 Product design: simple, clean, and powerful
+
+The interface should have the calm, polished, cohesive feel associated with Apple's design approach, without copying proprietary Apple interfaces. Favor strong typography, generous but efficient spacing, subtle borders, restrained use of color, smooth and purposeful transitions, clear visual hierarchy, and careful attention to small interaction details.
+
+The product must remain simple and approachable while retaining advanced capabilities. Use progressive disclosure: show essential information and common actions first, and reveal advanced configuration, analytics, scripting tools, and optimization controls when the user needs them. Use sensible defaults, concise labels, helpful explanations, and presets. Avoid clutter, unnecessary panels, excessive badges, and settings that expose implementation details users do not need. Provide depth without making the main workspace overwhelming.
+
+Maintain the original performance goals. Complex scripts, AI assistance, backtests, optimization jobs, large data processing tasks, and rendering-heavy visualizations must not freeze the interface or delay live data. Use a modular, testable architecture and clear resource boundaries. Beauty and simplicity must not be achieved by removing powerful functionality; advanced functionality should remain discoverable and configurable.
+
+### 19.8 Instructions for the implementing AI
+
+Treat this prompt as the minimum outline of the intended product, not a restrictive specification that forbids useful engineering judgment. You are not limited to the exact implementation approach described here: evaluate the architecture, identify hidden requirements and edge cases, choose robust technologies, and add supporting behavior needed to deliver a coherent, high-quality application. You may improve details, architecture, reliability, usability, performance, testing, and integration beyond the listed examples.
+
+Preserve every original requirement and every explicit choice in this addendum. Do not quietly drop a difficult feature, replace real functionality with a disconnected mockup, or claim functionality is complete when it is not. Where a feature depends on unavailable market data, undocumented Pine Script behavior, a firm's unverified rules, or an execution detail that cannot be simulated faithfully, make the limitation explicit. Keep the application coherent and maintainable, and prefer complete vertical slices that work together over a large collection of disconnected demonstrations.
+
+
+
+
+
+specifications at the end / new ideas:
+
+-integrated news windows
+-for the ai to implement strategies / indicators use claude cli, you should be able to select mode, effort and thinking and it should be an easy builtin workflow
+-if you load in at the start you should be able to select presets or empty and then you should be able to save presets ...
+-if you select empty it really should be mostly empty so you can decide how much you want to display, if you are more of a simplist or else..
+-along the way push to git
+-... any ideas you have try it out
