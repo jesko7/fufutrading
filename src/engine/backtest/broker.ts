@@ -43,6 +43,10 @@ export interface BrokerConfig {
   defaultQty: { type: 'fixed' | 'cash' | 'percent_of_equity'; value: number };
   /** Allow shorting on spot (margin borrow). */
   allowShortSpot: boolean;
+  /** Ignore orders before this bar index (indicator warm-up). */
+  tradeFrom?: number;
+  /** Real OHLC used for fills/equity when the script runs on synthetic bars (Heikin-Ashi). Same length as the script data. */
+  fillData?: BarData;
   /** Annual borrow rate for spot shorts (assumption, e.g. 0.1 = 10%/yr), charged hourly. */
   borrowRateAnnual: number;
   liquidationFeeRate: number;
@@ -190,11 +194,11 @@ export class StrategyBroker {
   ticks: TickProvider | null = null;
   ticksUsedBars = 0;
 
-  constructor(
-    cfg: Partial<BrokerConfig> & { symbol: SymbolId },
-    readonly data: BarData,
-  ) {
+  data: BarData;
+
+  constructor(cfg: Partial<BrokerConfig> & { symbol: SymbolId }, data: BarData) {
     this.cfg = { ...DEFAULT_BROKER, ...cfg } as BrokerConfig;
+    this.data = cfg.fillData && cfg.fillData.length === data.length ? cfg.fillData : data;
     // spot shorting (margin borrow) needs a ledger that can hold negative positions: model it as 1x
     this.ledger = new Ledger(this.cfg.market === 'spot' && this.cfg.allowShortSpot ? 'futures' : this.cfg.market, this.cfg.initialCapital);
     if (this.cfg.market === 'spot' && this.cfg.allowShortSpot) this.cfg.leverage = 1;
@@ -228,6 +232,8 @@ export class StrategyBroker {
   // ------------------------------------------------------------------ order submission
 
   submit(o: Omit<StratOrder, 'createdBar'>): void {
+    // warm-up bars before the test range only feed indicators
+    if (this.cfg.tradeFrom && this.i < this.cfg.tradeFrom) return;
     const order: StratOrder = { ...o, createdBar: this.i };
     // same id replaces a pending order of the same kind
     const idx = this.pending.findIndex((p) => p.id === order.id && (p.kind === order.kind || (p.kind !== 'exit' && order.kind !== 'exit')));

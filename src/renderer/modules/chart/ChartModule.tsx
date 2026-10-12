@@ -219,6 +219,26 @@ export function ChartModule({ module }: ModuleProps) {
     eng?.setExecutions(cfg.showExecutions !== false ? (trading.executions as Execution[]) : []);
   }, [eng, trading.lines, trading.executions, cfg.showExecutions]);
 
+  // ---------------------------------------------------------------- navigation requests (Strategy Tester)
+  useEffect(() => {
+    if (!eng) return;
+    const offTrade = bus.on('chart:showTrade', (d: { symbol: string; market: string; from: number; to: number }) => {
+      if (d.symbol !== cfg.symbol || d.market !== cfg.market) return;
+      const pad = Math.max((d.to - d.from) * 0.6, tf ? tfDurationMs(tf) * 20 : 3600000);
+      eng.showTimeRange(d.from - pad, d.to + pad);
+    });
+    const offTime = bus.on('chart:showTime', (d: { symbol: string; market: string; time: number }) => {
+      if (d.symbol !== cfg.symbol || d.market !== cfg.market || !tf) return;
+      const w = tfDurationMs(tf) * 60;
+      eng.showTimeRange(d.time - w, d.time + w);
+    });
+    return () => {
+      offTrade();
+      offTime();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eng, cfg.symbol, cfg.market, cfg.tf]);
+
   // ---------------------------------------------------------------- crosshair sync
   useEffect(() => {
     if (!eng) return;

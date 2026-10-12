@@ -194,6 +194,42 @@ const S = {
     check(vars.includes('x'), `inspector shows variables (${vars.join(', ')})`);
     await shot('10-editor-inspector');
   },
+  async backtest() {
+    console.log('scenario: backtest');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Strategy Tester');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.tester', { timeout: 15000 });
+    const sel = page.locator('.tester-bar select').first();
+    await page.waitForFunction(() => [...document.querySelectorAll('.tester-bar select option')].some((o) => /MA Crossover Strategy/.test(o.textContent || '')), null, { timeout: 15000 });
+    const value = await page.$$eval('.tester-bar select option', (os) => os.find((o) => /MA Crossover Strategy/.test(o.textContent || ''))?.getAttribute('value'));
+    await sel.selectOption(value);
+    await page.click('.tester-bar .seg button:has-text("3M")');
+    await page.click('.stack-head button[data-tip="Run backtest"]');
+    await page.waitForSelector('.kpis .kpi', { timeout: 180000 });
+    const kpis = await page.$$eval('.kpi', (k) => k.map((x) => x.textContent || ''));
+    check(kpis.length >= 8, `KPIs shown (${kpis.slice(0, 3).join(' | ')})`);
+    await wait(500);
+    await shot('11-backtest-overview');
+    await page.click('.results .tabs .tab:has-text("Trades")');
+    const rows = await page.$$eval('.trades-table tbody tr.clickable', (r) => r.length);
+    check(rows > 0, `trades listed (${rows})`);
+    await page.click('.results .tabs .tab:has-text("Returns")');
+    const months = await page.$$eval('.monthly-table td.heat', (c) => c.filter((x) => (x.textContent || '').trim()).length);
+    check(months >= 3, `monthly returns (${months} months)`);
+    await page.click('.results .tabs .tab:has-text("Analysis")');
+    const regimes = await page.$$eval('.analysis table:nth-of-type(2) tbody tr', (r) => r.length);
+    check(regimes >= 2, `regime breakdown rows (${regimes})`);
+    await shot('12-backtest-analysis');
+    // futures with leverage: funding + mark prices
+    await page.click('.tester-bar button[data-tip^="Backtest settings"]');
+    await page.waitForSelector('.tester-settings');
+    await page.keyboard.press('Escape');
+    await page.click('.results .tabs .tab:has-text("Assumptions")');
+    const info = await page.textContent('.info');
+    check(/Bars tested/.test(info || ''), 'assumptions documented');
+  },
 };
 
 try {

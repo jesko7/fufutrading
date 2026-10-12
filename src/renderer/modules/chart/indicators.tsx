@@ -558,7 +558,7 @@ function cssToHex(c: string): string {
   return `#${[m[1], m[2], m[3]].map((x) => (+x).toString(16).padStart(2, '0')).join('')}`;
 }
 
-function InputControl({ def, value, onChange }: { def: ScriptInputDef; value: unknown; onChange: (v: unknown) => void }) {
+export function InputControl({ def, value, onChange }: { def: ScriptInputDef; value: unknown; onChange: (v: unknown) => void }) {
   const v = value ?? def.defval;
   if (def.options && def.options.length && def.type !== 'bool') {
     return <Select value={String(v)} options={def.options.map((o) => ({ value: String(o), label: String(o).replace(/^[A-Za-z_]+\./, '') }))} onChange={(x) => onChange(def.type === 'int' || def.type === 'float' ? Number(x) : x)} />;

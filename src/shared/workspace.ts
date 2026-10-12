@@ -139,7 +139,7 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
     case 'scripts':
       return { scriptId: null };
     case 'backtest':
-      return { runId: null };
+      return { scriptId: null, inputs: {}, symbol, market, tf: '1h', runId: null, range: { preset: '1Y' } };
     case 'optimizer':
       return { runId: null };
     default:

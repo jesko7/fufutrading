@@ -500,7 +500,7 @@ export function brokerRaw(br: StrategyBroker): StrategyRaw {
     liquidations: br.liquidations,
     warnings: [...br.warnings],
     ticksUsedBars: br.ticksUsedBars,
-    config: { ...br.cfg, funding: br.cfg.funding ? `${br.cfg.funding.t.length} events` : undefined, mark: br.cfg.mark ? 'mark-price klines' : undefined },
+    config: { ...br.cfg, funding: br.cfg.funding ? `${br.cfg.funding.t.length} events` : undefined, mark: br.cfg.mark ? 'mark-price klines' : undefined, fillData: br.cfg.fillData ? 'real OHLC' : undefined },
   };
 }
 
