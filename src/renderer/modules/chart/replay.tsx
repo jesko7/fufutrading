@@ -8,6 +8,7 @@ import type { SeriesInfo, SeriesStatus } from '../../../shared/marketTypes';
 export interface ChartReplay {
   active: boolean;
   sessionId: string | null;
+  accountId?: string | null;
   attach(eng: ChartEngine, store: BarStore, cb: (s: SeriesStatus, info?: SeriesInfo) => void): () => void;
   onPickBar(time: number): void;
   toggle?(): void;

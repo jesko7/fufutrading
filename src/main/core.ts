@@ -1,7 +1,7 @@
 /**
  * AppCore — constructs and wires all main-process services and exposes them over IPC.
  */
-import { app, shell, Notification, clipboard, nativeImage } from 'electron';
+import { app, shell, Notification, clipboard, ClipboardItem } from 'electron';
 import path from 'node:path';
 import { createLogger, type Logger, type LogEntry } from './logger';
 import { IpcRouter } from './ipc';
@@ -135,13 +135,14 @@ export class AppCore {
       throw new Error('Validation: only http(s) URLs');
     });
     r.handle('desktop:createShortcuts', () => createShortcuts(this.paths.resources));
-    r.handle('clipboard:image', ([dataUrl]) => {
+    r.handle('clipboard:image', async ([dataUrl]) => {
       if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png')) throw new Error('Validation: PNG data URL expected');
-      clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
+      const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+      await clipboard.write([new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })]);
       return true;
     });
-    r.handle('clipboard:text', ([text]) => {
-      clipboard.writeText(String(text));
+    r.handle('clipboard:text', async ([text]) => {
+      await clipboard.writeText(String(text));
       return true;
     });
     r.handle('desktop:getAutostart', () => getAutostart());

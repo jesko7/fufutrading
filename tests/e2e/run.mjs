@@ -81,6 +81,40 @@ const S = {
     await wait(2500);
     await shot('03-chart-7m');
   },
+  async trading() {
+    console.log('scenario: trading');
+    await page.click('button:has-text("Create paper account")');
+    await page.waitForSelector('.modal:has-text("New paper account")');
+    await page.click('.modal button:has-text("Perpetual futures")');
+    await page.click('.modal button:has-text("Create account")');
+    await page.waitForSelector('.trade-panel button:has-text("Open long")', { timeout: 15000 });
+    check(true, 'futures paper account created from the trade panel');
+    await page.click('.trade-panel button:has-text("25%")');
+    await wait(500);
+    await page.click('.trade-panel button:has-text("Open long")');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => /Order filled/.test(t.textContent || '')), null, { timeout: 15000 });
+    check(true, 'market order filled');
+    await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length >= 1, null, { timeout: 10000 });
+    const posText = await page.textContent('.acct table.table tbody tr');
+    check(/Long/.test(posText || ''), `position shown in account module (${(posText || '').replace(/\s+/g, ' ').slice(0, 80)})`);
+    await wait(1500);
+    await shot('04-position');
+    // set TP/SL via the account table editor
+    await page.click('.acct td span[data-tip^="Edit"]');
+    const fields = await page.$$('.acct td input.input');
+    const last = await page.evaluate(() => parseFloat((document.querySelectorAll('.acct tbody tr td')[3]?.textContent || '').replace(/,/g, '')));
+    await fields[0].fill(String(Math.round(last * 1.02)));
+    await fields[1].fill(String(Math.round(last * 0.98)));
+    await page.click('.acct td button.icon-btn:has(svg)');
+    await wait(1500);
+    const orders = await page.textContent('.acct .tabs');
+    check(/Orders\s*2/.test(orders || ''), `TP and SL orders created (${(orders || '').replace(/\s+/g, ' ')})`);
+    await shot('05-brackets');
+    await page.click('.acct td button:has-text("Close")');
+    await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 0, null, { timeout: 10000 });
+    const tabs = await page.textContent('.acct .tabs');
+    check(!/Orders\s*\d/.test(tabs || ''), 'closing the position canceled its TP/SL (OCO)');
+  },
 };
 
 try {

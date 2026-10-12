@@ -1,2 +1,2 @@
-// Feature packages register their modules here (trading, scripting, backtesting, AI, news…).
-export {};
+// Feature packages register their modules here.
+import './modules/trading';
