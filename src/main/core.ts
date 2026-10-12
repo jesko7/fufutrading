@@ -1,7 +1,7 @@
 /**
  * AppCore — constructs and wires all main-process services and exposes them over IPC.
  */
-import { app, shell, Notification } from 'electron';
+import { app, shell, Notification, clipboard, nativeImage } from 'electron';
 import path from 'node:path';
 import { createLogger, type Logger, type LogEntry } from './logger';
 import { IpcRouter } from './ipc';
@@ -135,6 +135,15 @@ export class AppCore {
       throw new Error('Validation: only http(s) URLs');
     });
     r.handle('desktop:createShortcuts', () => createShortcuts(this.paths.resources));
+    r.handle('clipboard:image', ([dataUrl]) => {
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png')) throw new Error('Validation: PNG data URL expected');
+      clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
+      return true;
+    });
+    r.handle('clipboard:text', ([text]) => {
+      clipboard.writeText(String(text));
+      return true;
+    });
     r.handle('desktop:getAutostart', () => getAutostart());
     // workspaces
     r.handle('ws:get', (_a, ctx) => ({ workspace: this.workspaces.current, rev: this.workspaces.rev, windowId: ctx.windowId, sourceId: this.workspaces.sourceId, hasSession: this.workspaces.hasSession }));
@@ -150,6 +159,11 @@ export class AppCore {
     r.handle('ws:detach', ([moduleId, bounds]) => this.workspaces.detach(moduleId, bounds as Rect | undefined));
     r.handle('ws:reattach', ([windowId]) => this.workspaces.reattachWindow(windowId));
     r.handle('win:focusMain', () => this.windows.showMain());
+    // renderer event bus relay (crosshair sync, symbol links across windows)
+    r.handle('bus:emit', ([name, data, origin], ctx) => {
+      this.router.broadcast('bus', { name, data, origin }, ctx.sender);
+      return true;
+    });
   }
 
   private registerMarket(): void {

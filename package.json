@@ -10,15 +10,15 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:prod": "node scripts/build.mjs --prod",
-    "start": "node scripts/build.mjs && electron .",
-    "app": "electron .",
+    "start": "node scripts/build.mjs && node scripts/start.mjs",
+    "app": "node scripts/start.mjs",
     "dev": "node scripts/dev.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:live": "vitest run --config vitest.live.config.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "e2e": "node scripts/build.mjs && node tests/e2e/run.mjs",
-    "shortcut": "node scripts/build.mjs && electron . --create-shortcut",
+    "shortcut": "node scripts/build.mjs && node scripts/start.mjs --create-shortcut",
     "dist:win": "node scripts/build.mjs --prod && electron-builder --win",
     "dist:linux": "node scripts/build.mjs --prod && electron-builder --linux"
   },
@@ -54,11 +54,37 @@
   "build": {
     "appId": "dev.jesko7.fufutrading",
     "productName": "FuFu Trading",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "package.json", "node_modules/pyodide/**/*"],
-    "asarUnpack": ["node_modules/pyodide/**/*", "dist/python/**/*"],
-    "win": { "target": ["nsis", "portable"], "icon": "resources/icon.png" },
-    "linux": { "target": ["AppImage", "deb"], "category": "Finance", "icon": "resources/icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/pyodide/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/pyodide/**/*",
+      "dist/python/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "resources/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Finance",
+      "icon": "resources/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
   }
 }

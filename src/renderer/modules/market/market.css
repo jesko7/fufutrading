@@ -1,0 +1,197 @@
+.watch-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+}
+.watch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.watch-row:hover {
+  background: var(--hover);
+}
+.w-sym {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+.w-name {
+  font-weight: 650;
+  display: flex;
+  align-items: center;
+}
+.w-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.w-price {
+  text-align: right;
+  min-width: 96px;
+}
+.w-last {
+  font-weight: 600;
+  font-size: 13px;
+  transition: color 0.35s;
+  border-radius: 3px;
+}
+.flash-up {
+  color: var(--up);
+}
+.flash-down {
+  color: var(--down);
+}
+
+/* order book */
+.ob {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.ob-head,
+.ob-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  padding: 0 10px;
+  align-items: center;
+}
+.ob-head {
+  height: 24px;
+  color: var(--text-3);
+  font-size: 11px;
+  border-bottom: 1px solid var(--border);
+}
+.ob-head span:not(:first-child),
+.ob-row span:not(:first-child) {
+  text-align: right;
+}
+.ob-side {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.ob-side.asks {
+  justify-content: flex-end;
+}
+.ob-row {
+  position: relative;
+  height: 19px;
+  cursor: pointer;
+}
+.ob-row:hover {
+  background: var(--hover);
+}
+.ob-row .bar {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  right: 0;
+  z-index: 0;
+  border-radius: 2px 0 0 2px;
+}
+.ob-row span {
+  position: relative;
+  z-index: 1;
+}
+.ob-row.large span:nth-child(3) {
+  font-weight: 700;
+}
+.ob-row.large::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  width: 4px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--warn);
+}
+.ob-mid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.ob-mid .mid-price {
+  font-size: 15px;
+  font-weight: 650;
+}
+.imb {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+}
+.imb-bar {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  background: var(--hover);
+}
+.imb-bar .b {
+  background: var(--up);
+}
+.imb-bar .a {
+  background: var(--down);
+}
+
+/* time & sales */
+.tape-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 1fr;
+  padding: 0 10px;
+  height: 19px;
+  align-items: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.tape-row span:not(:first-child) {
+  text-align: right;
+}
+.tape-row.big {
+  font-weight: 700;
+}
+
+.canvas-fill {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.canvas-fill canvas {
+  position: absolute;
+  inset: 0;
+}
+.hm-legend {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  z-index: 2;
+  font-size: 11.5px;
+  color: var(--text-2);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  pointer-events: none;
+}
+.large-list {
+  max-height: 34%;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+}

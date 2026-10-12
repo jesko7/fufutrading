@@ -1,0 +1,236 @@
+.chart-module {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.chart-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.chart-host-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.chart-host {
+  position: absolute;
+  inset: 0;
+}
+.vsep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 2px;
+  flex: none;
+}
+.draw-toolbar {
+  width: 38px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.draw-toolbar::-webkit-scrollbar {
+  width: 0;
+}
+.draw-toolbar .tb-sep {
+  width: 18px;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+  flex: none;
+}
+.chart-legend {
+  position: absolute;
+  left: 8px;
+  top: 6px;
+  right: 80px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 3;
+}
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 20px;
+}
+.legend-title {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+  font-size: 12.5px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.legend-ohlc {
+  display: inline-flex;
+  gap: 9px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  flex-wrap: wrap;
+}
+.legend-ohlc b {
+  font-weight: 550;
+  margin-left: 3px;
+  color: var(--text);
+}
+.legend-ohlc b.up {
+  color: var(--up);
+}
+.legend-ohlc b.down {
+  color: var(--down);
+}
+.legend-error {
+  pointer-events: auto;
+  color: var(--danger);
+  font-size: 12px;
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  padding: 5px 8px;
+  border-radius: 6px;
+  max-width: 520px;
+  user-select: text;
+}
+.ind-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ind-item {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  padding: 1px 4px 1px 0;
+  border-radius: 4px;
+  max-width: 100%;
+  width: fit-content;
+}
+.ind-item .ind-actions {
+  display: none;
+  gap: 1px;
+}
+.ind-item:hover .ind-actions {
+  display: inline-flex;
+}
+.ind-item:hover {
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+}
+.ind-item .ind-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.ind-item.hidden .ind-name {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.ind-val {
+  font-variant-numeric: tabular-nums;
+}
+.ind-err {
+  color: var(--danger);
+}
+.ind-warn {
+  color: var(--warn);
+}
+.axis-btns {
+  position: absolute;
+  right: 4px;
+  bottom: 27px;
+  display: flex;
+  gap: 2px;
+  z-index: 3;
+  opacity: 0.0;
+  transition: opacity var(--t-med);
+}
+.chart-host-wrap:hover .axis-btns {
+  opacity: 1;
+}
+.axis-btn {
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10.5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.axis-btn.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+.drawing-editor {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  width: 330px;
+  animation: pop-in var(--t-fast) var(--ease);
+}
+.swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+.swatch.on {
+  border-color: var(--text);
+}
+.replay-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.replay-hint {
+  position: absolute;
+  left: 50%;
+  top: 40px;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
