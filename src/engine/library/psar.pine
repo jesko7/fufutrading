@@ -1,0 +1,10 @@
+//@version=6
+// @name Parabolic SAR
+// @category Trend
+// @description Welles Wilder's stop-and-reverse points.
+indicator("Parabolic SAR", shorttitle="SAR", overlay=true)
+start = input.float(0.02, "Start", step=0.001)
+increment = input.float(0.02, "Increment", step=0.001)
+maximum = input.float(0.2, "Max value", step=0.01)
+out = ta.sar(start, increment, maximum)
+plot(out, "ParabolicSAR", style=plot.style_cross, color=#2962FF)

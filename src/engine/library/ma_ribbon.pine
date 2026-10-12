@@ -1,0 +1,22 @@
+//@version=6
+// @name Moving Average Ribbon
+// @category Trend
+// @description Four configurable moving averages (SMA/EMA/WMA/HMA/RMA) for trend structure at a glance.
+indicator("Moving Average Ribbon", shorttitle="MA Ribbon", overlay=true)
+ma(src, len, type) =>
+    switch type
+        "SMA" => ta.sma(src, len)
+        "EMA" => ta.ema(src, len)
+        "WMA" => ta.wma(src, len)
+        "HMA" => ta.hma(src, len)
+        => ta.rma(src, len)
+type = input.string("EMA", "Type", options=["SMA", "EMA", "WMA", "HMA", "RMA"])
+src = input.source(close, "Source")
+l1 = input.int(20, "MA 1", minval=1)
+l2 = input.int(50, "MA 2", minval=1)
+l3 = input.int(100, "MA 3", minval=1)
+l4 = input.int(200, "MA 4", minval=1)
+plot(ma(src, l1, type), "MA 1", color=#f6c309)
+plot(ma(src, l2, type), "MA 2", color=#fb9800)
+plot(ma(src, l3, type), "MA 3", color=#fb6500)
+plot(ma(src, l4, type), "MA 4", color=#f60c0c, linewidth=2)

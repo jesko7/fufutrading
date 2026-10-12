@@ -162,7 +162,7 @@ export interface IndicatorOutput {
   warnings?: string[];
   visible: boolean;
   /** Strategy outputs: trades to draw on the chart. */
-  trades?: { entryIndex: number; exitIndex: number; entryPrice: number; exitPrice: number; dir: 1 | -1; pnl: number; entryLabel?: string; exitLabel?: string }[];
+  trades?: { entryIndex: number; exitIndex: number; entryPrice: number; exitPrice: number; dir: 1 | -1; pnl: number; entryLabel?: string; exitLabel?: string; open?: boolean }[];
 }
 
 export interface CompareSeries {

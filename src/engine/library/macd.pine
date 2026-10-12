@@ -1,0 +1,22 @@
+//@version=6
+// @name MACD
+// @category Oscillators
+// @description Moving average convergence/divergence with signal line and colored histogram.
+indicator("Moving Average Convergence Divergence", shorttitle="MACD")
+fastLen = input.int(12, "Fast Length")
+slowLen = input.int(26, "Slow Length")
+src = input.source(close, "Source")
+sigLen = input.int(9, "Signal Smoothing", minval=1, maxval=50)
+smaSource = input.string("EMA", "Oscillator MA Type", options=["SMA", "EMA"])
+smaSignal = input.string("EMA", "Signal Line MA Type", options=["SMA", "EMA"])
+fastMa = smaSource == "SMA" ? ta.sma(src, fastLen) : ta.ema(src, fastLen)
+slowMa = smaSource == "SMA" ? ta.sma(src, slowLen) : ta.ema(src, slowLen)
+macd = fastMa - slowMa
+signal = smaSignal == "SMA" ? ta.sma(macd, sigLen) : ta.ema(macd, sigLen)
+hist = macd - signal
+hline(0, "Zero Line", color=color.new(#787B86, 50))
+plot(hist, "Histogram", style=plot.style_columns, color=(hist >= 0 ? (hist[1] < hist ? #26A69A : #B2DFDB) : (hist[1] < hist ? #FFCDD2 : #FF5252)))
+plot(macd, "MACD", color=#2962FF)
+plot(signal, "Signal", color=#FF6D00)
+alertcondition(hist[1] >= 0 and hist < 0, "Rising to falling", "MACD histogram switched to falling")
+alertcondition(hist[1] <= 0 and hist > 0, "Falling to rising", "MACD histogram switched to rising")

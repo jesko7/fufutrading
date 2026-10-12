@@ -68,6 +68,8 @@ export interface EngineCallbacks {
   onBracketCreate?(positionId: string, kind: 'sl' | 'tp', price: number): void;
   onPickBar?(time: number, index: number): void;
   onDoubleClick?(info: { price: number; time: number }): void;
+  /** Pane geometry changed (CSS px relative to the chart element). */
+  onLayout?(panes: { id: string; top: number; height: number }[]): void;
 }
 
 const AXIS_W_MIN = 58;
@@ -455,6 +457,19 @@ export class ChartEngine {
       p.scale.height = Math.max(10, p.height - 8);
       y += h;
     });
+    const sig = this.panes.map((p) => `${p.id}:${p.top}:${p.height}`).join('|');
+    if (sig !== this.layoutSig) {
+      this.layoutSig = sig;
+      const geo = this.panes.map((p) => ({ id: p.id, top: p.top, height: p.height }));
+      queueMicrotask(() => this.cb.onLayout?.(geo));
+    }
+  }
+
+  private layoutSig = '';
+
+  /** Current pane geometry (CSS px). */
+  paneLayout(): { id: string; top: number; height: number }[] {
+    return this.panes.map((p) => ({ id: p.id, top: p.top, height: p.height }));
   }
 
   private setBarSpacing(bs: number, anchorX: number): void {

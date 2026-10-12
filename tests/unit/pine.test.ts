@@ -419,3 +419,31 @@ describe('Pine: live instance', () => {
     expect(r.plots[0].values[119]).toBeCloseTo(full2.plots[0].values[119], 9);
   });
 });
+
+describe('Pine: request.security static resolution', () => {
+  const code = `//@version=6
+indicator("x")
+tf = input.timeframe("60", "TF")
+sym = input.symbol("BINANCE:ETHUSDT", "Symbol")
+plot(request.security(sym, tf, ta.ema(close[1], 5), lookahead=barmerge.lookahead_on))
+type = 3
+plot(type)`;
+
+  it('resolves inputs passed through variables and follows input changes', () => {
+    const c = compileCached(code);
+    expect(c.inputs.length).toBe(2);
+    expect(securityRequests(c, {}, ctx).map((r) => r.key)).toEqual(['spot:ETHUSDT:1h:candles']);
+    expect(securityRequests(c, { in0: '240', in1: 'BINANCE:SOLUSDT.P' }, ctx).map((r) => r.key)).toEqual(['futures:SOLUSDT:4h:candles']);
+    // expression fully offset by [1] with lookahead_on is the non-repainting idiom: no lookahead warning
+    expect(c.warnings.filter((w) => w.kind === 'lookahead')).toEqual([]);
+  });
+
+  it('flags lookahead_on without an offset', () => {
+    const c = compileCached('//@version=6\nindicator("x")\nplot(request.security(syminfo.tickerid, "60", ta.ema(close, 5), lookahead=barmerge.lookahead_on))');
+    expect(c.warnings.some((w) => w.kind === 'lookahead')).toBe(true);
+  });
+
+  it('rejects a reassigned timeframe variable', () => {
+    expect(() => compileCached('//@version=6\nindicator("x")\ntf = "60"\ntf := "240"\nplot(request.security(syminfo.tickerid, tf, close))')).toThrow(/reassigned/);
+  });
+});

@@ -73,6 +73,8 @@ export interface IndicatorInstance {
   visible: boolean;
   /** Style overrides per plot id. */
   styles?: Record<string, { color?: string; width?: number; visible?: boolean }>;
+  /** Strategy property overrides (broker settings) for strategies shown on the chart. */
+  strategy?: Record<string, unknown>;
 }
 
 export interface ChartModuleConfig {

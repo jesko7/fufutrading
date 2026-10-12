@@ -25,7 +25,8 @@ export class PineError extends Error {
   }
 }
 
-export const KEYWORDS = new Set(['var', 'varip', 'if', 'else', 'for', 'to', 'by', 'in', 'while', 'switch', 'break', 'continue', 'true', 'false', 'and', 'or', 'not', 'import', 'export', 'type', 'method', 'enum']);
+// 'type', 'method' and 'enum' are contextual (TradingView accepts them as ordinary identifiers elsewhere)
+export const KEYWORDS = new Set(['var', 'varip', 'if', 'else', 'for', 'to', 'by', 'in', 'while', 'switch', 'break', 'continue', 'true', 'false', 'and', 'or', 'not', 'import', 'export']);
 
 const OPS = ['=>', ':=', '+=', '-=', '*=', '/=', '%=', '==', '!=', '<=', '>=', '?', ':', '+', '-', '*', '/', '%', '<', '>', '=', '(', ')', '[', ']', ',', '.'];
 

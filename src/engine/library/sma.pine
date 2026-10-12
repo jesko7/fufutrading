@@ -1,0 +1,10 @@
+//@version=6
+// @name Moving Average (SMA)
+// @category Trend
+// @description Simple moving average of any source with optional offset.
+indicator("Moving Average", shorttitle="SMA", overlay=true)
+len = input.int(20, "Length", minval=1)
+src = input.source(close, "Source")
+offset = input.int(0, "Offset", minval=-500, maxval=500)
+out = ta.sma(src, len)
+plot(out, "MA", color=color.blue, offset=offset, linewidth=2)

@@ -1,0 +1,17 @@
+//@version=6
+// @name MACD Strategy
+// @category Strategies
+// @description Long when MACD crosses above its signal line while above zero filter (optional); exit on the opposite cross.
+strategy("MACD Strategy", overlay=false, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1)
+fastLen = input.int(12, "Fast")
+slowLen = input.int(26, "Slow")
+sigLen = input.int(9, "Signal")
+zeroFilter = input.bool(false, "Only enter below zero")
+[m, s, h] = ta.macd(close, fastLen, slowLen, sigLen)
+plot(h, "Histogram", style=plot.style_columns, color=h >= 0 ? color.new(color.teal, 40) : color.new(color.red, 40))
+plot(m, "MACD", color=#2962FF)
+plot(s, "Signal", color=#FF6D00)
+if ta.crossover(m, s) and (not zeroFilter or m < 0)
+    strategy.entry("Long", strategy.long)
+if ta.crossunder(m, s)
+    strategy.close("Long")

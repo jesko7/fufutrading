@@ -115,6 +115,47 @@ const S = {
     const tabs = await page.textContent('.acct .tabs');
     check(!/Orders\s*\d/.test(tabs || ''), 'closing the position canceled its TP/SL (OCO)');
   },
+  async scripts() {
+    console.log('scenario: scripts');
+    await page.locator('button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    check(true, 'indicator picker lists scripts');
+    for (const q of ['Relative Strength', 'Bollinger Bands', 'MA Crossover Strategy', 'Python: Z-Score']) {
+      await page.fill('.picker-main input', q);
+      await wait(150);
+      await page.keyboard.press('Enter');
+      await wait(150);
+    }
+    await shot('06-picker');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelectorAll('.chart-module:first-of-type .ind-item, .ind-item').length >= 4, null, { timeout: 30000 });
+    // Python needs Pyodide to start (first run may take a few seconds)
+    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].every((r) => !r.querySelector('.spinner')), null, { timeout: 90000 });
+    const errs = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
+    check(errs.length === 0, `scripts run without errors ${errs.length ? JSON.stringify(errs) : ''}`);
+    const rsi = await page.$$eval('.pane-legend .ind-item', (rows) => rows.map((r) => r.textContent || ''));
+    check(rsi.some((t) => /RSI/.test(t) && /\d+\.\d+/.test(t)), `RSI pane legend shows values (${rsi.join(' | ').slice(0, 120)})`);
+    const strat = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /trades/.test(t)));
+    check(strat.length === 1, `strategy summary in legend (${strat.join('')})`);
+    await wait(1000);
+    await shot('07-indicators');
+    // change the RSI length via the settings dialog
+    const rsiRow = page.locator('.pane-legend .ind-item', { hasText: 'RSI' }).first();
+    const before = await rsiRow.textContent();
+    await rsiRow.hover();
+    await rsiRow.locator('button[data-tip="Settings"]').click();
+    await page.waitForSelector('.modal .set-row');
+    const len = page.locator('.modal .set-row', { hasText: 'RSI Length' }).locator('input');
+    await len.fill('5');
+    await len.press('Enter');
+    await page.click('.modal button:has-text("OK")');
+    await page.waitForFunction((b) => {
+      const r = [...document.querySelectorAll('.pane-legend .ind-item')].find((x) => /RSI/.test(x.textContent || ''));
+      return r && r.textContent !== b && /RSI\s*5 close/.test(r.textContent || '');
+    }, before, { timeout: 20000 });
+    check(true, 'changing an input recomputes the indicator');
+    await shot('08-rsi5');
+  },
 };
 
 try {

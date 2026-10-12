@@ -1,0 +1,9 @@
+//@version=6
+// @name Hull Moving Average
+// @category Trend
+// @description Low-lag moving average: WMA(2*WMA(n/2) - WMA(n), sqrt(n)), colored by slope.
+indicator("Hull Moving Average", shorttitle="HMA", overlay=true)
+len = input.int(9, "Length", minval=2)
+src = input.source(close, "Source")
+h = ta.hma(src, len)
+plot(h, "HMA", color=h >= h[1] ? color.teal : color.red, linewidth=2)

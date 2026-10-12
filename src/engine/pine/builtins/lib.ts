@@ -26,7 +26,10 @@ export const math = {
   toradians: (x: number) => (x * Math.PI) / 180,
   round: (x: number, precision?: number) => {
     if (isNa(x)) return NA;
-    if (precision === undefined || isNa(precision)) return Math.round(x) === -0 ? 0 : Math.sign(x) * Math.round(Math.abs(x));
+    if (precision === undefined || isNa(precision)) {
+      const r = Math.sign(x) * Math.round(Math.abs(x)); // half away from zero, like Pine
+      return r === 0 ? 0 : r;
+    }
     const p = Math.pow(10, precision);
     return (Math.sign(x) * Math.round(Math.abs(x) * p)) / p;
   },

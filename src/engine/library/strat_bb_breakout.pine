@@ -1,0 +1,24 @@
+//@version=6
+// @name Bollinger Breakout
+// @category Strategies
+// @description Enter on a close outside the bands in the breakout direction, exit at the basis.
+strategy("Bollinger Breakout", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.1)
+length = input.int(20, "Length", minval=2)
+mult = input.float(2.0, "StdDev", minval=0.1, step=0.1)
+allowShort = input.bool(false, "Allow shorts")
+basis = ta.sma(close, length)
+dev = mult * ta.stdev(close, length)
+upper = basis + dev
+lower = basis - dev
+plot(basis, "Basis", color=color.orange)
+p1 = plot(upper, "Upper", color=color.blue)
+p2 = plot(lower, "Lower", color=color.blue)
+fill(p1, p2, color=color.rgb(33, 150, 243, 92))
+if ta.crossover(close, upper)
+    strategy.entry("Long", strategy.long)
+if allowShort and ta.crossunder(close, lower)
+    strategy.entry("Short", strategy.short)
+if strategy.position_size > 0 and close < basis
+    strategy.close("Long")
+if strategy.position_size < 0 and close > basis
+    strategy.close("Short")

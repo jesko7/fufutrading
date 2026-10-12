@@ -1,0 +1,12 @@
+//@version=6
+// @name Z-Score
+// @category Statistics
+// @description Distance of the source from its moving average in standard deviations.
+indicator("Z-Score", precision=2)
+length = input.int(50, "Length", minval=2)
+src = input.source(close, "Source")
+z = (src - ta.sma(src, length)) / ta.stdev(src, length)
+plot(z, "Z", style=plot.style_columns, color=z >= 0 ? color.new(color.teal, 30) : color.new(color.red, 30))
+hline(2, "+2 sigma", color=color.gray)
+hline(0, "Zero", color=color.new(color.gray, 60))
+hline(-2, "-2 sigma", color=color.gray)

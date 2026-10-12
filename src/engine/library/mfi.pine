@@ -1,0 +1,12 @@
+//@version=6
+// @name Money Flow Index (MFI)
+// @category Volume
+// @description Volume-weighted RSI of the typical price.
+indicator("Money Flow Index", shorttitle="MFI", format=format.price, precision=2)
+length = input.int(14, "Length", minval=1, maxval=2000)
+mf = ta.mfi(hlc3, length)
+plot(mf, "MF", color=#7E57C2)
+overbought = hline(80, "Overbought", color=#787B86)
+hline(50, "Middle Band", color=color.new(#787B86, 50))
+oversold = hline(20, "Oversold", color=#787B86)
+fill(overbought, oversold, color=color.rgb(126, 87, 194, 90), title="Background")

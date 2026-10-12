@@ -1,0 +1,9 @@
+//@version=6
+// @name Higher-Timeframe Trend
+// @category Multi-timeframe
+// @description EMA of a higher timeframe drawn on the chart without lookahead (values appear when the HTF bar closes).
+indicator("Higher-Timeframe EMA", shorttitle="HTF EMA", overlay=true)
+tf = input.timeframe("240", "Timeframe")
+len = input.int(50, "EMA length", minval=1)
+htf = request.security(syminfo.tickerid, tf, ta.ema(close[1], len), lookahead=barmerge.lookahead_on)
+plot(htf, "HTF EMA", color=color.purple, linewidth=2, style=plot.style_stepline)

@@ -422,8 +422,8 @@ export function drawStrategyTrades(rc: RenderCtx, trades: NonNullable<import('./
     const y1 = s.toY(t.entryPrice);
     const y2 = s.toY(t.exitPrice);
     const col = t.pnl >= 0 ? theme.up : theme.down;
-    ctx.strokeStyle = withAlpha(col, 0.8);
-    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = withAlpha(col, t.open ? 0.5 : 0.8);
+    ctx.setLineDash(t.open ? [2, 3] : [4, 3]);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(x1, y1);
@@ -453,7 +453,7 @@ export function drawStrategyTrades(rc: RenderCtx, trades: NonNullable<import('./
       }
     };
     mark(x1, y1, t.dir === 1, t.entryLabel);
-    if (t.exitIndex >= 0) mark(x2, y2, t.dir !== 1, t.exitLabel);
+    if (t.exitIndex >= 0 && !t.open) mark(x2, y2, t.dir !== 1, t.exitLabel);
   }
 }
 

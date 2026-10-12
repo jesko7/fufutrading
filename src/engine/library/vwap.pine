@@ -1,0 +1,13 @@
+//@version=6
+// @name VWAP (session)
+// @category Volume
+// @description Volume-weighted average price, reset every UTC day, with standard-deviation bands.
+indicator("Volume Weighted Average Price", shorttitle="VWAP", overlay=true)
+src = input.source(hlc3, "Source")
+showBands = input.bool(true, "Show bands")
+mult = input.float(1.0, "Bands multiplier", minval=0.1, step=0.1)
+[vw, up, lo] = ta.vwap(src, timeframe.change("D"), mult)
+plot(vw, "VWAP", color=#2962FF, linewidth=2)
+pu = plot(showBands ? up : na, "Upper band", color=color.new(color.green, 30))
+pl = plot(showBands ? lo : na, "Lower band", color=color.new(color.green, 30))
+fill(pu, pl, color=color.new(color.green, 92), title="Bands fill")

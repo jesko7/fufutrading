@@ -122,9 +122,10 @@ class Parser {
       this.next();
       exported = true;
     }
-    if (this.isKw('type')) return this.typeDef(exported, pos);
-    if (this.isKw('enum')) return this.enumDef(pos);
-    if (this.isKw('method')) {
+    const declEnd = (o: number) => this.is('newline', undefined, o) || this.is('eof', undefined, o) || this.is('indent', undefined, o);
+    if (this.is('ident', 'type') && this.is('ident', undefined, 1) && declEnd(2)) return this.typeDef(exported, pos);
+    if (this.is('ident', 'enum') && this.is('ident', undefined, 1) && declEnd(2)) return this.enumDef(pos);
+    if (this.is('ident', 'method') && this.is('ident', undefined, 1) && this.isOp('(', 2)) {
       this.next();
       return this.funcDef(true, exported, pos);
     }

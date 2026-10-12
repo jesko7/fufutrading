@@ -1,0 +1,13 @@
+//@version=6
+// @name Pivot Points High/Low
+// @category Structure
+// @description Swing highs/lows confirmed after `right` bars, labelled with their price.
+indicator("Pivot Points High Low", shorttitle="Pivots HL", overlay=true, max_labels_count=500)
+lenH = input.int(10, "Left/right bars (highs)", minval=1)
+lenL = input.int(10, "Left/right bars (lows)", minval=1)
+ph = ta.pivothigh(lenH, lenH)
+pl = ta.pivotlow(lenL, lenL)
+if not na(ph)
+    label.new(bar_index - lenH, ph, str.tostring(ph, format.mintick), style=label.style_label_down, color=color.new(color.red, 20), textcolor=color.white, size=size.small)
+if not na(pl)
+    label.new(bar_index - lenL, pl, str.tostring(pl, format.mintick), style=label.style_label_up, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)

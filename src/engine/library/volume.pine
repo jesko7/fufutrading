@@ -1,0 +1,9 @@
+//@version=6
+// @name Volume with MA
+// @category Volume
+// @description Volume columns colored by candle direction with a moving average.
+indicator("Volume", format=format.volume)
+maLen = input.int(20, "MA Length", minval=1)
+up = close >= open
+plot(volume, "Volume", style=plot.style_columns, color=up ? color.new(#26A69A, 50) : color.new(#EF5350, 50))
+plot(ta.sma(volume, maLen), "Volume MA", color=#2962FF)

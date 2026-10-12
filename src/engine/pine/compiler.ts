@@ -147,6 +147,7 @@ class FnScope {
   }
 }
 
+const BAR_SERIES = new Set(['open', 'high', 'low', 'close', 'volume', 'hl2', 'hlc3', 'ohlc4', 'hlcc4', 'time', 'time_close', 'bar_index']);
 const JS_RESERVED = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'export', 'extends', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'return', 'super', 'switch', 'this', 'throw', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'enum', 'await', 'implements', 'package', 'protected', 'interface', 'private', 'public', 'arguments', 'eval']);
 
 function colorLit(c: string): string {
@@ -186,6 +187,12 @@ class Compiler {
   usesStrategy = false;
   /** globals whose history is read inside functions: name -> decl (filled when the global is declared) */
   globalHist = new Map<string, VarInfo | null>();
+  /** initializer expressions of global (non-var) declarations, for static resolution in request.security */
+  staticInits = new Map<string, Expr>();
+  /** globals reassigned with := somewhere */
+  reassigned = new Set<string>();
+  /** globals whose initializer was inlined into a request.security argument */
+  staticUsed = new Map<string, number>();
   variablesList: { name: string; line: number }[] = [];
   constructor(readonly prog: Program) {
     this.version = prog.version ?? 5;
@@ -283,6 +290,9 @@ class Compiler {
       mainBody,
       '};',
     ].join('\n');
+    for (const [name, line] of this.staticUsed) {
+      if (this.reassigned.has(name)) throw new PineError(`request.security: '${name}' is reassigned with ':=' — the symbol/timeframe must be fixed (use an input or a constant)`, line, 0, 'compile');
+    }
     // finalize placeholders
     js = this.finalize(js);
     let factory: (B: any, R: any) => () => void;
@@ -514,6 +524,7 @@ class Compiler {
     const declType = s.type ? this.typeOfRef(s.type) : undefined;
     const isG = global && this.globalsUsedInFns.has(s.name);
     if (global) this.variablesList.push({ name: s.name, line: s.line });
+    if (global && s.mode === 'normal') this.staticInits.set(s.name, s.value);
     if (s.mode === 'normal') {
       let valJs: string;
       let ret: Ret = declType || 'any';
@@ -588,6 +599,7 @@ class Compiler {
       return;
     }
     const name = (s.target as Extract<Expr, { k: 'id' }>).name;
+    this.reassigned.add(name);
     const v = this.lookup(name);
     if (!v) this.err(`Cannot reassign undeclared variable '${name}' (declare it first with '=')`, s);
     if (v.mode === 'param') this.err(`Cannot modify function parameter '${name}'`, s);
@@ -998,6 +1010,45 @@ class Compiler {
   }
 
   /** Compile-time evaluation of literal-ish arguments. */
+  /**
+   * True when every bar-data series inside `e` is read with a constant offset >= 1 (e.g.
+   * close[1], ta.ema(close[1], n)), which makes lookahead_on safe (no future values).
+   */
+  offsetSafe(e: Expr, shifted: boolean, depth: number): boolean {
+    if (depth > 30) return false;
+    switch (e.k) {
+      case 'num':
+      case 'str':
+      case 'bool':
+      case 'color':
+        return true;
+      case 'id': {
+        if (BAR_SERIES.has(e.name)) return shifted;
+        const init = this.staticInits.get(e.name);
+        if (init && !this.reassigned.has(e.name)) return this.offsetSafe(init, shifted, depth + 1);
+        return false;
+      }
+      case 'member':
+        return e.obj.k === 'id' && (e.obj.name === 'syminfo' || e.obj.name === 'timeframe' || e.obj.name === 'color' || e.obj.name === 'math');
+      case 'index': {
+        const off = this.constEval(e.index);
+        if (typeof off === 'number' && off >= 1) return this.offsetSafe(e.obj, true, depth + 1);
+        return this.offsetSafe(e.obj, shifted, depth + 1) && this.offsetSafe(e.index, shifted, depth + 1);
+      }
+      case 'call':
+        if (e.callee.k === 'member' && e.callee.obj.k === 'id' && e.callee.obj.name === 'input') return true;
+        return e.args.every((a) => this.offsetSafe(a.value, shifted, depth + 1));
+      case 'unary':
+        return this.offsetSafe(e.arg, shifted, depth + 1);
+      case 'binary':
+        return this.offsetSafe(e.left, shifted, depth + 1) && this.offsetSafe(e.right, shifted, depth + 1);
+      case 'ternary':
+        return this.offsetSafe(e.test, shifted, depth + 1) && this.offsetSafe(e.then, shifted, depth + 1) && this.offsetSafe(e.else, shifted, depth + 1);
+      default:
+        return false;
+    }
+  }
+
   constEval(e: Expr | undefined): unknown {
     if (!e) return undefined;
     switch (e.k) {
@@ -1345,16 +1396,26 @@ class Compiler {
         const site = this.security.length;
         const la = name === 'request.security' ? this.constEval(lookahead) === 'lookahead_on' : false;
         const gp = name === 'request.security' ? this.constEval(gaps) === 'gaps_on' : false;
-        const staticJs = (x: Expr | undefined, what: string) => {
-          if (!x) this.err(`request.security: missing ${what}`, e);
+        const inlineStatic = (x: Expr, depth = 0): Expr => {
+          if (depth > 8) return x;
+          if (x.k === 'id' && this.staticInits.has(x.name)) {
+            this.staticUsed.set(x.name, x.line);
+            return inlineStatic(this.staticInits.get(x.name)!, depth + 1);
+          }
+          if (x.k === 'binary') return { ...x, left: inlineStatic(x.left, depth + 1), right: inlineStatic(x.right, depth + 1) };
+          if (x.k === 'ternary') return { ...x, test: inlineStatic(x.test, depth + 1), then: inlineStatic(x.then, depth + 1), else: inlineStatic(x.else, depth + 1) };
+          return x;
+        };
+        const staticJs = (x0: Expr | undefined, what: string) => {
+          if (!x0) this.err(`request.security: missing ${what}`, e);
+          const x = inlineStatic(x0);
           const r = this.expr(x);
           if (/\b(i|ctx|G|O|H|L|C|V|T|TC)\b/.test(r.js.replace(/R\.inputs\[[^\]]+\]/g, '').replace(/"[^"]*"/g, ''))) this.err(`request.security: the ${what} must be a constant, an input or syminfo/timeframe value`, x);
           return r.js;
         };
         this.security.push({ site, symJs: staticJs(symbol, 'symbol'), tfJs: staticJs(timeframe, 'timeframe'), lookahead: la, gaps: gp, lowerTf: name === 'request.security_lower_tf', line: e.line });
         if (la) {
-          const exprSrc = expression;
-          const usesOffset = exprSrc && exprSrc.k === 'index';
+          const usesOffset = !!expression && this.offsetSafe(expression, false, 0);
           if (!usesOffset) this.warn(e, 'Lookahead: request.security with lookahead=barmerge.lookahead_on returns higher-timeframe values before that bar has closed on historical bars (future data leak). Use expression[1] with lookahead_on, or lookahead_off.', 'lookahead');
         } else if (name === 'request.security') this.warn(e, 'Repainting: on the realtime bar request.security returns the still-forming higher-timeframe value, so historical and realtime values can differ.', 'repaint');
         return { js: `B.security(R, ${site}, ${ev(expression)})`, ret: 'any' };
@@ -1407,7 +1468,18 @@ class Compiler {
     this.err(`Unsupported function ${name}`, e, 'unsupported');
   }
 
+  /** compiled input() calls by AST node: re-compiling the same call (static inlining) must not register a second input */
+  inputCache = new Map<Expr, { js: string; ret: Ret }>();
+
   input(name: string, e: Extract<Expr, { k: 'call' }>): { js: string; ret: Ret } {
+    const hit = this.inputCache.get(e);
+    if (hit) return hit;
+    const r = this.inputImpl(name, e);
+    this.inputCache.set(e, r);
+    return r;
+  }
+
+  inputImpl(name: string, e: Extract<Expr, { k: 'call' }>): { js: string; ret: Ret } {
     const params = name === 'input' ? 'defval,title,type,minval,maxval,confirm,step,tooltip,inline,group,options,display' : name === 'input.enum' || name === 'input.string' || name === 'input.int' || name === 'input.float' ? 'defval,title,options,minval,maxval,step,tooltip,inline,group,confirm,display' : 'defval,title,tooltip,inline,group,confirm,display,options';
     const list = params.split(',');
     // input.int(defval, title, minval, maxval, step, ...) overload without options

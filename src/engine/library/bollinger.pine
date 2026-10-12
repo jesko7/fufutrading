@@ -1,0 +1,17 @@
+//@version=6
+// @name Bollinger Bands
+// @category Volatility
+// @description SMA basis with bands at +/- k population standard deviations.
+indicator("Bollinger Bands", shorttitle="BB", overlay=true)
+length = input.int(20, "Length", minval=1)
+src = input.source(close, "Source")
+mult = input.float(2.0, "StdDev", minval=0.001, maxval=50)
+offset = input.int(0, "Offset", minval=-500, maxval=500)
+basis = ta.sma(src, length)
+dev = mult * ta.stdev(src, length)
+upper = basis + dev
+lower = basis - dev
+plot(basis, "Basis", color=#2962FF, offset=offset)
+p1 = plot(upper, "Upper", color=#F23645, offset=offset)
+p2 = plot(lower, "Lower", color=#089981, offset=offset)
+fill(p1, p2, title="Background", color=color.rgb(33, 150, 243, 95))

@@ -1,0 +1,10 @@
+//@version=6
+// @name Exponential Moving Average (EMA)
+// @category Trend
+// @description EMA seeded with the SMA of the first `length` values, exactly like TradingView.
+indicator("Moving Average Exponential", shorttitle="EMA", overlay=true)
+len = input.int(9, "Length", minval=1)
+src = input.source(close, "Source")
+offset = input.int(0, "Offset", minval=-500, maxval=500)
+out = ta.ema(src, len)
+plot(out, "EMA", color=color.orange, offset=offset, linewidth=2)

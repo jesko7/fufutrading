@@ -17,7 +17,7 @@ import { formatVolume } from '../../chart/scale';
 import { bus } from '../../lib/bus';
 import { usePersistentState } from '../../lib/hooks';
 import { DrawingToolbar, DrawingEditor } from './DrawingTools';
-import { useChartIndicators, IndicatorLegend, openIndicatorPicker } from './indicators';
+import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, type PaneGeo } from './indicators';
 import { useChartTrading } from './trading';
 import { useFootprint } from './footprint';
 import { useReplayForChart, ReplayButton } from './replay';
@@ -196,7 +196,8 @@ export function ChartModule({ module }: ModuleProps) {
   useCompareAndMtf(eng, cfg, dataVersion);
 
   // ---------------------------------------------------------------- indicators
-  const indicators = useChartIndicators(module.id, cfg, keyRef, dataVersion, liveTick, replay);
+  const indicators = useChartIndicators(module.id, cfg, storeRef, dataVersion, liveTick, replay);
+  const [panes, setPanes] = useState<PaneGeo[]>([]);
   useEffect(() => {
     eng?.setIndicators(indicators.outputs);
   }, [eng, indicators.outputs]);
@@ -278,6 +279,7 @@ export function ChartModule({ module }: ModuleProps) {
     onTradeLineCancel: (id) => trading.onCancel(id),
     onBracketCreate: (posId, kind, price) => trading.onBracket(posId, kind, price),
     onPickBar: (time) => replay.onPickBar(time),
+    onLayout: (geo) => setPanes(geo),
     onContextMenu: (info) => {
       const items: MenuItemSpec[] = [];
       const price = info.price;
@@ -392,8 +394,9 @@ export function ChartModule({ module }: ModuleProps) {
               {li >= 0 && store.length > 0 && <OhlcLegend store={store} i={li} symbol={cfg.symbol} market={cfg.market} />}
             </div>
             {info?.error && <div className="legend-error">{info.error}</div>}
-            <IndicatorLegend moduleId={module.id} cfg={cfg} outputs={indicators.outputs} index={li} update={update} />
+            <IndicatorLegend moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} />
           </div>
+          <PaneLegends moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} panes={panes} />
           {replay.overlay}
           <div className="axis-btns">
             {scaleBtn('percent', '%', 'Percentage scale')}

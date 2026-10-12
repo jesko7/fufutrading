@@ -234,3 +234,219 @@
   box-shadow: var(--shadow);
   pointer-events: none;
 }
+
+/* ---------------------------------------------------------------- script legends */
+.pane-legend {
+  position: absolute;
+  left: 8px;
+  right: 80px;
+  z-index: 3;
+  pointer-events: none;
+  display: flex;
+}
+.ind-item .ind-val.pos {
+  color: var(--up);
+}
+.ind-item .ind-val.neg {
+  color: var(--down);
+}
+.icon-btn.tiny {
+  width: 19px;
+  height: 19px;
+  border-radius: 4px;
+}
+.link-btn {
+  pointer-events: auto;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  max-width: 560px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ---------------------------------------------------------------- indicator picker */
+.picker {
+  display: flex;
+  gap: 14px;
+  height: min(560px, calc(100vh - 220px));
+  margin: -4px 0;
+}
+.picker-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 150px;
+  flex: none;
+  overflow: auto;
+}
+.picker-cat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+}
+.picker-cat:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.picker-cat.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.picker-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.picker-list {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.picker-row:last-child {
+  border-bottom: none;
+}
+.picker-row.sel {
+  background: var(--hover);
+}
+.picker-row .icon-btn {
+  opacity: 0.45;
+}
+.picker-row:hover .icon-btn,
+.picker-row .icon-btn.on {
+  opacity: 1;
+}
+.picker-row .icon-btn.on {
+  color: var(--warn);
+}
+.picker-text {
+  flex: 1;
+  min-width: 0;
+}
+.picker-name {
+  font-weight: 600;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.picker-desc {
+  color: var(--text-3);
+  font-size: 11.5px;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lang-badge {
+  flex: none;
+  width: 34px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--info) 16%, transparent);
+  color: var(--info);
+}
+.lang-badge.python {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+}
+.tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  color: var(--text-2);
+}
+.tag.ok {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+.small {
+  font-size: 11.5px;
+}
+
+/* ---------------------------------------------------------------- settings dialog */
+.ind-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  max-height: min(520px, calc(100vh - 260px));
+  overflow: auto;
+  padding-right: 2px;
+}
+.set-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.set-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+.set-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+.set-row > span {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-2);
+}
+.set-row .input,
+.set-row .select {
+  width: 180px;
+}
+.color-input {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}

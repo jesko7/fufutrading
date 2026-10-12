@@ -1,0 +1,10 @@
+//@version=6
+// @name On Balance Volume (OBV)
+// @category Volume
+// @description Cumulative volume signed by the close-to-close direction, with optional MA.
+indicator("On Balance Volume", shorttitle="OBV", format=format.volume)
+maLen = input.int(20, "MA Length", minval=1)
+showMa = input.bool(true, "Show MA")
+obv = ta.cum(math.sign(ta.change(close)) * volume)
+plot(obv, "OnBalanceVolume", color=#2962FF)
+plot(showMa ? ta.sma(obv, maLen) : na, "MA", color=color.yellow)
