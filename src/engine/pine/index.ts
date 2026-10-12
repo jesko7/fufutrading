@@ -235,7 +235,6 @@ export class PineInstance {
   private opts: PineRunOptions;
   private secReqs: SecurityRequest[] = [];
   error: ScriptError | null = null;
-  private trace: Record<string, Float64Array> | null = null;
 
   constructor(code: string | CompiledPine, opts: PineRunOptions) {
     this.c = typeof code === 'string' ? compileCached(code) : code;
@@ -255,7 +254,10 @@ export class PineInstance {
       if (opts.ticks) this.broker.ticks = opts.ticks;
       this.R.broker = this.broker;
     }
-    if (opts.trace) this.trace = {};
+    if (opts.trace) {
+      this.R.traceOn = true;
+      this.R.traceData = this.c.traceNames.map(() => new Float64Array(Math.max(1, this.R.n)).fill(NaN));
+    }
   }
 
   private allocOutputs(): void {
@@ -360,7 +362,6 @@ export class PineInstance {
       for (bar = 0; bar <= upTo; bar++) {
         if (realtime && bar === n - 1) R.commit();
         this.step(bar);
-        if (this.trace) this.captureTrace(bar);
         if ((bar & 1023) === 0) {
           if (performance.now() - t0 > maxMs) throw new PineError(`Script took longer than ${Math.round(maxMs / 1000)}s`, 0, 0, 'runtime');
           if (this.opts.shouldStop?.()) throw new PineError('Cancelled', 0, 0, 'runtime');
@@ -370,20 +371,6 @@ export class PineInstance {
       this.error = toScriptError(e, bar);
     }
     return this.result(performance.now() - t0);
-  }
-
-  private captureTrace(i: number): void {
-    // global numeric vars live on G (if read by functions) or as JS locals (not observable);
-    // record root-context var slots and series-backed variables instead
-    const R = this.R;
-    const root = R.root;
-    root.v.forEach((v, k) => {
-      if (typeof v !== 'number') return;
-      const key = `var#${k}`;
-      let a = this.trace![key];
-      if (!a) a = this.trace![key] = new Float64Array(R.n).fill(NaN);
-      a[i] = v;
-    });
   }
 
   /**
@@ -478,7 +465,10 @@ export class PineInstance {
     res.logs = R.logs.slice(-2000);
     res.warnings = [...c.warnings.map((w) => ({ line: w.line, message: w.message, kind: w.kind })), ...[...R.warnings].map((m) => ({ message: m, kind: 'runtime' as const }))];
     if (this.broker) res.strategy = brokerRaw(this.broker);
-    if (this.trace) res.trace = this.trace;
+    if (this.R.traceOn) {
+      res.trace = {};
+      this.c.traceNames.forEach((v, k) => (res.trace![v.name] = this.R.traceData[k].slice(0, n)));
+    }
     res.stats = { bars: n, ms };
     return res;
   }

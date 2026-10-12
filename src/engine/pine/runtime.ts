@@ -267,6 +267,16 @@ export class Runtime {
   secKeyOf: Record<number, string> = {};
   /** strategy broker (when running a strategy) */
   broker: any = null;
+  /** bar inspector: per-bar values of top-level variables */
+  traceOn = false;
+  traceData: Float64Array[] = [];
+  traceRec(i: number, vals: unknown[]): void {
+    for (let k = 0; k < vals.length && k < this.traceData.length; k++) {
+      const v = vals[k];
+      const a = this.traceData[k];
+      if (i < a.length) a[i] = typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : NaN;
+    }
+  }
   /** realtime flags */
   isRealtime = false;
   lastHistBar = -1;

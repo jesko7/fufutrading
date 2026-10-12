@@ -797,3 +797,33 @@ html[data-theme='dark'] .popover {
   background: color-mix(in srgb, var(--danger) 9%, transparent);
   border-color: color-mix(in srgb, var(--danger) 25%, transparent);
 }
+
+/* ---------------------------------------------------------------- syntax colors (editor) */
+:root {
+  --syn-kw: #c678dd;
+  --syn-comment: #6b7385;
+  --syn-meta: #8f9bb3;
+  --syn-string: #98c379;
+  --syn-number: #d19a66;
+  --syn-atom: #e5a26a;
+  --syn-fn: #61afef;
+  --syn-builtin: #56b6c2;
+  --syn-type: #e5c07b;
+  --syn-prop: #7fb7e8;
+  --syn-op: #abb2bf;
+  --syn-def: #e06c75;
+}
+:root[data-theme='light'] {
+  --syn-kw: #8a2be2;
+  --syn-comment: #8a93a3;
+  --syn-meta: #6b7280;
+  --syn-string: #2f8a3a;
+  --syn-number: #b45309;
+  --syn-atom: #b45309;
+  --syn-fn: #1d63c9;
+  --syn-builtin: #0e7490;
+  --syn-type: #a16207;
+  --syn-prop: #1e5aa8;
+  --syn-op: #4b5563;
+  --syn-def: #c2410c;
+}

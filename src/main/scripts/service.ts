@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { dialog, BrowserWindow } from 'electron';
 import type { AppCore } from '../core';
-import { ScriptPool } from './pool';
+import { ScriptPool, type RunHandle } from './pool';
 import { ScriptLibrary } from './library';
 import type { ManagedSeries } from '../market/series';
 import type { InstanceReply, InstanceUpdate } from '../../engine/host';
@@ -335,10 +335,27 @@ class LiveScript {
   }
 }
 
+const DEBUG_CODES: Record<string, number> = { continue: 1, step: 2, over: 3, out: 4, stop: 5 };
+
 export class ScriptService {
   readonly pool: ScriptPool;
   readonly library: ScriptLibrary;
   readonly pyOpts: PyInitOptions | null;
+  private debugSessions = new Map<string, RunHandle>();
+
+  /** Closed bars of a series (snapshot) for one-shot runs started from the editor. */
+  async closedBars(spec: SeriesSpec, bars?: number): Promise<Float64Array> {
+    if (!isSymbol(spec?.symbol) || (spec.market !== 'spot' && spec.market !== 'futures') || !parseTimeframe(spec.tf)) throw new Error('Validation: invalid instrument/timeframe');
+    const { series, release } = this.core.series.acquire(spec, { bars });
+    try {
+      await series.ready;
+      if (series.status === 'error') throw new Error(series.info.error || 'Data unavailable');
+      const out = series.out;
+      return out.pack(0, Math.max(0, out.length - 1));
+    } finally {
+      release();
+    }
+  }
 
   constructor(readonly core: AppCore) {
     const dist = core.paths.dist;
@@ -422,6 +439,57 @@ export class ScriptService {
       return { available: !!this.pyOpts };
     });
     r.handle('scripts:workers', () => this.pool.stats());
+    // bar inspector: per-bar values of top-level variables (Pine) / outputs (Python)
+    r.handle('scripts:inspect', async ([o]) => {
+      const lang: ScriptLanguage = o?.language === 'python' ? 'python' : 'pine';
+      const spec = o.spec as SeriesSpec;
+      const data = await this.closedBars(spec, Math.min(5000, Math.max(200, +o.bars || 1500)));
+      const h = this.pool.run({ lang, code: String(o.code ?? ''), ctx: runContext(spec), inputs: o.inputs || {}, data, trace: true, strategy: { market: spec.market, step: SYMBOL_SPECS[spec.symbol][spec.market].stepSize } }, { timeoutMs: 120000 });
+      const { result } = await h.promise;
+      const times = new Float64Array(Math.floor(data.length / 9));
+      for (let i = 0; i < times.length; i++) times[i] = data[i * 9];
+      const vars: Record<string, Float64Array> = { ...(result.trace || {}) };
+      if (lang === 'python') for (const p of result.plots) vars[p.title] = p.values;
+      return { ok: result.ok, error: result.error, times, vars, logs: result.logs.slice(-200), strategy: result.strategy ? { trades: result.strategy.trades.length } : null };
+    });
+    // Python step debugger
+    r.handle('scripts:debugStart', async ([o]) => {
+      if (o?.language !== 'python') throw new Error('Validation: the step debugger is for Python scripts — use the bar inspector for Pine');
+      if (!this.pool.pythonAvailable) throw new Error('Python runtime is not available');
+      const spec = o.spec as SeriesSpec;
+      const data = await this.closedBars(spec, Math.min(5000, Math.max(100, +o.bars || 500)));
+      const id = uid('dbg');
+      const bps = Array.isArray(o.breakpoints) ? o.breakpoints.map(Number).filter((x: number) => x > 0) : [];
+      const h = this.pool.run(
+        { lang: 'python', code: String(o.code ?? ''), ctx: runContext(spec), inputs: o.inputs || {}, data, strategy: { market: spec.market, step: SYMBOL_SPECS[spec.symbol][spec.market].stepSize } },
+        { debug: { breakpoints: bps, breakOnNext: !!o.breakOnNext, onPause: (snapshot, reason) => this.core.router.broadcast('scripts:debug', { id, kind: 'pause', snapshot, reason }) } },
+      );
+      this.debugSessions.set(id, h);
+      h.promise
+        .then(({ result }) => this.core.router.broadcast('scripts:debug', { id, kind: 'done', ok: result.ok, error: result.error, logs: result.logs.slice(-200), trades: result.strategy?.trades.length ?? null }))
+        .catch((e) => this.core.router.broadcast('scripts:debug', { id, kind: 'done', ok: false, error: { message: (e as Error).message, kind: 'python' }, logs: [] }))
+        .finally(() => this.debugSessions.delete(id));
+      return { id };
+    });
+    r.handle('scripts:debugCmd', ([id, cmd, breakpoints]) => {
+      const h = this.debugSessions.get(String(id));
+      if (!h || !h.debug) return false;
+      const ctl = h.debug;
+      if (Array.isArray(breakpoints)) {
+        const list = breakpoints.map(Number).filter((x) => x > 0).slice(0, ctl.length - 3);
+        for (let k = 2; k < ctl.length; k++) ctl[k] = 0;
+        list.forEach((l, k) => (ctl[2 + k] = l));
+      }
+      const code = DEBUG_CODES[String(cmd)];
+      if (!code) return true;
+      if (cmd === 'stop') {
+        h.cancel();
+        return true;
+      }
+      Atomics.store(ctl, 1, code);
+      Atomics.notify(ctl, 1);
+      return true;
+    });
     r.topic('indicator', async (params: IndicatorParams, push) => {
       const live = new LiveScript(this, params, push);
       try {

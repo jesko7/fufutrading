@@ -447,3 +447,27 @@ plot(type)`;
     expect(() => compileCached('//@version=6\nindicator("x")\ntf = "60"\ntf := "240"\nplot(request.security(syminfo.tickerid, tf, close))')).toThrow(/reassigned/);
   });
 });
+
+describe('Pine: bar inspector trace', () => {
+  it('records per-bar values of top-level variables (incl. var, tuples, bools)', () => {
+    const data = bars(50);
+    const r = run(
+      `//@version=6
+indicator("t")
+fast = ta.sma(close, 3)
+var count = 0
+count += 1
+[m, s, h] = ta.macd(close, 3, 6, 2)
+up = close > open
+plot(fast)`,
+      data,
+      { trace: true },
+    );
+    expect(Object.keys(r.trace!).sort()).toEqual(['count', 'fast', 'h', 'm', 's', 'up'].sort());
+    expect(r.trace!.count[0]).toBe(1);
+    expect(r.trace!.count[49]).toBe(50);
+    expect(r.trace!.fast[10]).toBeCloseTo((data.c[8] + data.c[9] + data.c[10]) / 3, 9);
+    expect(r.trace!.up[5]).toBe(data.c[5] > data.o[5] ? 1 : 0);
+    expect(Number.isNaN(r.trace!.fast[0])).toBe(true);
+  });
+});

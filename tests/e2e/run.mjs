@@ -156,6 +156,44 @@ const S = {
     check(true, 'changing an input recomputes the indicator');
     await shot('08-rsi5');
   },
+  async editor() {
+    console.log('scenario: editor');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Script Editor');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.script-editor .cm-content', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector('.script-editor .cm-content')?.textContent?.includes('indicator('), null, { timeout: 15000 });
+    check(true, 'editor opens with a template');
+    const typeCode = async (code) => {
+      await page.click('.script-editor .cm-content');
+      await page.keyboard.press('Control+a');
+      await page.keyboard.press('Delete');
+      for (const line of code.split('\n')) {
+        await page.keyboard.type(line);
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Home');
+      }
+    };
+    await typeCode('//@version=6\nindicator("E2E test", overlay=false)\nx = ta.rsi(close, 14)\nplot(y)');
+    await page.waitForFunction(() => [...document.querySelectorAll('.problem')].some((p) => /line 4/.test(p.textContent || '')), null, { timeout: 20000 });
+    check(true, 'undefined variable reported on line 4');
+    await shot('09-editor-error');
+    await typeCode('//@version=6\nindicator("E2E test", overlay=false)\nx = ta.rsi(close, 14)\nplot(x, "x")');
+    await page.waitForFunction(() => /No problems/.test(document.querySelector('.se-panel-body')?.textContent || ''), null, { timeout: 20000 });
+    check(true, 'diagnostics clear after the fix');
+    await page.keyboard.press('Control+s');
+    await page.waitForFunction(() => /E2E test/.test(document.querySelector('.se-title')?.textContent || '') && !document.querySelector('.dirty-dot'), null, { timeout: 15000 });
+    check(true, 'saved with the title from indicator()');
+    await page.click('.stack-head button[data-tip^="Add to chart"]');
+    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /E2E test/.test(r.textContent || '') && /\d+\.\d+/.test(r.textContent || '')), null, { timeout: 30000 });
+    check(true, 'saved script added to the chart and computing');
+    await page.click('.stack-head button[data-tip^="Bar inspector"]');
+    await page.waitForSelector('.insp-table td.mono', { timeout: 30000 });
+    const vars = await page.$$eval('.insp-table tbody td.mono:first-child', (t) => t.map((x) => x.textContent));
+    check(vars.includes('x'), `inspector shows variables (${vars.join(', ')})`);
+    await shot('10-editor-inspector');
+  },
 };
 
 try {

@@ -113,6 +113,8 @@ export interface CompiledPine {
   /** user functions (for the debugger / outline) */
   functions: { name: string; line: number; params: string[] }[];
   variables: { name: string; line: number }[];
+  /** top-level variables recorded per bar when tracing (bar inspector) */
+  traceNames: { name: string; line: number }[];
 }
 
 interface VarInfo {
@@ -193,6 +195,8 @@ class Compiler {
   reassigned = new Set<string>();
   /** globals whose initializer was inlined into a request.security argument */
   staticUsed = new Map<string, number>();
+  /** top-level variables with their JS read expressions (bar inspector tracing) */
+  traceVars: { name: string; js: string; line: number }[] = [];
   variablesList: { name: string; line: number }[] = [];
   constructor(readonly prog: Program) {
     this.version = prog.version ?? 5;
@@ -265,6 +269,7 @@ class Compiler {
       if (s.k === 'func' || s.k === 'typedef' || s.k === 'enumdef' || s.k === 'import') continue;
       this.stmt(s, true);
     }
+    if (this.traceVars.length) this.emit(`if (R.traceOn) R.traceRec(i, [${this.traceVars.map((v) => v.js).join(', ')}]);`);
     this.pop();
     const mainBody = this.out.join('\n');
     // UDT constructors
@@ -317,6 +322,7 @@ class Compiler {
       usesStrategy: this.usesStrategy,
       functions: [...this.fns.values()].map((f) => ({ name: f.def.name, line: f.def.line, params: f.def.params.map((p) => p.name) })),
       variables: this.variablesList,
+      traceNames: this.traceVars.map((v) => ({ name: v.name, line: v.line })),
     };
   }
 
@@ -475,6 +481,7 @@ class Compiler {
           this.emit(`${isG ? '' : 'let '}${js} = ${t}[${k}];`);
           this.emit(`\u0001H${info.decl}|${js}\u0001`);
           if (global) this.variablesList.push({ name: n, line: s.line });
+          if (global) this.traceVars.push({ name: n, js, line: s.line });
         });
         return;
       }
@@ -546,6 +553,7 @@ class Compiler {
       const js = isG ? `G.v_${s.name}` : `v_${s.name}_${this.declSeq}`;
       const info = this.declare(s.name, { name: s.name, js, mode: isG ? 'global' : 'local', type: ret, plotHandle, hlineHandle, line: s.line }, s);
       this.needGlobalHist(info);
+      if (global) this.traceVars.push({ name: s.name, js, line: s.line });
       this.emit(`${isG ? '' : 'let '}${js} = ${valJs};`);
       this.emit(`\u0001H${info.decl}|${js}\u0001`);
       return;
@@ -572,6 +580,7 @@ class Compiler {
     this.indent--;
     this.emit('}');
     const info = this.declare(s.name, { name: s.name, js: this.fn.isGlobal && isG ? `R.root.${arr}[${slot}]` : js, mode: s.mode, type: ret, line: s.line }, s);
+    if (global) this.traceVars.push({ name: s.name, js: `ctx.${arr}[${slot}]`, line: s.line });
     if (isG) {
       // functions read the var through G (synced after every write)
       info.js = `ctx.${arr}[${slot}]`;
