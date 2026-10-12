@@ -261,6 +261,35 @@ const S = {
     check(cards >= 3, `statistics cards (${cards})`);
     await shot('16-optimizer-stats');
   },
+  async experiments() {
+    console.log('scenario: experiments (run after optimizer)');
+    // save the optimizer's best as a parameter set
+    await page.click('.optimizer .tabs .tab:has-text("Results")');
+    await page.click('.optimizer button:has-text("Save set")');
+    await page.waitForSelector('.modal input');
+    await page.fill('.modal input', 'E2E best set');
+    await page.click('.modal button:has-text("OK")');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => /Parameter set saved/.test(t.textContent || '')), null, { timeout: 10000 });
+    check(true, 'parameter set saved from the optimizer');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Experiments');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.experiments', { timeout: 15000 });
+    await page.click('.stack-head button:has-text("New experiment")');
+    await page.waitForSelector('.exp-title', { timeout: 10000 });
+    await page.fill('.exp-title', 'MA cross on BTC 1h');
+    await page.fill('.exp-notes', 'Hypothesis: trend following works on 1h.');
+    await wait(900);
+    await page.click('.exp-activity .act-row button[data-tip^="Link"]');
+    await page.waitForFunction(() => document.querySelectorAll('.exp-editor .act-row').length >= 2, null, { timeout: 10000 });
+    const linked = await page.$$eval('.exp-editor .act-row', (r) => r.map((x) => x.textContent || ''));
+    check(linked.some((t) => /optimization|backtest/.test(t)), 'run linked to the experiment');
+    check(linked.some((t) => /E2E best set/.test(t)), 'parameter set listed');
+    const items = await page.$$eval('.exp-item', (r) => r.map((x) => x.textContent || ''));
+    check(items.some((t) => /MA cross on BTC 1h/.test(t)), 'experiment saved with its title');
+    await shot('17-experiments');
+  },
 };
 
 try {

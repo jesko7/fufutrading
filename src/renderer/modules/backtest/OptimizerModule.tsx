@@ -9,7 +9,7 @@ import { api } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { Icon } from '../../components/Icon';
-import { usePopover, Popover, SymbolPicker, TimeframePicker, NumberField, Select, Toggle, Tabs, Spinner, Empty, Segmented, confirmDialog } from '../../components/ui';
+import { usePopover, Popover, SymbolPicker, TimeframePicker, NumberField, Select, Toggle, Tabs, Spinner, Empty, Segmented, confirmDialog, promptDialog } from '../../components/ui';
 import { LineChart } from '../../components/LineChart';
 import { Heatmap, Surface3D, type Grid2D } from '../../components/ParamPlots';
 import { clsx, fmtNum, fmtPct, fmtDateTime, fmtDate, fmtDuration } from '../../lib/format';
@@ -497,6 +497,20 @@ function OptResults({ rec, tab, titles, onApply, onBacktest }: { rec: Optimizati
           <span className="muted small ellipsis" style={{ maxWidth: 260 }}>
             {fmtPoint(space, selTrial.point, titles)}
           </span>
+          <button
+            className="btn small ghost"
+            data-tip="Save these parameters as a named set"
+            onClick={() =>
+              void promptDialog({ title: 'Save parameter set', label: 'Name', initial: `${rec.script.name} · ${rec.request.symbol} ${rec.request.tf}` }).then((name) => {
+                if (!name) return;
+                void api
+                  .call('paramsets:save', { scriptId: rec.script.id, scriptName: rec.script.name, name, inputs: { ...(rec.request.inputs || {}), ...selTrial.point }, source: { kind: 'optimization', id: rec.id }, context: { symbol: rec.request.symbol, market: rec.request.market, tf: rec.request.tf } })
+                  .then(() => toast({ title: 'Parameter set saved', body: 'Find it in Experiments and the indicator settings.', kind: 'ok' }));
+              })
+            }
+          >
+            <Icon name="save" size={13} /> Save set
+          </button>
           <button className="btn small" onClick={() => onBacktest(selTrial.point)} data-tip="Full backtest with these parameters">
             <Icon name="flask" size={13} /> Backtest
           </button>

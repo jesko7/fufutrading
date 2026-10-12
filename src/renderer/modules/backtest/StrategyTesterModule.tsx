@@ -322,6 +322,18 @@ function Results({ rec, tab, setTab, onAddToChart, onRerun }: { rec: BacktestRec
               { label: 'Open script', icon: 'code', onClick: () => void openScriptInEditor(rec.script.id) },
               { label: 'Export trades (CSV)', icon: 'download', onClick: () => exportCsv(rec) },
               {
+                label: 'Save parameters as set…',
+                icon: 'save',
+                disabled: !rec.script.id,
+                onClick: () =>
+                  void promptDialog({ title: 'Save parameter set', label: 'Name', initial: rec.label }).then((name) => {
+                    if (!name) return;
+                    void api
+                      .call('paramsets:save', { scriptId: rec.script.id, scriptName: rec.script.name, name, inputs: rec.request.inputs || {}, source: { kind: 'backtest', id: rec.id }, context: { symbol: rec.request.symbol, market: rec.request.market, tf: rec.request.tf } })
+                      .then(() => toast({ title: 'Parameter set saved', kind: 'ok' }));
+                  }),
+              },
+              {
                 label: 'Rename run…',
                 icon: 'edit',
                 onClick: () =>

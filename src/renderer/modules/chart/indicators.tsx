@@ -14,7 +14,7 @@ import { newId } from '../../../shared/workspace';
 import type { ScriptResult, ScriptInputDef, ScriptPlot } from '../../../engine/types';
 import { applyPatch } from '../../../engine/patch';
 import { Icon } from '../../components/Icon';
-import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover } from '../../components/ui';
+import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover, promptDialog } from '../../components/ui';
 import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd } from '../../lib/format';
 import { useScripts, openScriptInEditor, loadScripts, type ScriptMeta } from '../scripts/client';
 import { STANDARD_TIMEFRAMES } from '../../../shared/timeframes';
@@ -648,6 +648,7 @@ function IndicatorSettings({ moduleId, indId, onClose }: { moduleId: string; ind
         )}
         {tab === 'inputs' && r && (
           <>
+            <ParamSetPicker scriptId={ind.scriptId} onPick={(inputs) => setInd({ inputs: { ...inputs } })} current={ind.inputs || {}} scriptName={r.meta.title} />
             {!r.inputs.length && <div className="muted">This script has no inputs.</div>}
             {[...groups.entries()].map(([g, defs]) => (
               <div key={g} className="set-group">
@@ -722,6 +723,40 @@ function IndicatorSettings({ moduleId, indId, onClose }: { moduleId: string; ind
         )}
       </div>
     </Modal>
+  );
+}
+
+function ParamSetPicker({ scriptId, onPick, current, scriptName }: { scriptId: string; onPick: (inputs: Record<string, unknown>) => void; current: Record<string, unknown>; scriptName: string }) {
+  const [sets, setSets] = useState<{ id: string; name: string; inputs: Record<string, unknown>; context?: { symbol?: string; tf?: string } }[] | null>(null);
+  useEffect(() => {
+    const load = () => void api.call<any[]>('paramsets:list', scriptId).then(setSets).catch(() => setSets([]));
+    load();
+    return api.on('paramsets:changed', load);
+  }, [scriptId]);
+  const menu = usePopover();
+  return (
+    <div className="row" style={{ gap: 6, marginBottom: 4 }}>
+      <button className="btn small ghost" onClick={(e) => menu.toggle(e.currentTarget)} disabled={!sets}>
+        <Icon name="sliders" size={13} /> Parameter sets{sets?.length ? ` (${sets.length})` : ''}
+      </button>
+      <button
+        className="btn small ghost"
+        onClick={async () => {
+          const name = await promptDialog({ title: 'Save current inputs as a set', label: 'Name', initial: scriptName });
+          if (name) await api.call('paramsets:save', { scriptId, scriptName, name, inputs: current, source: { kind: 'manual' } });
+        }}
+      >
+        <Icon name="save" size={13} /> Save
+      </button>
+      {menu.anchor && sets && (
+        <Menu
+          anchor={menu.anchor}
+          onClose={menu.close}
+          width={300}
+          items={sets.length ? sets.map((s) => ({ label: s.name, hint: s.context?.symbol ? `${s.context.symbol} ${s.context.tf}` : undefined, onClick: () => onPick(s.inputs) })) : [{ label: 'No saved sets for this script', disabled: true }]}
+        />
+      )}
+    </div>
   );
 }
 

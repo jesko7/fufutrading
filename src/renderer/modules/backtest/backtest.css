@@ -434,3 +434,111 @@ tr.clickable:hover td {
 .results > .tabs .tab {
   flex: none;
 }
+
+/* ---------------------------------------------------------------- experiments */
+.experiments {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  container-type: inline-size;
+}
+.exp-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.exp-side {
+  width: 300px;
+  flex: none;
+  border-right: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+}
+.exp-list,
+.exp-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.exp-item {
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.exp-item:hover {
+  background: var(--hover);
+}
+.exp-item.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.status-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  color: var(--text-2);
+  flex: none;
+}
+.status-pill.testing {
+  background: color-mix(in srgb, var(--info) 18%, transparent);
+  color: var(--info);
+}
+.status-pill.promising {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+.status-pill.rejected {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+.status-pill.live {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+.act-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+}
+.act-row:hover {
+  background: var(--hover);
+}
+.exp-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+.exp-editor {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 900px;
+}
+.exp-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 650;
+  height: 34px;
+}
+.exp-notes {
+  min-height: 180px;
+  height: auto;
+  resize: vertical;
+  padding: 8px 10px;
+  line-height: 1.5;
+  font-family: var(--font);
+}
+@container (max-width: 640px) {
+  .exp-side {
+    width: 210px;
+  }
+}
