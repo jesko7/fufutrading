@@ -230,6 +230,37 @@ const S = {
     const info = await page.textContent('.info');
     check(/Bars tested/.test(info || ''), 'assumptions documented');
   },
+  async optimizer() {
+    console.log('scenario: optimizer');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Optimizer');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.optimizer .opt-params tbody tr', { timeout: 20000 });
+    await page.waitForFunction(() => document.querySelectorAll('.optimizer .opt-params input[type=checkbox]:checked').length >= 2, null, { timeout: 20000 });
+    check(true, 'parameters pre-selected from the strategy inputs');
+    const budget = page.locator('.optimizer .set-row', { hasText: 'Trials' }).locator('input');
+    await budget.fill('24');
+    await budget.press('Enter');
+    await page.click('.optimizer .tester-bar .seg button:has-text("6M")');
+    await shot('13-optimizer-setup');
+    await page.click('.stack-head button[data-tip="Start optimization"]');
+    await page.waitForSelector('.optimizer .opt-table tbody tr', { timeout: 300000 });
+    const rows = await page.$$eval('.optimizer .opt-table tbody tr', (r) => r.length);
+    check(rows >= 10, `ranked results (${rows} rows)`);
+    await shot('14-optimizer-results');
+    await page.click('.optimizer .tabs .tab:has-text("Landscape")');
+    await page.waitForSelector('.optimizer canvas', { timeout: 10000 });
+    check(true, 'heatmap rendered');
+    await shot('15-optimizer-heatmap');
+    await page.click('.optimizer .tabs .tab:has-text("Validation")');
+    const val = await page.textContent('.optimizer .results-body');
+    check(/Out-of-sample/.test(val || ''), 'holdout validation shown');
+    await page.click('.optimizer .tabs .tab:has-text("Overfitting")');
+    const cards = await page.$$eval('.stat-card', (c) => c.length);
+    check(cards >= 3, `statistics cards (${cards})`);
+    await shot('16-optimizer-stats');
+  },
 };
 
 try {

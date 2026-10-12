@@ -261,3 +261,176 @@ tr.clickable:hover td {
   overflow-x: auto;
   max-width: 100%;
 }
+
+/* ---------------------------------------------------------------- optimizer */
+.optimizer > .tabs {
+  padding: 0 8px;
+  flex: none;
+}
+.opt-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px 22px;
+  padding: 12px;
+  align-items: start;
+}
+.opt-setup section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.opt-setup section:first-child {
+  grid-column: 1 / -1;
+}
+.opt-setup .section-title {
+  margin: 0 0 4px;
+}
+.opt-params td,
+.opt-params th {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.opt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.opt-table td,
+.opt-table th {
+  padding: 3px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.opt-table tr.sel td {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.flag {
+  color: var(--info);
+}
+.flag.warn {
+  color: var(--warn);
+}
+.heat-legend {
+  position: absolute;
+  right: 8px;
+  top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.heat-bar {
+  width: 90px;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgb(239, 83, 80), rgb(245, 165, 36), rgb(38, 166, 154));
+}
+.wfo-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wfo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wfo-track {
+  position: relative;
+  flex: 1;
+  height: 12px;
+  background: var(--panel-3);
+  border-radius: 3px;
+}
+.wfo-is,
+.wfo-oos {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+.wfo-is {
+  background: color-mix(in srgb, var(--info) 55%, transparent);
+}
+.wfo-oos {
+  background: color-mix(in srgb, var(--ok) 70%, transparent);
+}
+.wfo-key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.wfo-key.is {
+  background: color-mix(in srgb, var(--info) 55%, transparent);
+}
+.wfo-key.oos {
+  background: color-mix(in srgb, var(--ok) 70%, transparent);
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.stats-grid > .muted {
+  grid-column: 1 / -1;
+}
+.stat-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  background: var(--panel-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stat-card .section-title {
+  margin: 0;
+}
+.stat-card .big {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-card .big.up {
+  color: var(--up);
+}
+.stat-card .big.down {
+  color: var(--down);
+}
+.stat-card .table td,
+.stat-card .table th {
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.tester {
+  overflow: hidden;
+}
+.tester > .tabs,
+.results > .tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  max-width: 100%;
+}
+.tester > .tabs::-webkit-scrollbar,
+.results > .tabs::-webkit-scrollbar {
+  display: none;
+}
+.opt-head,
+.results-head {
+  flex-wrap: wrap;
+}
+.opt-head .rh-title,
+.results-head .rh-title {
+  flex: 1 1 260px;
+}
+.tester > .tabs .tab,
+.results > .tabs .tab {
+  flex: none;
+}
