@@ -5,6 +5,7 @@
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fetchWheels } from './fetch-wheels.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const prod = process.argv.includes('--prod');
@@ -71,6 +72,19 @@ function copyStatic() {
     fs.mkdirSync(dst, { recursive: true });
     for (const f of fs.readdirSync(py)) if (f.endsWith('.py')) fs.copyFileSync(path.join(py, f), path.join(dst, f));
   }
+  const lib = path.join(root, 'src/engine/library');
+  if (fs.existsSync(lib)) {
+    const dst = path.join(outdir, 'library');
+    fs.rmSync(dst, { recursive: true, force: true });
+    fs.mkdirSync(dst, { recursive: true });
+    for (const f of fs.readdirSync(lib)) if (/\.(pine|py)$/.test(f)) fs.copyFileSync(path.join(lib, f), path.join(dst, f));
+  }
+  const wheels = path.join(root, 'resources/wheels');
+  if (fs.existsSync(wheels)) {
+    const dst = path.join(outdir, 'wheels');
+    fs.mkdirSync(dst, { recursive: true });
+    for (const f of fs.readdirSync(wheels)) if (f.endsWith('.whl') && !fs.existsSync(path.join(dst, f))) fs.copyFileSync(path.join(wheels, f), path.join(dst, f));
+  }
   const docs = path.join(root, 'docs');
   if (fs.existsSync(docs)) {
     const dst = path.join(outdir, 'docs');
@@ -80,6 +94,11 @@ function copyStatic() {
 }
 
 const t0 = Date.now();
+try {
+  await fetchWheels({ quiet: true });
+} catch (e) {
+  console.warn(`warning: could not fetch Python wheels (${e.message}); NumPy will be downloaded on first Python run`);
+}
 if (watch) {
   const ctxs = await Promise.all([esbuild.context(nodeOptions), esbuild.context(rendererOptions)]);
   copyStatic();

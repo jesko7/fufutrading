@@ -96,7 +96,7 @@ function fmtNumber(rt: Runtime, v: number, format?: string): string {
 }
 
 export const str = {
-  tostring: (rt: Runtime, v: unknown, format?: string) => {
+  tostring: (rt: Runtime, v: unknown, format?: string): string => {
     if (v === null || v === undefined) return 'NaN';
     if (typeof v === 'number') return fmtNumber(rt, v, format);
     if (typeof v === 'boolean') return v ? 'true' : 'false';

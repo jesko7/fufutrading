@@ -196,6 +196,8 @@ export interface PineRunOptions {
   trace?: boolean;
   /** Only execute up to this bar (inclusive) — replay / step debugging. */
   upTo?: number;
+  /** Polled every 1024 bars; returning true aborts the run (user cancel). */
+  shouldStop?: () => boolean;
 }
 
 function brokerFromScript(c: CompiledPine, opts: PineRunOptions): Partial<BrokerConfig> {
@@ -359,7 +361,10 @@ export class PineInstance {
         if (realtime && bar === n - 1) R.commit();
         this.step(bar);
         if (this.trace) this.captureTrace(bar);
-        if ((bar & 1023) === 0 && performance.now() - t0 > maxMs) throw new PineError(`Script took longer than ${Math.round(maxMs / 1000)}s`, 0, 0, 'runtime');
+        if ((bar & 1023) === 0) {
+          if (performance.now() - t0 > maxMs) throw new PineError(`Script took longer than ${Math.round(maxMs / 1000)}s`, 0, 0, 'runtime');
+          if (this.opts.shouldStop?.()) throw new PineError('Cancelled', 0, 0, 'runtime');
+        }
       }
     } catch (e) {
       this.error = toScriptError(e, bar);

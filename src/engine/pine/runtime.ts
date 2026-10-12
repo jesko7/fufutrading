@@ -515,7 +515,7 @@ function restoreSnapshot(st: any, snap: Record<string, unknown>): void {
     const v = snap[k] as any;
     if (isPlain(v) && v.__nested) {
       if (!isPlain(st[k])) st[k] = {};
-      restoreSnapshot(st[k], v.__nested);
+      restoreSnapshot(st[k], v.__nested as Record<string, unknown>);
     } else st[k] = Array.isArray(v) ? v.slice() : v;
   }
 }
