@@ -96,3 +96,28 @@ export class LiveBars {
     return { t: b.t.subarray(0, n), o: b.o.subarray(0, n), h: b.h.subarray(0, n), l: b.l.subarray(0, n), c: b.c.subarray(0, n), v: b.v.subarray(0, n), tbv: b.tbv?.subarray(0, n), tc: b.tc.subarray(0, n), length: n };
   }
 }
+
+/** Copy every Float64Array in a plain object tree into SharedArrayBuffer memory (zero-copy to workers). */
+export function shareDeep<T>(x: T, seen = new Map<unknown, unknown>()): T {
+  if (x instanceof Float64Array) {
+    if (x.buffer instanceof SharedArrayBuffer) return x;
+    const cached = seen.get(x);
+    if (cached) return cached as T;
+    const sab = new SharedArrayBuffer(x.byteLength);
+    const out = new Float64Array(sab);
+    out.set(x);
+    seen.set(x, out);
+    return out as T;
+  }
+  if (!x || typeof x !== 'object' || ArrayBuffer.isView(x)) return x;
+  if (Array.isArray(x)) return x.map((v) => shareDeep(v, seen)) as T;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) out[k] = shareDeep(v, seen);
+  return out as T;
+}
+
+/** Bars [0, n) as views on the same memory. */
+export function truncateBars(b: BarSeries, n: number): BarSeries {
+  const m = Math.max(0, Math.min(b.length, n));
+  return { t: b.t.subarray(0, m), o: b.o.subarray(0, m), h: b.h.subarray(0, m), l: b.l.subarray(0, m), c: b.c.subarray(0, m), v: b.v.subarray(0, m), tbv: b.tbv?.subarray(0, m), tc: b.tc.subarray(0, m), length: m };
+}

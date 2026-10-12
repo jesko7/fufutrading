@@ -10,7 +10,7 @@
 import { Worker } from 'node:worker_threads';
 import os from 'node:os';
 import type { PyInitOptions } from '../../engine/python/host';
-import type { AnalyzeResult, InstanceReply, InstanceSpec, InstanceUpdate, RunSpec } from '../../engine/host';
+import type { AnalyzeResult, InstanceReply, InstanceSpec, InstanceUpdate, RunSpec, TrialSpec, TrialResult } from '../../engine/host';
 import type { RunContext, ScriptLanguage, ScriptResult } from '../../engine/types';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
@@ -238,6 +238,26 @@ export class ScriptPool {
         }, 3000).unref?.();
       },
     };
+  }
+
+  /** Optimizer trial on a batch worker; returns a compact result. Pass shared-memory bars to avoid copies. */
+  trial(spec: TrialSpec, opts: { timeoutMs?: number } = {}): { promise: Promise<TrialResult>; cancel: () => void } {
+    const slot = this.slotFor('batch');
+    const id = this.nextId++;
+    const promise = this.call<TrialResult>(slot, { op: 'trial', spec }, { id, timeoutMs: opts.timeoutMs ?? 10 * 60000 });
+    return {
+      promise,
+      cancel: () => {
+        if (slot.dead || !slot.pending.has(id)) return;
+        Atomics.store(slot.ctl, 0, id);
+        slot.pyInterrupt[0] = 2;
+      },
+    };
+  }
+
+  /** Number of trials that can run at once. */
+  get parallelism(): number {
+    return this.maxBatch;
   }
 
   stats(): { group: string; id: number; instances: number; pending: number }[] {

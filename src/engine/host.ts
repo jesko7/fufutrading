@@ -12,6 +12,8 @@ import { LiveBars, fromPacked } from './data';
 import type { BarSeries, RunContext, ScriptLanguage, ScriptResult, ScriptInputDef, ScriptWarning, ScriptError } from './types';
 import { emptyResult } from './types';
 import { makePatch, type ResultPatch } from './patch';
+import { computeMetrics, type Metrics } from './backtest/metrics';
+import type { CompactTrade } from './optimize/analysis';
 import type { BrokerConfig, TickProvider } from './backtest/broker';
 
 export type { ResultPatch, PlotPatch } from './patch';
@@ -400,6 +402,45 @@ export class ScriptHost {
     const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop });
     return { result: inst.run(), need: [] };
   }
+}
+
+export interface TrialSpec extends Omit<RunSpec, 'debug' | 'shouldStop' | 'trace' | 'upTo'> {
+  /** First bar that counts (warm-up before it). */
+  from: number;
+  riskFree?: number;
+}
+
+export interface TrialResult {
+  ok: boolean;
+  error?: string;
+  need: string[];
+  metrics: Omit<Metrics, 'curves'> | null;
+  trades: CompactTrade[];
+  /** End-of-day equity from `from` on (for window/CSCV analytics). */
+  daily: { t: number[]; eq: number[]; bar: number[] };
+}
+
+/** Run a strategy and reduce the result to what optimizers need (metrics, trades, daily equity). */
+export async function runTrial(host: ScriptHost, spec: TrialSpec): Promise<TrialResult> {
+  const { result, need } = await host.run(spec);
+  if (need.length) return { ok: false, error: 'missing data', need, metrics: null, trades: [], daily: { t: [], eq: [], bar: [] } };
+  if (!result.ok || !result.strategy) return { ok: false, error: result.error ? `${result.error.line ? `Line ${result.error.line}: ` : ''}${result.error.message}` : 'Not a strategy', need: [], metrics: null, trades: [], daily: { t: [], eq: [], bar: [] } };
+  const data = spec.data as BarSeries;
+  const m = computeMetrics(result.strategy, data, { from: spec.from, riskFree: spec.riskFree });
+  const { curves, ...metrics } = m;
+  const daily = { t: [] as number[], eq: [] as number[], bar: [] as number[] };
+  const ct = curves.t;
+  for (let k = 0; k < ct.length; k++) {
+    const day = Math.floor(ct[k] / 86400000);
+    const next = k + 1 < ct.length ? Math.floor(ct[k + 1] / 86400000) : NaN;
+    if (day !== next) {
+      daily.t.push(ct[k]);
+      daily.eq.push(curves.equity[k]);
+      daily.bar.push(spec.from + k);
+    }
+  }
+  const trades = result.strategy.trades.filter((t) => t.exitBar >= spec.from).map((t) => ({ entryBar: t.entryBar, exitBar: t.exitBar, returnPct: t.returnPct, profit: t.profit, dir: t.dir }));
+  return { ok: true, need: [], metrics, trades, daily };
 }
 
 /** Static checks for common Python lookahead/repaint pitfalls (heuristic, line-based). */

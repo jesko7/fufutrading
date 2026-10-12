@@ -76,7 +76,25 @@ export interface BacktestRecord {
   logs: { bar: number; time: number; level: string; msg: string }[];
 }
 
-type Progress = (p: { phase: string; done?: number; total?: number; message?: string }) => void;
+export type Progress = (p: { phase: string; done?: number; total?: number; message?: string }) => void;
+
+export interface Prepared {
+  code: string;
+  language: ScriptLanguage;
+  name: string;
+  ctx: ReturnType<typeof runContext>;
+  bars: BarSeries;
+  tradeFrom: number;
+  brokerCfg: Partial<BrokerConfig>;
+  security: Record<string, BarSeries>;
+  loadSecurity: (keys: string[]) => Promise<void>;
+  warnings: string[];
+  fills: string;
+  fundingN: number;
+  markUsed: boolean;
+  source: string;
+  inputs: import('../../engine/types').ScriptInputDef[];
+}
 
 const MAX_POINTS = 2500;
 
@@ -213,8 +231,11 @@ export class BacktestService {
     return { ...cfg, ...(req.broker || {}) };
   }
 
-  async run(req: BacktestRequest, progress: Progress, signal: { cancelled: boolean; onCancel?: () => void }): Promise<BacktestRecord> {
-    const t0 = Date.now();
+  /**
+   * Everything a run needs: script, bars (with warm-up), broker settings (costs, funding, mark,
+   * real-OHLC fills) and a loader for request.security / htf data the script asks for.
+   */
+  async prepare(req: BacktestRequest, progress: Progress, signal: { cancelled: boolean }): Promise<Prepared> {
     if (!isSymbol(req.symbol) || (req.market !== 'spot' && req.market !== 'futures')) throw new Error('Validation: invalid instrument');
     const tf = parseTimeframe(req.tf);
     if (!tf) throw new Error(`Validation: invalid timeframe ${req.tf}`);
@@ -254,8 +275,8 @@ export class BacktestService {
     const warnings: string[] = [];
     let fills = 'Bar OHLC path (open → nearer extreme → other extreme → close)';
     if (req.chartType === 'heikinashi' && req.fillOnStandardOhlc !== false) {
-      // fills on the real candles of the same timestamps
       warnings.push('Heikin-Ashi signals; orders filled on real OHLC prices of the same bars (TradingView "fill orders on standard OHLC").');
+      brokerCfg.fillData = fromCandles(real, req.tf, 'candles');
     } else if (req.chartType === 'heikinashi') warnings.push('Orders fill at synthetic Heikin-Ashi prices — results are not achievable in real trading.');
     if (req.chartType === 'renko') warnings.push('Renko bricks have no fixed duration and their prices are synthetic: fills at brick prices are optimistic. Use Renko results as a rough signal study only.');
     // ---- futures extras
@@ -283,41 +304,49 @@ export class BacktestService {
         }
       }
     }
+    if (markUsed) fills += '; liquidations on mark price';
     if (signal.cancelled) throw new Error('Cancelled');
-    // ---- run (security data negotiated on demand)
     const security: Record<string, BarSeries> = {};
+    const loadSecurity = async (keys: string[]) => {
+      for (const key of keys) {
+        if (security[key]) continue;
+        const kp = keyParts(key);
+        if (!isSymbol(kp.symbol)) throw new Error(`Unsupported symbol ${kp.symbol}`);
+        const ktf = parseTimeframe(kp.tf);
+        if (!ktf) throw new Error(`Invalid timeframe ${kp.tf}`);
+        progress({ phase: `Loading ${kp.symbol} ${kp.tf}` });
+        const from2 = timeForBarsBack(ktf, bucketStart(ktf, fromWarm), warmup);
+        let other = await this.candles(kp.symbol as SymbolId, kp.market, kp.tf, from2, to, progress);
+        if (kp.chartType === 'heikinashi') other = heikinAshi(other);
+        security[key] = fromCandles(other, kp.tf, kp.chartType);
+      }
+    };
+    return { code, language, name, ctx, bars, tradeFrom, brokerCfg, security, loadSecurity, warnings, fills, fundingN, markUsed, source: `Binance ${req.market} klines (${baseIntervalFor(tf, req.market)} cache, aggregated to ${req.tf})`, inputs: an.inputs };
+  }
+
+  async run(req: BacktestRequest, progress: Progress, signal: { cancelled: boolean; onCancel?: () => void }): Promise<BacktestRecord> {
+    const t0 = Date.now();
+    const P = await this.prepare(req, progress, signal);
+    const { bars, tradeFrom, brokerCfg, security } = P;
     const runOnce = async (cfg: Partial<BrokerConfig>) => {
       for (let round = 0; round < 4; round++) {
-        const handle = this.scripts.pool.run({ lang: language, code: code!, ctx, inputs: req.inputs || {}, strategy: cfg, data: bars, security }, { timeoutMs: 30 * 60000 });
+        const handle = this.scripts.pool.run({ lang: P.language, code: P.code, ctx: P.ctx, inputs: req.inputs || {}, strategy: cfg, data: bars, security }, { timeoutMs: 30 * 60000 });
         signal.onCancel = () => handle.cancel();
         const r = await handle.promise;
         if (!r.need.length) return r.result;
-        for (const key of r.need) {
-          if (security[key]) continue;
-          const kp = keyParts(key);
-          if (!isSymbol(kp.symbol)) throw new Error(`Unsupported symbol ${kp.symbol}`);
-          const ktf = parseTimeframe(kp.tf);
-          if (!ktf) throw new Error(`Invalid timeframe ${kp.tf}`);
-          progress({ phase: `Loading ${kp.symbol} ${kp.tf}` });
-          const from2 = timeForBarsBack(ktf, bucketStart(ktf, fromWarm), warmup);
-          let other = await this.candles(kp.symbol as SymbolId, kp.market, kp.tf, from2, to, progress);
-          if (kp.chartType === 'heikinashi') other = heikinAshi(other);
-          security[key] = fromCandles(other, kp.tf, kp.chartType);
-        }
+        await P.loadSecurity(r.need);
       }
       throw new Error('Could not resolve the data the script requests');
     };
     progress({ phase: 'Running strategy', message: `${bars.length - tradeFrom} bars + ${tradeFrom} warm-up` });
-    // Heikin-Ashi with standard fills: the broker sees real OHLC while the script sees HA values
-    if (req.chartType === 'heikinashi' && req.fillOnStandardOhlc !== false) brokerCfg.fillData = fromCandles(real, req.tf, 'candles');
     const result = await runOnce(brokerCfg);
     if (signal.cancelled) throw new Error('Cancelled');
     const rec: BacktestRecord = {
       id: uid('bt'),
       created: Date.now(),
-      label: req.label || `${name} · ${SYMBOL_SPECS[req.symbol].base}${req.market === 'futures' ? '.P' : ''} ${req.tf}`,
+      label: req.label || `${P.name} · ${SYMBOL_SPECS[req.symbol].base}${req.market === 'futures' ? '.P' : ''} ${req.tf}`,
       request: { ...req, code: undefined },
-      script: { id: req.scriptId || null, name, language, code: code! },
+      script: { id: req.scriptId || null, name: P.name, language: P.language, code: P.code },
       ok: result.ok,
       error: result.ok ? undefined : `${result.error?.line ? `Line ${result.error.line}: ` : ''}${result.error?.message}`,
       metrics: null,
@@ -325,8 +354,8 @@ export class BacktestService {
       trades: [],
       openTrades: [],
       feeSensitivity: null,
-      warnings: [...warnings, ...result.warnings.filter((w) => w.kind !== 'info').map((w) => w.message), ...(result.strategy?.warnings || [])],
-      info: { bars: bars.length - tradeFrom, warmup: tradeFrom, source: `Binance ${req.market} klines (${baseIntervalFor(tf, req.market)} cache, aggregated to ${req.tf})`, fills, funding: fundingN, mark: markUsed, ms: 0, config: { ...(result.strategy?.config || {}) } },
+      warnings: [...P.warnings, ...result.warnings.filter((w) => w.kind !== 'info').map((w) => w.message), ...(result.strategy?.warnings || [])],
+      info: { bars: bars.length - tradeFrom, warmup: tradeFrom, source: P.source, fills: P.fills, funding: P.fundingN, mark: P.markUsed, ms: 0, config: { ...(result.strategy?.config || {}) } },
       logs: result.logs.slice(-500),
     };
     if (result.ok && result.strategy) {
@@ -351,8 +380,6 @@ export class BacktestService {
       }
     }
     rec.info.ms = Date.now() - t0;
-    fills = fills + (rec.info.mark ? '; liquidations on mark price' : '');
-    rec.info.fills = fills;
     this.store.put(rec, true);
     this.core.router.broadcast('backtests:changed', { id: rec.id });
     return rec;

@@ -5,7 +5,7 @@
  *   KeyboardInterrupt inside Python.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { ScriptHost } from '../engine/host';
+import { ScriptHost, runTrial } from '../engine/host';
 import { initPython, type PyInitOptions } from '../engine/python/host';
 
 interface WorkerInit {
@@ -80,6 +80,12 @@ async function handle(m: any): Promise<{ r: unknown; transfer: boolean }> {
       const r = await host.run(spec);
       // results of one-shot runs own their arrays: transfer instead of copying
       return { r, transfer: true };
+    }
+    case 'trial': {
+      if (m.spec.lang === 'python') await ensurePython();
+      const jobId = m.id as number;
+      const r = await runTrial(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId } as never);
+      return { r, transfer: false };
     }
     default:
       throw new Error(`Unknown op ${m.op}`);
