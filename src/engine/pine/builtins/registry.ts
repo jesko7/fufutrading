@@ -1,0 +1,449 @@
+/**
+ * Built-in registry: maps Pine names to implementations with parameter names (for named
+ * arguments), evaluation mode and return type. Anything not listed is reported as unsupported
+ * at compile time instead of silently producing wrong results.
+ */
+
+export type Mode = 'state' | 'rt' | 'pure' | 'special';
+export type Ret = 'num' | 'bool' | 'str' | 'color' | 'tuple' | 'any' | 'void' | 'array' | 'map' | 'obj';
+
+export interface Spec {
+  params: string[];
+  impl: string;
+  mode: Mode;
+  ret: Ret;
+  /** when called with fewer args: map of param -> JS expression used as default (e.g. source=high) */
+  short?: { argc: number; fill: Record<string, string> };
+  /** number of tuple items returned */
+  tuple?: number;
+}
+
+const S = (params: string, impl: string, mode: Mode, ret: Ret, extra: Partial<Spec> = {}): Spec => ({ params: params ? params.split(',').map((x) => x.trim()) : [], impl, mode, ret, ...extra });
+
+export const BUILTINS: Record<string, Spec> = {
+  // ---- ta (stateful)
+  'ta.sma': S('source,length', 'B.ta.sma', 'state', 'num'),
+  'ta.ema': S('source,length', 'B.ta.ema', 'state', 'num'),
+  'ta.rma': S('source,length', 'B.ta.rma', 'state', 'num'),
+  'ta.wma': S('source,length', 'B.ta.wma', 'state', 'num'),
+  'ta.vwma': S('source,length', 'B.ta.vwma', 'state', 'num'),
+  'ta.swma': S('source', 'B.ta.swma', 'state', 'num'),
+  'ta.hma': S('source,length', 'B.ta.hma', 'state', 'num'),
+  'ta.alma': S('series,length,offset,sigma,floor', 'B.ta.alma', 'state', 'num'),
+  'ta.linreg': S('source,length,offset', 'B.ta.linreg', 'state', 'num'),
+  'ta.stdev': S('source,length,biased', 'B.ta.stdev', 'state', 'num'),
+  'ta.variance': S('source,length,biased', 'B.ta.variance', 'state', 'num'),
+  'ta.dev': S('source,length', 'B.ta.dev', 'state', 'num'),
+  'ta.median': S('source,length', 'B.ta.median', 'state', 'num'),
+  'ta.mode': S('source,length', 'B.ta.mode', 'state', 'num'),
+  'ta.percentrank': S('source,length', 'B.ta.percentrank', 'state', 'num'),
+  'ta.percentile_linear_interpolation': S('source,length,percentage', 'B.ta.percentileLinear', 'state', 'num'),
+  'ta.percentile_nearest_rank': S('source,length,percentage', 'B.ta.percentileNearest', 'state', 'num'),
+  'ta.correlation': S('source1,source2,length', 'B.ta.correlation', 'state', 'num'),
+  'ta.highest': S('source,length', 'B.ta.highest', 'state', 'num', { short: { argc: 1, fill: { source: 'H[i]' } } }),
+  'ta.lowest': S('source,length', 'B.ta.lowest', 'state', 'num', { short: { argc: 1, fill: { source: 'L[i]' } } }),
+  'ta.highestbars': S('source,length', 'B.ta.highestbars', 'state', 'num', { short: { argc: 1, fill: { source: 'H[i]' } } }),
+  'ta.lowestbars': S('source,length', 'B.ta.lowestbars', 'state', 'num', { short: { argc: 1, fill: { source: 'L[i]' } } }),
+  'ta.range': S('source,length', 'B.ta.range', 'state', 'num'),
+  'ta.max': S('source', 'B.ta.max', 'state', 'num'),
+  'ta.min': S('source', 'B.ta.min', 'state', 'num'),
+  'ta.change': S('source,length', 'B.ta.change', 'state', 'num'),
+  'ta.mom': S('source,length', 'B.ta.change', 'state', 'num'),
+  'ta.roc': S('source,length', 'B.ta.roc', 'state', 'num'),
+  'ta.rsi': S('source,length', 'B.ta.rsi', 'state', 'num'),
+  'ta.macd': S('source,fastlen,slowlen,siglen', 'B.ta.macd', 'state', 'tuple', { tuple: 3 }),
+  'ta.stoch': S('source,high,low,length', 'B.ta.stoch', 'state', 'num'),
+  'ta.cci': S('source,length', 'B.ta.cci', 'state', 'num'),
+  'ta.cmo': S('series,length', 'B.ta.cmo', 'state', 'num'),
+  'ta.mfi': S('series,length', 'B.ta.mfi', 'state', 'num'),
+  'ta.wpr': S('length', 'B.ta.wpr', 'state', 'num'),
+  'ta.tsi': S('source,short_length,long_length', 'B.ta.tsi', 'state', 'num'),
+  'ta.cog': S('source,length', 'B.ta.cog', 'state', 'num'),
+  'ta.atr': S('length', 'B.ta.atr', 'state', 'num'),
+  'ta.tr': S('handle_na', 'B.ta.tr', 'rt', 'num'),
+  'ta.bb': S('series,length,mult', 'B.ta.bb', 'state', 'tuple', { tuple: 3 }),
+  'ta.bbw': S('series,length,mult', 'B.ta.bbw', 'state', 'num'),
+  'ta.kc': S('series,length,mult,useTrueRange', 'B.ta.kc', 'state', 'tuple', { tuple: 3 }),
+  'ta.kcw': S('series,length,mult,useTrueRange', 'B.ta.kcw', 'state', 'num'),
+  'ta.supertrend': S('factor,atrPeriod', 'B.ta.supertrend', 'state', 'tuple', { tuple: 2 }),
+  'ta.dmi': S('diLength,adxSmoothing', 'B.ta.dmi', 'state', 'tuple', { tuple: 3 }),
+  'ta.sar': S('start,inc,max', 'B.ta.sar', 'state', 'num'),
+  'ta.crossover': S('source1,source2', 'B.ta.crossover', 'state', 'bool'),
+  'ta.crossunder': S('source1,source2', 'B.ta.crossunder', 'state', 'bool'),
+  'ta.cross': S('source1,source2', 'B.ta.cross', 'state', 'bool'),
+  'ta.rising': S('source,length', 'B.ta.rising', 'state', 'bool'),
+  'ta.falling': S('source,length', 'B.ta.falling', 'state', 'bool'),
+  'ta.valuewhen': S('condition,source,occurrence', 'B.ta.valuewhen', 'state', 'any'),
+  'ta.barssince': S('condition', 'B.ta.barssince', 'state', 'num'),
+  'ta.cum': S('source', 'B.ta.cum', 'state', 'num'),
+  'ta.vwap': S('source,anchor,stdev_mult', 'B.ta.vwap', 'state', 'any'),
+  'ta.pivothigh': S('source,leftbars,rightbars', 'B.ta.pivothigh', 'state', 'num', { short: { argc: 2, fill: { source: 'H[i]' } } }),
+  'ta.pivotlow': S('source,leftbars,rightbars', 'B.ta.pivotlow', 'state', 'num', { short: { argc: 2, fill: { source: 'L[i]' } } }),
+  'math.sum': S('source,length', 'B.ta.sumN', 'state', 'num'),
+  fixnan: S('source', 'B.ta.fixnan', 'state', 'any'),
+  // ---- pure helpers
+  nz: S('source,replacement', 'B.nz', 'pure', 'any'),
+  na: S('x', 'R.isNa', 'pure', 'bool'),
+  'math.abs': S('number', 'Math.abs', 'pure', 'num'),
+  'math.ceil': S('number', 'Math.ceil', 'pure', 'num'),
+  'math.floor': S('number', 'Math.floor', 'pure', 'num'),
+  'math.round': S('number,precision', 'B.math.round', 'pure', 'num'),
+  'math.sqrt': S('number', 'B.math.sqrt', 'pure', 'num'),
+  'math.exp': S('number', 'Math.exp', 'pure', 'num'),
+  'math.log': S('number', 'B.math.log', 'pure', 'num'),
+  'math.log10': S('number', 'B.math.log10', 'pure', 'num'),
+  'math.pow': S('base,exponent', 'Math.pow', 'pure', 'num'),
+  'math.sign': S('number', 'Math.sign', 'pure', 'num'),
+  'math.sin': S('angle', 'Math.sin', 'pure', 'num'),
+  'math.cos': S('angle', 'Math.cos', 'pure', 'num'),
+  'math.tan': S('angle', 'Math.tan', 'pure', 'num'),
+  'math.asin': S('angle', 'Math.asin', 'pure', 'num'),
+  'math.acos': S('angle', 'Math.acos', 'pure', 'num'),
+  'math.atan': S('angle', 'Math.atan', 'pure', 'num'),
+  'math.todegrees': S('radians', 'B.math.todegrees', 'pure', 'num'),
+  'math.toradians': S('degrees', 'B.math.toradians', 'pure', 'num'),
+  'math.max': S('...', 'B.math.max', 'pure', 'num'),
+  'math.min': S('...', 'B.math.min', 'pure', 'num'),
+  'math.avg': S('...', 'B.math.avg', 'pure', 'num'),
+  'math.random': S('min,max,seed', 'B.math.random', 'pure', 'num'),
+  'math.round_to_mintick': S('number', 'B.math.round_to_mintick', 'rt', 'num'),
+  // ---- strings
+  'str.tostring': S('value,format', 'B.str.tostring', 'rt', 'str'),
+  'str.tonumber': S('string', 'B.str.tonumber', 'pure', 'num'),
+  'str.format': S('formatString,...', 'B.str.format', 'rt', 'str'),
+  'str.format_time': S('time,format,timezone', 'B.str.format_time', 'pure', 'str'),
+  'str.length': S('string', 'B.str.length', 'pure', 'num'),
+  'str.contains': S('source,str', 'B.str.contains', 'pure', 'bool'),
+  'str.startswith': S('source,str', 'B.str.startswith', 'pure', 'bool'),
+  'str.endswith': S('source,str', 'B.str.endswith', 'pure', 'bool'),
+  'str.pos': S('source,str', 'B.str.pos', 'pure', 'num'),
+  'str.substring': S('source,begin_pos,end_pos', 'B.str.substring', 'pure', 'str'),
+  'str.replace': S('source,target,replacement,occurrence', 'B.str.replace', 'pure', 'str'),
+  'str.replace_all': S('source,target,replacement', 'B.str.replace_all', 'pure', 'str'),
+  'str.split': S('string,separator', 'B.str.split', 'pure', 'array'),
+  'str.upper': S('source', 'B.str.upper', 'pure', 'str'),
+  'str.lower': S('source', 'B.str.lower', 'pure', 'str'),
+  'str.trim': S('source', 'B.str.trim', 'pure', 'str'),
+  'str.repeat': S('source,repeat,separator', 'B.str.repeat', 'pure', 'str'),
+  'str.match': S('source,regex', 'B.str.match', 'pure', 'str'),
+  // ---- colors
+  'color.new': S('color,transp', 'B.color.new', 'pure', 'color'),
+  'color.rgb': S('red,green,blue,transp', 'B.color.rgb', 'pure', 'color'),
+  'color.r': S('color', 'B.color.r', 'pure', 'num'),
+  'color.g': S('color', 'B.color.g', 'pure', 'num'),
+  'color.b': S('color', 'B.color.b', 'pure', 'num'),
+  'color.t': S('color', 'B.color.t', 'pure', 'num'),
+  'color.from_gradient': S('value,bottom_value,top_value,bottom_color,top_color', 'B.color.from_gradient', 'pure', 'color'),
+  // ---- time
+  year: S('time,timezone', 'B.time.year', 'pure', 'num'),
+  month: S('time,timezone', 'B.time.month', 'pure', 'num'),
+  dayofmonth: S('time,timezone', 'B.time.dayofmonth', 'pure', 'num'),
+  dayofweek: S('time,timezone', 'B.time.dayofweek', 'pure', 'num'),
+  hour: S('time,timezone', 'B.time.hour', 'pure', 'num'),
+  minute: S('time,timezone', 'B.time.minute', 'pure', 'num'),
+  second: S('time,timezone', 'B.time.second', 'pure', 'num'),
+  weekofyear: S('time', 'B.time.weekofyear', 'pure', 'num'),
+  timestamp: S('...', 'B.time.timestamp', 'pure', 'num'),
+  // ---- arrays
+  'array.new': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_float': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_int': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_bool': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_string': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_color': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_label': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_line': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.new_box': S('size,initial_value', 'B.array.new', 'pure', 'array'),
+  'array.from': S('...', 'B.array.from', 'pure', 'array'),
+  'array.copy': S('id', 'B.array.copy', 'pure', 'array'),
+  'array.size': S('id', 'B.array.size', 'pure', 'num'),
+  'array.get': S('id,index', 'B.array.get', 'rt', 'any'),
+  'array.set': S('id,index,value', 'B.array.set', 'rt', 'void'),
+  'array.push': S('id,value', 'B.array.push', 'pure', 'void'),
+  'array.pop': S('id', 'B.array.pop', 'pure', 'any'),
+  'array.shift': S('id', 'B.array.shift', 'pure', 'any'),
+  'array.unshift': S('id,value', 'B.array.unshift', 'pure', 'void'),
+  'array.insert': S('id,index,value', 'B.array.insert', 'pure', 'void'),
+  'array.remove': S('id,index', 'B.array.remove', 'rt', 'any'),
+  'array.clear': S('id', 'B.array.clear', 'pure', 'void'),
+  'array.concat': S('id1,id2', 'B.array.concat', 'pure', 'array'),
+  'array.fill': S('id,value,index_from,index_to', 'B.array.fill', 'pure', 'void'),
+  'array.first': S('id', 'B.array.first', 'rt', 'any'),
+  'array.last': S('id', 'B.array.last', 'rt', 'any'),
+  'array.includes': S('id,value', 'B.array.includes', 'pure', 'bool'),
+  'array.indexof': S('id,value', 'B.array.indexof', 'pure', 'num'),
+  'array.lastindexof': S('id,value', 'B.array.lastindexof', 'pure', 'num'),
+  'array.join': S('id,separator', 'B.array.join', 'rt', 'str'),
+  'array.reverse': S('id', 'B.array.reverse', 'pure', 'void'),
+  'array.slice': S('id,index_from,index_to', 'B.array.slice', 'pure', 'array'),
+  'array.sort': S('id,order', 'B.array.sort', 'pure', 'void'),
+  'array.sort_indices': S('id,order', 'B.array.sort_indices', 'pure', 'array'),
+  'array.sum': S('id', 'B.array.sum', 'pure', 'num'),
+  'array.avg': S('id', 'B.array.avg', 'pure', 'num'),
+  'array.min': S('id,nth', 'B.array.min', 'pure', 'num'),
+  'array.max': S('id,nth', 'B.array.max', 'pure', 'num'),
+  'array.range': S('id', 'B.array.range', 'pure', 'num'),
+  'array.median': S('id', 'B.array.median', 'pure', 'num'),
+  'array.mode': S('id', 'B.array.mode', 'pure', 'num'),
+  'array.stdev': S('id,biased', 'B.array.stdev', 'pure', 'num'),
+  'array.variance': S('id,biased', 'B.array.variance', 'pure', 'num'),
+  'array.covariance': S('id1,id2,biased', 'B.array.covariance', 'pure', 'num'),
+  'array.abs': S('id', 'B.array.abs', 'pure', 'array'),
+  'array.percentrank': S('id,index', 'B.array.percentrank', 'pure', 'num'),
+  'array.percentile_linear_interpolation': S('id,percentage', 'B.array.percentile_linear_interpolation', 'pure', 'num'),
+  'array.percentile_nearest_rank': S('id,percentage', 'B.array.percentile_nearest_rank', 'pure', 'num'),
+  'array.standardize': S('id', 'B.array.standardize', 'pure', 'array'),
+  'array.binary_search': S('id,val', 'B.array.binary_search', 'pure', 'num'),
+  'array.every': S('id', 'B.array.every', 'pure', 'bool'),
+  'array.some': S('id', 'B.array.some', 'pure', 'bool'),
+  // ---- maps
+  'map.new': S('', 'B.map.new', 'pure', 'map'),
+  'map.put': S('id,key,value', 'B.map.put', 'pure', 'any'),
+  'map.get': S('id,key', 'B.map.get', 'pure', 'any'),
+  'map.contains': S('id,key', 'B.map.contains', 'pure', 'bool'),
+  'map.remove': S('id,key', 'B.map.remove', 'pure', 'any'),
+  'map.size': S('id', 'B.map.size', 'pure', 'num'),
+  'map.keys': S('id', 'B.map.keys', 'pure', 'array'),
+  'map.values': S('id', 'B.map.values', 'pure', 'array'),
+  'map.clear': S('id', 'B.map.clear', 'pure', 'void'),
+  'map.copy': S('id', 'B.map.copy', 'pure', 'map'),
+  'map.put_all': S('id,id2', 'B.map.put_all', 'pure', 'void'),
+  // ---- drawings
+  'label.new': S('x,y,text,xloc,yloc,color,style,textcolor,size,textalign,tooltip', 'B.label.new', 'rt', 'obj'),
+  'label.delete': S('id', 'B.label.delete', 'pure', 'void'),
+  'label.copy': S('id', 'B.label.copy', 'rt', 'obj'),
+  'line.new': S('x1,y1,x2,y2,xloc,extend,color,style,width', 'B.line.new', 'rt', 'obj'),
+  'line.delete': S('id', 'B.line.delete', 'pure', 'void'),
+  'line.copy': S('id', 'B.line.copy', 'rt', 'obj'),
+  'line.get_price': S('id,x', 'B.line.get_price', 'pure', 'num'),
+  'box.new': S('left,top,right,bottom,border_color,border_width,border_style,extend,xloc,bgcolor,text,text_size,text_color', 'B.box.new', 'rt', 'obj'),
+  'box.delete': S('id', 'B.box.delete', 'pure', 'void'),
+  'table.new': S('position,columns,rows,bgcolor,frame_color,frame_width,border_color,border_width', 'B.table.new', 'rt', 'obj'),
+  'table.cell': S('table_id,column,row,text,width,height,text_color,text_halign,text_valign,text_size,bgcolor', 'B.table.cell', 'pure', 'void'),
+  'table.cell_set_text': S('table_id,column,row,text', 'B.table.cell_set_text', 'pure', 'void'),
+  'table.cell_set_bgcolor': S('table_id,column,row,bgcolor', 'B.table.cell_set_bgcolor', 'pure', 'void'),
+  'table.cell_set_text_color': S('table_id,column,row,text_color', 'B.table.cell_set_text_color', 'pure', 'void'),
+  'table.clear': S('table_id', 'B.table.clear', 'pure', 'void'),
+  'table.delete': S('table_id', 'B.table.delete', 'pure', 'void'),
+  // ---- logs, alerts, errors
+  'log.info': S('message,...', 'B.log.info', 'rt', 'void'),
+  'log.warning': S('message,...', 'B.log.warning', 'rt', 'void'),
+  'log.error': S('message,...', 'B.log.error', 'rt', 'void'),
+  alert: S('message,freq', 'B.alert', 'rt', 'void'),
+  'runtime.error': S('message', 'R.error', 'pure', 'void'),
+  max_bars_back: S('var,num', 'B.noop', 'pure', 'void'),
+  // ---- casts
+  int: S('x', 'B.toInt', 'pure', 'num'),
+  float: S('x', 'B.toFloat', 'pure', 'num'),
+  bool: S('x', 'B.toBool', 'pure', 'bool'),
+  string: S('x', 'B.toStr', 'pure', 'str'),
+  color: S('x', 'B.identity', 'pure', 'color'),
+  'timeframe.in_seconds': S('timeframe', 'B.tfSeconds', 'rt', 'num'),
+  'timeframe.from_seconds': S('seconds', 'B.tfFromSeconds', 'pure', 'str'),
+  'timeframe.change': S('timeframe', 'B.tfChange', 'state', 'bool'),
+  time: S('timeframe,session,timezone', 'B.timeFn', 'rt', 'num'),
+  time_close: S('timeframe,session,timezone', 'B.timeCloseFn', 'rt', 'num'),
+  'ticker.new': S('prefix,ticker,session,adjustment', 'B.tickerNew', 'pure', 'str'),
+  'ticker.standard': S('symbol', 'B.identity', 'pure', 'str'),
+  'ticker.modify': S('tickerid,session,adjustment', 'B.identity', 'pure', 'str'),
+  'ticker.heikinashi': S('symbol', 'B.tickerHA', 'pure', 'str'),
+};
+
+/** Functions handled specially by the compiler (outputs, declarations, inputs, strategy, security). */
+export const SPECIAL = new Set([
+  'indicator',
+  'study',
+  'strategy',
+  'library',
+  'plot',
+  'plotshape',
+  'plotchar',
+  'plotarrow',
+  'plotcandle',
+  'plotbar',
+  'hline',
+  'fill',
+  'bgcolor',
+  'barcolor',
+  'alertcondition',
+  'request.security',
+  'request.security_lower_tf',
+  'input',
+  'input.int',
+  'input.float',
+  'input.bool',
+  'input.string',
+  'input.color',
+  'input.source',
+  'input.timeframe',
+  'input.symbol',
+  'input.session',
+  'input.price',
+  'input.time',
+  'input.text_area',
+  'input.enum',
+  'strategy.entry',
+  'strategy.order',
+  'strategy.exit',
+  'strategy.close',
+  'strategy.close_all',
+  'strategy.cancel',
+  'strategy.cancel_all',
+]);
+
+export const UNSUPPORTED: Record<string, string> = {
+  'request.financial': 'Financial data is not available for crypto on Binance.',
+  'request.economic': 'Economic data is not available in FuFu.',
+  'request.quandl': 'Quandl/Nasdaq Data Link is not available in FuFu.',
+  'request.dividends': 'Dividends do not exist for crypto.',
+  'request.splits': 'Splits do not exist for crypto.',
+  'request.earnings': 'Earnings do not exist for crypto.',
+  'request.seed': 'Pine Seeds repositories are not available.',
+  'request.currency_rate': 'Currency conversion rates are not available (all instruments are quoted in USDT).',
+  'request.footprint': 'Use FuFu’s native footprint chart mode instead.',
+  'polyline.new': 'Polylines are not supported yet.',
+  'matrix.new': 'Matrices are not supported yet.',
+};
+
+/** Built-in variables -> JS expression. */
+export const VARIABLES: Record<string, { js: string; ret: Ret }> = {
+  open: { js: 'O[i]', ret: 'num' },
+  high: { js: 'H[i]', ret: 'num' },
+  low: { js: 'L[i]', ret: 'num' },
+  close: { js: 'C[i]', ret: 'num' },
+  volume: { js: 'V[i]', ret: 'num' },
+  time: { js: 'T[i]', ret: 'num' },
+  time_close: { js: 'TC[i]', ret: 'num' },
+  time_tradingday: { js: '(Math.floor(T[i]/86400000)*86400000)', ret: 'num' },
+  bar_index: { js: 'i', ret: 'num' },
+  last_bar_index: { js: '(R.n-1)', ret: 'num' },
+  last_bar_time: { js: 'T[R.n-1]', ret: 'num' },
+  hl2: { js: '((H[i]+L[i])/2)', ret: 'num' },
+  hlc3: { js: '((H[i]+L[i]+C[i])/3)', ret: 'num' },
+  ohlc4: { js: '((O[i]+H[i]+L[i]+C[i])/4)', ret: 'num' },
+  hlcc4: { js: '((H[i]+L[i]+C[i]+C[i])/4)', ret: 'num' },
+  na: { js: 'NaN', ret: 'num' },
+  timenow: { js: 'R.timeNow', ret: 'num' },
+  year: { js: 'B.time.year(T[i])', ret: 'num' },
+  month: { js: 'B.time.month(T[i])', ret: 'num' },
+  weekofyear: { js: 'B.time.weekofyear(T[i])', ret: 'num' },
+  dayofmonth: { js: 'B.time.dayofmonth(T[i])', ret: 'num' },
+  dayofweek: { js: 'B.time.dayofweek(T[i])', ret: 'num' },
+  hour: { js: 'B.time.hour(T[i])', ret: 'num' },
+  minute: { js: 'B.time.minute(T[i])', ret: 'num' },
+  second: { js: 'B.time.second(T[i])', ret: 'num' },
+  'syminfo.tickerid': { js: 'R.sym.tickerid', ret: 'str' },
+  'syminfo.ticker': { js: 'R.sym.symbol', ret: 'str' },
+  'syminfo.root': { js: 'R.sym.base', ret: 'str' },
+  'syminfo.basecurrency': { js: 'R.sym.base', ret: 'str' },
+  'syminfo.currency': { js: 'R.sym.quote', ret: 'str' },
+  'syminfo.description': { js: '(R.sym.base+" / "+R.sym.quote)', ret: 'str' },
+  'syminfo.mintick': { js: 'R.sym.mintick', ret: 'num' },
+  'syminfo.pointvalue': { js: '1', ret: 'num' },
+  'syminfo.prefix': { js: '"BINANCE"', ret: 'str' },
+  'syminfo.type': { js: '"crypto"', ret: 'str' },
+  'syminfo.timezone': { js: '"Etc/UTC"', ret: 'str' },
+  'syminfo.session': { js: '"24x7"', ret: 'str' },
+  'syminfo.volumetype': { js: '"base"', ret: 'str' },
+  'timeframe.period': { js: 'R.sym.pineTf', ret: 'str' },
+  'timeframe.main_period': { js: 'R.sym.pineTf', ret: 'str' },
+  'timeframe.multiplier': { js: 'B.tfMultiplier(R)', ret: 'num' },
+  'timeframe.isintraday': { js: '(R.sym.tfSeconds<86400)', ret: 'bool' },
+  'timeframe.isseconds': { js: '(R.sym.tfSeconds<60)', ret: 'bool' },
+  'timeframe.isminutes': { js: '(R.sym.tfSeconds>=60&&R.sym.tfSeconds<86400)', ret: 'bool' },
+  'timeframe.isdaily': { js: '(R.sym.tf.endsWith("D"))', ret: 'bool' },
+  'timeframe.isweekly': { js: '(R.sym.tf.endsWith("W"))', ret: 'bool' },
+  'timeframe.ismonthly': { js: '(R.sym.tf.endsWith("M"))', ret: 'bool' },
+  'timeframe.isdwm': { js: '(R.sym.tfSeconds>=86400)', ret: 'bool' },
+  'barstate.isfirst': { js: '(i===0)', ret: 'bool' },
+  'barstate.islast': { js: '(i===R.n-1)', ret: 'bool' },
+  'barstate.ishistory': { js: '!(R.isRealtime&&i===R.n-1)', ret: 'bool' },
+  'barstate.isrealtime': { js: '(R.isRealtime&&i===R.n-1)', ret: 'bool' },
+  'barstate.isconfirmed': { js: '(i<R.n-1||!R.isRealtime)', ret: 'bool' },
+  'barstate.isnew': { js: 'true', ret: 'bool' },
+  'barstate.islastconfirmedhistory': { js: '(i===R.lastHistBar)', ret: 'bool' },
+  'ta.tr': { js: 'B.ta.tr(R,false)', ret: 'num' },
+  'ta.obv': { js: 'R.cached("obv")[i]', ret: 'num' },
+  'ta.accdist': { js: 'R.cached("accdist")[i]', ret: 'num' },
+  'ta.pvt': { js: 'R.cached("pvt")[i]', ret: 'num' },
+  'ta.nvi': { js: 'R.cached("nvi")[i]', ret: 'num' },
+  'ta.pvi': { js: 'R.cached("pvi")[i]', ret: 'num' },
+  'ta.wad': { js: 'R.cached("wad")[i]', ret: 'num' },
+  'ta.iii': { js: 'B.ta.iii(R)', ret: 'num' },
+  'ta.wvad': { js: 'B.ta.wvad(R)', ret: 'num' },
+  'math.pi': { js: 'Math.PI', ret: 'num' },
+  'math.e': { js: 'Math.E', ret: 'num' },
+  'math.phi': { js: '1.618033988749895', ret: 'num' },
+  'math.rphi': { js: '0.6180339887498948', ret: 'num' },
+  'strategy.position_size': { js: 'B.strat.v(R,"position_size")', ret: 'num' },
+  'strategy.position_avg_price': { js: 'B.strat.v(R,"position_avg_price")', ret: 'num' },
+  'strategy.position_entry_name': { js: 'B.strat.v(R,"position_entry_name")', ret: 'str' },
+  'strategy.equity': { js: 'B.strat.v(R,"equity")', ret: 'num' },
+  'strategy.netprofit': { js: 'B.strat.v(R,"netprofit")', ret: 'num' },
+  'strategy.openprofit': { js: 'B.strat.v(R,"openprofit")', ret: 'num' },
+  'strategy.grossprofit': { js: 'B.strat.v(R,"grossprofit")', ret: 'num' },
+  'strategy.grossloss': { js: 'B.strat.v(R,"grossloss")', ret: 'num' },
+  'strategy.closedtrades': { js: 'B.strat.v(R,"closedtrades")', ret: 'num' },
+  'strategy.opentrades': { js: 'B.strat.v(R,"opentrades")', ret: 'num' },
+  'strategy.wintrades': { js: 'B.strat.v(R,"wintrades")', ret: 'num' },
+  'strategy.losstrades': { js: 'B.strat.v(R,"losstrades")', ret: 'num' },
+  'strategy.eventrades': { js: 'B.strat.v(R,"eventrades")', ret: 'num' },
+  'strategy.initial_capital': { js: 'B.strat.v(R,"initial_capital")', ret: 'num' },
+  'strategy.max_drawdown': { js: 'B.strat.v(R,"max_drawdown")', ret: 'num' },
+  'strategy.max_runup': { js: 'B.strat.v(R,"max_runup")', ret: 'num' },
+  'strategy.margin_liquidation_price': { js: 'B.strat.v(R,"liq")', ret: 'num' },
+  'chart.bg_color': { js: '"#131722ff"', ret: 'color' },
+  'chart.fg_color': { js: '"#D1D4DCff"', ret: 'color' },
+  'chart.is_heikinashi': { js: '(R.sym.chartType==="heikinashi")', ret: 'bool' },
+  'chart.is_renko': { js: '(R.sym.chartType==="renko")', ret: 'bool' },
+  'chart.is_standard': { js: '(R.sym.chartType!=="heikinashi"&&R.sym.chartType!=="renko")', ret: 'bool' },
+  'chart.left_visible_bar_time': { js: 'T[0]', ret: 'num' },
+  'chart.right_visible_bar_time': { js: 'T[R.n-1]', ret: 'num' },
+};
+
+/** Enum-like namespaced constants. */
+export const CONSTANTS: Record<string, string> = (() => {
+  const c: Record<string, string> = {};
+  const add = (ns: string, names: string, prefix = '') => {
+    for (const n of names.split(',')) c[`${ns}.${n}`] = JSON.stringify(prefix + n);
+  };
+  add('shape', 'xcross,cross,triangleup,triangledown,flag,circle,arrowup,arrowdown,labelup,labeldown,square,diamond');
+  add('location', 'abovebar,belowbar,top,bottom,absolute');
+  add('size', 'auto,tiny,small,normal,large,huge');
+  add('plot', 'style_line,style_linebr,style_stepline,style_stepline_diamond,style_histogram,style_cross,style_area,style_areabr,style_columns,style_circles');
+  add('hline', 'style_solid,style_dotted,style_dashed');
+  add('line', 'style_solid,style_dotted,style_dashed,style_arrow_left,style_arrow_right,style_arrow_both');
+  add('label', 'style_none,style_xcross,style_cross,style_triangleup,style_triangledown,style_flag,style_circle,style_arrowup,style_arrowdown,style_label_up,style_label_down,style_label_left,style_label_right,style_label_lower_left,style_label_lower_right,style_label_upper_left,style_label_upper_right,style_label_center,style_square,style_diamond,style_text_outline');
+  add('extend', 'none,left,right,both');
+  add('xloc', 'bar_index,bar_time');
+  add('yloc', 'price,abovebar,belowbar');
+  add('position', 'top_left,top_center,top_right,middle_left,middle_center,middle_right,bottom_left,bottom_center,bottom_right');
+  add('text', 'align_left,align_center,align_right,align_top,align_bottom,wrap_auto,wrap_none,format_bold,format_italic,format_none');
+  add('font', 'family_default,family_monospace');
+  add('format', 'inherit,price,volume,percent,mintick');
+  add('display', 'none,all,data_window,pane,price_scale,status_line');
+  add('barmerge', 'gaps_on,gaps_off,lookahead_on,lookahead_off');
+  add('order', 'ascending,descending');
+  add('currency', 'USD,EUR,USDT,BTC,ETH,NONE');
+  add('alert', 'freq_all,freq_once_per_bar,freq_once_per_bar_close');
+  add('session', 'regular,extended');
+  add('adjustment', 'none,splits,dividends');
+  add('scale', 'right,left,none');
+  add('earnings', 'actual,estimate,standardized');
+  c['strategy.long'] = '1';
+  c['strategy.short'] = '-1';
+  c['strategy.fixed'] = '"fixed"';
+  c['strategy.cash'] = '"cash"';
+  c['strategy.percent_of_equity'] = '"percent_of_equity"';
+  c['strategy.commission.percent'] = '"percent"';
+  c['strategy.commission.cash_per_contract'] = '"cash_per_contract"';
+  c['strategy.commission.cash_per_order'] = '"cash_per_order"';
+  c['strategy.direction.all'] = '"all"';
+  c['strategy.direction.long'] = '"long"';
+  c['strategy.direction.short'] = '"short"';
+  c['strategy.oca.cancel'] = '"cancel"';
+  c['strategy.oca.reduce'] = '"reduce"';
+  c['strategy.oca.none'] = '"none"';
+  for (const [d, n] of Object.entries({ sunday: 1, monday: 2, tuesday: 3, wednesday: 4, thursday: 5, friday: 6, saturday: 7 })) c[`dayofweek.${d}`] = String(n);
+  return c;
+})();
