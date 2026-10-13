@@ -613,4 +613,9 @@ specifications at the end / new ideas:
 -push to git along the way and at the end,
 -do rigorus testing, i want to have something that works.
 -this machine is a linux ubuntu but it shjould also 100% work on windows.
+-make sure leverage works well
+-make sure leverage, liqudations and margin calls work for binances exactly,
+-the replay feature should work similarly to that on tradingview
 -... any ideas you have try it out
+
+remember to use @claude_usage.py

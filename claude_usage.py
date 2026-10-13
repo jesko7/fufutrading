@@ -1,8 +1,10 @@
 """
 INSTRUCTIONS FOR CLAUDE (read this when this file is referenced with @)
+Warning: This script is intended to be run in the background (probably as an agent, but idk) while you work. It monitors your Claude usage and will alert you when you are approaching the usage limit.
+Waste minimal tokens by following these steps:
 
-1. Immediately start this script in the BACKGROUND (Bash/PowerShell with
-   run_in_background=true):
+
+1. Immediately start this script in the BACKGROUND (probably as an agent, but idk):
 
        python claude_usage.py
 
