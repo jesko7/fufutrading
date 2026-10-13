@@ -1,3 +1,4 @@
+import { serverNow } from '../../lib/clock';
 import { useEffect, useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp } from '../../state/store';
@@ -109,7 +110,7 @@ export function HeatmapModule({ module }: ModuleProps) {
     const ctx = c.getContext('2d')!;
     const img = ctx.createImageData(W, H);
     const data = img.data;
-    const now = Date.now();
+    const now = serverNow();
     const t0 = now - minutes * 60000;
     const all = cols.current;
     let start = 0;
@@ -176,7 +177,7 @@ export function HeatmapModule({ module }: ModuleProps) {
     const up = css.getPropertyValue('--up').trim();
     const down = css.getPropertyValue('--down').trim();
     const txt = css.getPropertyValue('--chart-text').trim();
-    const now = Date.now();
+    const now = serverNow();
     const t0 = now - minutes * 60000;
     const X = (t: number) => ((t - t0) / (now - t0)) * W;
     const Y = (p: number) => ((hi - p) / (hi - lo)) * H;

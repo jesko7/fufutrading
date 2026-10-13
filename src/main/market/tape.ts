@@ -61,6 +61,7 @@ export class LiveTape {
     private rest: BinanceRest,
     private streams: BinanceStreams,
     private log: Logger,
+    private now: () => number = Date.now,
   ) {
     this.baseInterval = market === 'spot' ? '1s' : '1m';
     this.baseMs = intervalMs(this.baseInterval);
@@ -148,7 +149,8 @@ export class LiveTape {
     // 1) closed base klines since the watermark (or just the latest few on first start)
     const from = this.watermark > 0 ? this.watermark + 1 : now - this.baseMs * 5;
     const ks = await this.rest.klines(this.market, this.symbol, this.baseInterval, { startTime: from, limit: this.market === 'spot' ? 1000 : 1500 });
-    const serverNow = Date.now();
+    // a kline is closed when its close time passed on Binance's clock (not the local one)
+    const serverNow = this.now();
     for (let i = 0; i < ks.length; i++) {
       const T = ks.t[i] + this.baseMs - 1;
       if (T >= serverNow - 250) break; // still forming

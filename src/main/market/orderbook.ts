@@ -217,6 +217,8 @@ export class BookManager {
     private rest: BinanceRest,
     private streams: BinanceStreams,
     private log: Logger,
+    /** Binance server time for snapshot / heatmap timestamps (comparable with trade times). */
+    private now: () => number = Date.now,
   ) {
     const defaultsBin: Record<SymbolId, number> = { BTCUSDT: 5, ETHUSDT: 0.25, SOLUSDT: 0.02 };
     const defaultsLarge: Record<SymbolId, number> = { BTCUSDT: 1_000_000, ETHUSDT: 500_000, SOLUSDT: 200_000 };
@@ -402,7 +404,7 @@ export class BookManager {
       metrics.askDepth1pct += b.asks.get(p)! * p;
     }
     return {
-      t: Date.now(),
+      t: this.now(),
       status: this.status,
       bids: b.grouped('bid', group, levels),
       asks: b.grouped('ask', group, levels),
@@ -416,7 +418,7 @@ export class BookManager {
     const b = this.book;
     const mid = b.mid();
     if (!isFinite(mid)) return;
-    const now = Date.now();
+    const now = this.now();
     const bin = this.heatmapBin;
     const lo = Math.floor((mid * (1 - this.heatmapRangePct / 100)) / bin) * bin;
     const hi = Math.ceil((mid * (1 + this.heatmapRangePct / 100)) / bin) * bin;
@@ -498,7 +500,7 @@ export class BookManager {
   }
 
   activeLargeOrders(): { side: 'bid' | 'ask'; price: number; qty: number; notional: number; ageMs: number }[] {
-    const now = Date.now();
+    const now = this.now();
     return [...this.tracked.values()].map((l) => ({ side: l.side, price: l.price, qty: l.qty, notional: l.qty * l.price, ageMs: now - l.firstSeen }));
   }
 }

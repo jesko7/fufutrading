@@ -55,7 +55,7 @@ export class AppCore {
     this.settingsFile = new JsonFile<AppSettings>(path.join(paths.userData, 'settings.json'), mergeSettings(null));
     this.settingsFile.set(mergeSettings(this.settingsFile.get()));
     this.hub = new MarketHub(log);
-    this.store = new CandleStore(paths.data, binanceKlineSource(this.hub.rest), log);
+    this.store = new CandleStore(paths.data, binanceKlineSource(this.hub.rest), log, () => this.hub.clock.now());
     this.series = new SeriesService(this.hub, this.store, log);
     this.workspaces = new WorkspaceService(paths.userData);
     this.windows = new WindowManager(this.workspaces, this.router, log, {
@@ -83,6 +83,8 @@ export class AppCore {
   }
 
   activeBotCount: () => number = () => 0;
+  /** Pause every running bot (tray menu). */
+  pauseAllBots: () => void = () => {};
 
   notify(title: string, body: string): void {
     if (!this.settings.notifications.desktop) return;
@@ -94,6 +96,7 @@ export class AppCore {
   }
 
   async start(): Promise<void> {
+    this.hub.clock.start();
     this.router.install();
     this.registerCore();
     this.registerMarket();
@@ -282,6 +285,7 @@ export class AppCore {
       const timer = setInterval(() => push(this.hub.connectionInfo()), 2000);
       return () => clearInterval(timer);
     });
+    r.handle('market:clock', () => ({ offset: this.hub.clock.offset, rtt: this.hub.clock.rtt, syncedAt: this.hub.clock.syncedAt }));
     r.handle('market:lastPrice', ([symbol, market]) => {
       assertInstrument(symbol, market);
       return this.hub.lastPrice(market, symbol);

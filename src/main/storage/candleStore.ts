@@ -145,6 +145,8 @@ export class CandleStore {
     readonly root: string,
     private source: KlineSource,
     private log: (level: 'info' | 'warn' | 'error', msg: string) => void = () => {},
+    /** Binance server time; candles still forming on Binance's clock are never cached. */
+    private now: () => number = Date.now,
   ) {
     ensureDir(root);
   }
@@ -177,7 +179,8 @@ export class CandleStore {
   missing(kind: CandleKind, market: Market, symbol: SymbolId, interval: string, from: number, to: number): Range[] {
     const tf = intervalToTf(interval);
     const a = bucketStart(tf, from);
-    const b = Math.min(to, CandleStore.currentOpen(interval));
+    // 1.5 s margin covers the uncertainty of the measured clock offset
+    const b = Math.min(to, CandleStore.currentOpen(interval, this.now() - 1500));
     if (b <= a) return [];
     return subtractRanges([a, b], this.coverage(kind, market, symbol, interval));
   }

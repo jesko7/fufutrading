@@ -1,3 +1,4 @@
+import { serverNow } from '../../lib/clock';
 import { useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp } from '../../state/store';
@@ -27,7 +28,7 @@ export function TradesModule({ module }: ModuleProps) {
     dirty.current = false;
     const f = buf.current.filter((t) => t.p * t.q >= min);
     setList(f.slice(-150).reverse());
-    const now = Date.now();
+    const now = serverNow();
     let b = 0;
     let s = 0;
     for (let i = buf.current.length - 1; i >= 0; i--) {

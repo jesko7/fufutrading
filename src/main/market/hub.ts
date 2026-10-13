@@ -10,6 +10,7 @@ import type { Ticker, ConnectionInfo } from '../../shared/marketTypes';
 import { BinanceRest } from '../binance/rest';
 import { BinanceStreams } from '../binance/ws';
 import { LiveTape } from './tape';
+import { ServerClock } from '../binance/clock';
 import { BookManager } from './orderbook';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
@@ -32,6 +33,8 @@ export interface MarkInfo {
 export class MarketHub extends EventEmitter {
   readonly rest: BinanceRest;
   readonly streams: BinanceStreams;
+  /** Binance server time (bars open and close on it). Started by the app core. */
+  readonly clock: ServerClock;
   private tapes = new Map<string, Ref<LiveTape>>();
   private books = new Map<string, Ref<BookManager>>();
   readonly tickers = new Map<string, Ticker>();
@@ -45,6 +48,7 @@ export class MarketHub extends EventEmitter {
     this.setMaxListeners(1000);
     this.rest = new BinanceRest(log);
     this.streams = new BinanceStreams(log);
+    this.clock = new ServerClock(this.rest, log);
   }
 
   private key(market: Market, symbol: SymbolId): string {
@@ -56,7 +60,7 @@ export class MarketHub extends EventEmitter {
     const k = this.key(market, symbol);
     let r = this.tapes.get(k);
     if (!r) {
-      const tape = new LiveTape(market, symbol, this.rest, this.streams, this.log);
+      const tape = new LiveTape(market, symbol, this.rest, this.streams, this.log, () => this.clock.now());
       r = { obj: tape, refs: 0, stopTimer: null };
       this.tapes.set(k, r);
       tape.start();
@@ -107,7 +111,7 @@ export class MarketHub extends EventEmitter {
     const k = this.key(market, symbol);
     let r = this.books.get(k);
     if (!r) {
-      const mgr = new BookManager(market, symbol, this.rest, this.streams, this.log);
+      const mgr = new BookManager(market, symbol, this.rest, this.streams, this.log, () => this.clock.now());
       r = { obj: mgr, refs: 0, stopTimer: null };
       this.books.set(k, r);
       mgr.start();

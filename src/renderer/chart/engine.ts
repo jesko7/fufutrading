@@ -5,6 +5,7 @@
  * Layers: `base` (grid, data, indicators, axes) is redrawn when data/viewport changes;
  * `overlay` (crosshair, drawings, trade lines, tool previews) is redrawn on pointer moves.
  */
+import { serverNow } from '../lib/clock';
 import { PriceScale, timeTicks, decimalsForStep, formatAxis, formatVolume } from './scale';
 import type {
   ChartBars,
@@ -730,7 +731,7 @@ export class ChartEngine {
 
   private countdown(): string | undefined {
     if (!this.barCloseTime) return undefined;
-    const ms = this.barCloseTime - Date.now();
+    const ms = this.barCloseTime - serverNow();
     if (ms <= 0 || ms > 86400e3 * 31) return undefined;
     const s = Math.floor(ms / 1000);
     const h = Math.floor(s / 3600);

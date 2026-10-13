@@ -7,6 +7,7 @@ import type { Workspace } from '../shared/workspace';
 import './styles/base.css';
 import './styles/app.css';
 import './features';
+import { startClockSync } from './lib/clock';
 
 async function boot(): Promise<void> {
   const [settings, wsInfo] = await Promise.all([api.call<AppSettings>('settings:get'), api.call<{ workspace: Workspace; rev: number; hasSession: boolean }>('ws:get')]);
@@ -24,6 +25,7 @@ async function boot(): Promise<void> {
   useApp.subscribe((s, prev) => {
     if (s.focusedModule !== prev.focusedModule && s.focusedModule && s.workspace?.modules[s.focusedModule]?.type === 'chart') (window as any).__lastChartModule = s.focusedModule;
   });
+  startClockSync();
   createRoot(document.getElementById('root')!).render(<App />);
 }
 
