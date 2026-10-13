@@ -142,6 +142,8 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
       return { scriptId: null, inputs: {}, symbol, market, tf: '1h', runId: null, range: { preset: '1Y' } };
     case 'optimizer':
       return { scriptId: null, inputs: {}, symbol, market, tf: '1h', runId: null, range: { preset: '1Y' }, method: 'bayes', budget: 100, objective: 'sharpe', validation: { mode: 'holdout', oosPct: 30 } };
+    case 'bots':
+      return { botId: null, tab: 'activity' };
     default:
       return {};
   }

@@ -10,7 +10,7 @@
 import { Worker } from 'node:worker_threads';
 import os from 'node:os';
 import type { PyInitOptions } from '../../engine/python/host';
-import type { AnalyzeResult, InstanceReply, InstanceSpec, InstanceUpdate, RunSpec, TrialSpec, TrialResult } from '../../engine/host';
+import type { AnalyzeResult, InstanceReply, InstanceSpec, InstanceUpdate, RunSpec, TrialSpec, TrialResult, BotStepSpec, BotStepResult } from '../../engine/host';
 import type { RunContext, ScriptLanguage, ScriptResult } from '../../engine/types';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
@@ -130,9 +130,17 @@ export class ScriptPool {
     return s;
   }
 
+  /** Batch workers kept alive while bots run (each step reuses a warm worker, Pyodide stays loaded). */
+  keepWarm = 0;
+
   private reap(): void {
     const now = Date.now();
-    for (const s of this.slots) {
+    let warm = Math.min(this.keepWarm, this.maxBatch);
+    for (const s of [...this.slots].sort((a, b) => b.lastUsed - a.lastUsed)) {
+      if (s.group === 'batch' && !s.pending.size && warm > 0 && now - s.lastUsed < 30 * 60000) {
+        warm--;
+        continue;
+      }
       if (s.group === 'batch' && !s.pending.size && now - s.lastUsed > 60000) s.terminate('idle');
       if (s.group === 'python' && !s.pending.size && !s.instances.size && now - s.lastUsed > 10 * 60000) s.terminate('idle');
     }
@@ -245,6 +253,21 @@ export class ScriptPool {
     const slot = this.slotFor('batch');
     const id = this.nextId++;
     const promise = this.call<TrialResult>(slot, { op: 'trial', spec }, { id, timeoutMs: opts.timeoutMs ?? 10 * 60000 });
+    return {
+      promise,
+      cancel: () => {
+        if (slot.dead || !slot.pending.has(id)) return;
+        Atomics.store(slot.ctl, 0, id);
+        slot.pyInterrupt[0] = 2;
+      },
+    };
+  }
+
+  /** One live-bot step on a batch worker (compact result). */
+  botStep(spec: BotStepSpec, opts: { timeoutMs?: number } = {}): { promise: Promise<BotStepResult>; cancel: () => void } {
+    const slot = this.slotFor('batch');
+    const id = this.nextId++;
+    const promise = this.call<BotStepResult>(slot, { op: 'botStep', spec }, { id, timeoutMs: opts.timeoutMs ?? 120000 });
     return {
       promise,
       cancel: () => {

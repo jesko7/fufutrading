@@ -46,12 +46,14 @@ export class TradingEngine {
   readonly ctx: MarketCtx;
   listeners = new Set<(id: string) => void>();
   eventListeners = new Set<(id: string, e: AccountEvent) => void>();
+  /** Called before an account is removed or reset (bots stop their runners). */
+  beforeRemove = new Set<(id: string) => void>();
 
   constructor(private core: AppCore) {
     this.store = new DocStore(path.join(core.paths.userData, 'accounts'));
     const hub = core.hub;
     this.ctx = {
-      now: () => Date.now(),
+      now: () => hub.clock.now(),
       last: (market, symbol) => hub.lastPrice(market, symbol),
       mark: (symbol) => hub.marks.get(symbol)?.mark || 0,
       sweep: (market, symbol, side, qty) => {
@@ -309,10 +311,21 @@ export class TradingEngine {
     return rt.config;
   }
 
+  /** Persist an account soon (bots change their config in place). */
+  persist(id: string): void {
+    this.markDirty(id);
+  }
+
+  /** Re-evaluate market data subscriptions on the next tick. */
+  recalc(): void {
+    this.needsRecalc = true;
+  }
+
   reset(id: string): AccountConfig {
+    for (const l of this.beforeRemove) l(id);
     const old = this.get(id);
     const cfg = { ...old.config, createdAt: Date.now() };
-    if (cfg.bot) cfg.bot = { ...cfg.bot, status: 'stopped' };
+    if (cfg.bot) cfg.bot = { ...cfg.bot, status: 'stopped', state: undefined, lastError: undefined, startedAt: undefined };
     const rt = new AccountRuntime(cfg);
     rt.event('reset', 'Account reset to its initial balance');
     this.attach(rt);
@@ -322,14 +335,22 @@ export class TradingEngine {
   }
 
   remove(id: string): void {
+    for (const l of this.beforeRemove) l(id);
     this.accounts.delete(id);
     this.store.delete(id);
     this.needsRecalc = true;
   }
 
+  /** Manual actions on an account a running bot controls would be undone by the bot. */
+  assertManual(id: string): void {
+    const b = this.get(id).config.bot;
+    if (b && b.status === 'running') throw new Error('Validation: a running bot controls this account — pause or stop the bot to trade manually');
+  }
+
   place(id: string, req: PlaceOrderRequest) {
     if (!isSymbol(req.symbol)) throw new Error('Validation: unsupported symbol');
     const rt = this.get(id);
+    if ((req.source || 'manual') === 'manual') this.assertManual(id);
     try {
       const o = rt.placeOrder(req, this.ctx);
       this.needsRecalc = true;
@@ -381,12 +402,30 @@ export function registerTrading(core: AppCore): TradingEngine {
   r.handle('trading:delete', ([id]) => eng.remove(id));
   r.handle('trading:nextPhase', ([id]) => eng.nextPhase(id));
   r.handle('trading:place', ([id, req]) => eng.place(id, req));
-  r.handle('trading:cancel', ([id, orderId]) => wrap(() => eng.get(id).cancelOrder(orderId)));
-  r.handle('trading:cancelAll', ([id, symbol]) => wrap(() => eng.get(id).cancelAll(symbol)));
-  r.handle('trading:modify', ([id, orderId, patch]) => wrap(() => eng.get(id).modifyOrder(orderId, patch, eng.ctx)));
-  r.handle('trading:close', ([id, symbol, qty]) => wrap(() => eng.get(id).closePosition(symbol, eng.ctx, qty)));
-  r.handle('trading:flatten', ([id]) => wrap(() => eng.get(id).flattenAll(eng.ctx, 'manual', 'flatten all')));
-  r.handle('trading:setBrackets', ([id, symbol, b]) => wrap(() => eng.get(id).setBrackets(symbol, b, eng.ctx)));
+  r.handle('trading:cancel', ([id, orderId]) => wrap(() => {
+    eng.assertManual(id);
+    return eng.get(id).cancelOrder(orderId);
+  }));
+  r.handle('trading:cancelAll', ([id, symbol]) => wrap(() => {
+    eng.assertManual(id);
+    return eng.get(id).cancelAll(symbol);
+  }));
+  r.handle('trading:modify', ([id, orderId, patch]) => wrap(() => {
+    eng.assertManual(id);
+    return eng.get(id).modifyOrder(orderId, patch, eng.ctx);
+  }));
+  r.handle('trading:close', ([id, symbol, qty]) => wrap(() => {
+    eng.assertManual(id);
+    return eng.get(id).closePosition(symbol, eng.ctx, qty);
+  }));
+  r.handle('trading:flatten', ([id]) => wrap(() => {
+    eng.assertManual(id);
+    return eng.get(id).flattenAll(eng.ctx, 'manual', 'flatten all');
+  }));
+  r.handle('trading:setBrackets', ([id, symbol, b]) => wrap(() => {
+    eng.assertManual(id);
+    return eng.get(id).setBrackets(symbol, b, eng.ctx);
+  }));
   r.handle('trading:setLeverage', ([id, symbol, lev]) =>
     wrap(() => {
       const rt = eng.get(id);

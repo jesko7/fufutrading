@@ -262,6 +262,14 @@ export class ManagedSeries {
     return true;
   }
 
+  /** Number of closed bars at server time `now`; the rest is the forming bar (or provisional Renko bricks). */
+  closedLength(now: number): number {
+    if (this.spec.chartType === 'renko') return Math.min(this.renkoCommittedLen, this.out.length);
+    let n = this.out.length;
+    while (n > 0 && bucketEnd(this.tf, this.out.t[n - 1]) > now) n--;
+    return n;
+  }
+
   /** Full underlying OHLC (not transformed) series — used by scripts. */
   source(): CandleSeries {
     return this.agg ? this.agg.series : new CandleSeries(1);
@@ -367,7 +375,7 @@ export class SeriesService {
     const iv = baseIntervalFor(tf, spec.market);
     if (!iv) throw new Error(`${spec.tf} cannot be built from Binance klines on ${spec.market}`);
     const a = bucketStart(tf, from);
-    const b = Math.min(to, Date.now());
+    const b = Math.min(to, this.hub.clock.now());
     const raw = await this.store.get('klines', spec.market, spec.symbol, iv, a, b, onProgress);
     const histTf = parseTimeframe(iv.replace('d', 'D').replace('w', 'W'))!;
     let s = sameTf(histTf, tf) ? raw : aggregate(raw, tf);

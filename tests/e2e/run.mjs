@@ -290,6 +290,108 @@ const S = {
     check(items.some((t) => /MA cross on BTC 1h/.test(t)), 'experiment saved with its title');
     await shot('17-experiments');
   },
+  async bots() {
+    console.log('scenario: bots');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Bots');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.bots', { timeout: 15000 });
+    await page.click('.bots button:has-text("Create a bot")');
+    await page.waitForSelector('.modal:has-text("New paper account")');
+    await page.click('.modal button:has-text("Perpetual futures")');
+    await page.click('.modal button:has-text("Create account")');
+    await page.waitForSelector('.bot-setup', { timeout: 15000 });
+    check(true, 'bot account created; setup shown');
+    // default strategy is the MA crossover; trade it on 1m with fast parameters
+    await page.waitForFunction(() => document.querySelectorAll('.bot-setup .bs-inputs .set-row').length >= 3, null, { timeout: 20000 });
+    check(true, 'strategy parameters loaded');
+    await page.click('.bot-setup button.tab:has-text("1m")');
+    const inputs = await page.$$('.bot-setup .bs-inputs .set-row input');
+    await inputs[0].fill('5');
+    await inputs[0].press('Tab');
+    await inputs[1].fill('13');
+    await inputs[1].press('Tab');
+    await shot('18-bot-setup');
+    await page.click('.bot-setup button:has-text("Start bot")');
+    await page.waitForSelector('.bot-head .status-pill:has-text("Running")', { timeout: 15000 });
+    check(true, 'bot running');
+    await page.waitForFunction(() => [...document.querySelectorAll('.bot-stats .stat .k')].some((k) => /Last evaluation/.test(k.textContent || '')), null, { timeout: 60000 });
+    check(true, 'first evaluation finished');
+    const head = await page.textContent('.bot-head');
+    check(/Waiting for the 1m bar to close|next evaluation/i.test(head || ''), `phase shows the next evaluation (${(head || '').replace(/\s+/g, ' ').slice(0, 100)})`);
+    const act = await page.textContent('.bot-detail .mod-scroll');
+    check(/Bot started/.test(act || ''), 'activity log shows the start');
+    await page.click('.bot-detail .tabs .tab:has-text("State")');
+    await page.waitForSelector('.bot-state .bot-card');
+    const state = await page.textContent('.bot-state');
+    check(/Fast/.test(state || '') && /Slow/.test(state || ''), 'indicator values of the last closed bar shown');
+    check(/Last decision/.test(state || ''), 'last decision shown');
+    await shot('19-bot-state');
+    await page.click('.bot-detail .tabs .tab:has-text("Signals")');
+    await page.waitForSelector('.bot-signals');
+    // manual trading is locked while the bot runs
+    const locked = await page.evaluate(async () => {
+      const list = await window.fufu.invoke('trading:list');
+      const bot = list.find((a) => a.config.kind === 'bot');
+      try {
+        await window.fufu.invoke('trading:place', bot.config.id, { symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 0.01 });
+        return 'placed';
+      } catch (e) {
+        return String(e.message || e);
+      }
+    });
+    check(/running bot controls this account/.test(locked), 'manual orders are rejected while the bot runs');
+    await page.click('.bot-head button:has-text("Pause")');
+    await page.waitForSelector('.bot-head .status-pill:has-text("Paused")', { timeout: 10000 });
+    check(true, 'bot paused');
+    await page.click('.bot-head button:has-text("Resume")');
+    await page.waitForSelector('.bot-head .status-pill:has-text("Running")', { timeout: 10000 });
+    check(true, 'bot resumed');
+    await page.click('.bot-head button:has-text("Stop")');
+    await page.click('.menu-item:has-text("Stop and close the position")');
+    await page.waitForSelector('.bot-head .status-pill:has-text("Stopped")', { timeout: 10000 });
+    check(await page.isVisible('.bot-setup'), 'bot stopped; setup editable again');
+    // join mode takes the strategy's current position right away
+    await page.click('.bot-setup .seg button:has-text("Join current position")');
+    await page.click('.bot-setup button:has-text("Start bot")');
+    await page.waitForSelector('.bot-head .status-pill:has-text("Running")', { timeout: 15000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.bot-stats .stat')].some((s) => /Strategy/.test(s.textContent || '') && /in sync|holding/.test(s.textContent || '')), null, { timeout: 60000 });
+    const stats = await page.textContent('.bot-stats');
+    check(true, `join mode in sync with the strategy (${(stats || '').replace(/\s+/g, ' ').slice(0, 160)})`);
+    await shot('20-bot-running');
+    const items = await page.$$eval('.bot-item', (r) => r.length);
+    check(items === 1, 'bot listed in the sidebar');
+  },
+  async botlive() {
+    console.log('scenario: botlive (1s bars, a strategy that trades every other bar)');
+    const code = ['//@version=6', 'strategy("Flip test", overlay=true, default_qty_type=strategy.fixed, default_qty_value=0.001)', 'if bar_index % 2 == 0', '    strategy.entry("L", strategy.long)', 'else', '    strategy.close("L")', ''].join('\n');
+    const id = await page.evaluate(async (code) => {
+      const f = window.fufu.invoke;
+      const doc = await f('scripts:importText', 'Flip test', code, 'pine');
+      const acct = await f('trading:create', { name: 'Flip bot', kind: 'bot', market: 'spot', initialBalance: 10000, costPreset: 'binance-spot', bot: { scriptId: '', language: 'pine', params: {}, symbol: 'BTCUSDT', market: 'spot', tf: '1s', chartType: 'candles', status: 'stopped', sizing: { mode: 'strategy', value: 1 }, autostart: false } });
+      await f('bots:configure', acct.id, { scriptId: doc.id, symbol: 'BTCUSDT', tf: '1s', chartType: 'candles', sizing: { mode: 'strategy', value: 1 }, warmupBars: 50 });
+      await f('bots:start', acct.id, { mode: 'next' });
+      return acct.id;
+    }, code);
+    check(!!id, 'flip bot created and started via the API');
+    await wait(30000);
+    const v = await page.evaluate((id) => window.fufu.invoke('bots:get', id), id);
+    console.log(`    status=${v.config.status} phase=${v.phase} trades=${v.account.trades} simTrades=${v.sim?.trades.length} steps=${v.config.state?.steps} lastErr=${v.config.lastError || ''}`);
+    check(v.config.status === 'running', `bot still running (${v.phaseText})`);
+    check(v.config.state.steps >= 20, `evaluated every second (${v.config.state.steps} steps in 30 s)`);
+    check(v.account.trades >= 8, `account traded (${v.account.trades} closed trades)`);
+    const sim = v.sim.trades.length;
+    check(Math.abs(sim - v.account.trades) <= 1, `account trades match the strategy (${v.account.trades} vs ${sim} simulated)`);
+    const hist = await page.evaluate((id) => window.fufu.invoke('trading:history', id), id);
+    const errs = hist.events.filter((e) => e.kind === 'error' || e.kind === 'reject');
+    check(errs.length === 0, `no order errors (${errs.map((e) => e.message).slice(0, 3).join(' | ')})`);
+    const notes = hist.events.filter((e) => /outside the strategy|below the minimum/.test(e.message));
+    check(notes.length === 0, `no drift between account and strategy (${notes.map((e) => e.message).slice(0, 2).join(' | ')})`);
+    await page.evaluate((id) => window.fufu.invoke('bots:stop', id, { close: true }), id);
+    const after = await page.evaluate((id) => window.fufu.invoke('bots:get', id), id);
+    check(after.config.status === 'stopped' && after.account.position === 0 && after.account.openOrders === 0, 'stopped flat without orders');
+  },
 };
 
 try {

@@ -41,7 +41,7 @@ function buildTray(): void {
         { label: 'Open FuFu Trading', click: () => c.windows.showMain() },
         { type: 'separator' },
         { label: bots ? `${bots} bot${bots === 1 ? '' : 's'} running` : 'No bots running', enabled: false },
-        { label: 'Pause all bots', enabled: bots > 0, click: () => c.router.broadcast('bots:pauseAll', {}) },
+        { label: 'Pause all bots', enabled: bots > 0, click: () => c.pauseAllBots() },
         { type: 'separator' },
         {
           label: 'Quit',

@@ -198,6 +198,8 @@ export interface PineRunOptions {
   upTo?: number;
   /** Polled every 1024 bars; returning true aborts the run (user cancel). */
   shouldStop?: () => boolean;
+  /** Live bot step: market orders created on the last bar fill at its close (the next bar's open). */
+  bot?: boolean;
 }
 
 function brokerFromScript(c: CompiledPine, opts: PineRunOptions): Partial<BrokerConfig> {
@@ -370,6 +372,7 @@ export class PineInstance {
     } catch (e) {
       this.error = toScriptError(e, bar);
     }
+    if (this.opts.bot && this.broker && !this.error) this.broker.flushMarket();
     return this.result(performance.now() - t0);
   }
 
@@ -501,6 +504,9 @@ export function brokerRaw(br: StrategyBroker): StrategyRaw {
     warnings: [...br.warnings],
     ticksUsedBars: br.ticksUsedBars,
     config: { ...br.cfg, funding: br.cfg.funding ? `${br.cfg.funding.t.length} events` : undefined, mark: br.cfg.mark ? 'mark-price klines' : undefined, fillData: br.cfg.fillData ? 'real OHLC' : undefined },
+    position: br.positionSize,
+    avgPrice: br.positionAvgPrice,
+    pending: br.pendingSnapshot(),
   };
 }
 

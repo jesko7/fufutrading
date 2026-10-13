@@ -2,3 +2,4 @@
 import './modules/trading';
 import './modules/scripts';
 import './modules/backtest';
+import './modules/bots';

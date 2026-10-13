@@ -5,7 +5,7 @@
  *   KeyboardInterrupt inside Python.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { ScriptHost, runTrial } from '../engine/host';
+import { ScriptHost, runTrial, botStep } from '../engine/host';
 import { initPython, type PyInitOptions } from '../engine/python/host';
 
 interface WorkerInit {
@@ -85,6 +85,12 @@ async function handle(m: any): Promise<{ r: unknown; transfer: boolean }> {
       if (m.spec.lang === 'python') await ensurePython();
       const jobId = m.id as number;
       const r = await runTrial(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId } as never);
+      return { r, transfer: false };
+    }
+    case 'botStep': {
+      if (m.spec.lang === 'python') await ensurePython();
+      const jobId = m.id as number;
+      const r = await botStep(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId });
       return { r, transfer: false };
     }
     default:

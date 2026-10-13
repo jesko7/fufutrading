@@ -306,6 +306,8 @@ export interface PyRunOptions {
   /** Other symbols / timeframes by key "market:SYMBOL:tf:candles". */
   security?: Record<string, BarSeries>;
   maxMs?: number;
+  /** Live bot step: market orders created on the last bar fill at its close. */
+  bot?: boolean;
 }
 
 export interface PyRunResult {
@@ -448,6 +450,7 @@ export async function runPython(init: PyInitOptions, o: PyRunOptions): Promise<P
         fin.destroy?.();
         outputsToResult(res, out || {}, n);
         need = Array.from(new Set([...need, ...((out && out.need) || [])]));
+        if (o.bot && res.ok) broker.flushMarket();
         res.strategy = brokerRaw(broker);
         for (const w of broker.warnings) res.warnings.push({ message: w, kind: 'runtime' });
       }

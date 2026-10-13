@@ -15,7 +15,7 @@
 import { Ledger } from '../../shared/trading/ledger';
 import { barPath } from '../../shared/trading/matching';
 import { maxLeverageFor, liquidationPrice } from '../../shared/trading/brackets';
-import type { SymbolId } from '../../shared/symbols';
+import { floorToStep, type SymbolId } from '../../shared/symbols';
 
 export interface BrokerConfig {
   symbol: SymbolId;
@@ -170,6 +170,32 @@ export interface BarData {
   length: number;
 }
 
+/**
+ * A resting strategy order with concrete prices and quantities — what a live bot mirrors onto its
+ * paper account. Exits carry the take-profit as `limit` and the stop-loss / trailing stop as `stop`.
+ */
+export interface PendingSnap {
+  id: string;
+  kind: OrderKind;
+  /** 1 = buy, -1 = sell. */
+  side: 1 | -1;
+  /** Part of the quantity that closes existing exposure (reversal, exit). */
+  closeQty: number;
+  /** Part of the quantity that opens new exposure. */
+  openQty: number;
+  /** The exit covers the whole position. */
+  closeAll: boolean;
+  limit?: number;
+  stop?: number;
+  trailing?: boolean;
+  fromEntry?: string;
+  comment?: string;
+}
+
+/** strategy.exit ids are namespaced internally so an exit may share its name with an entry. */
+const EXIT_NS = '__exit_';
+export const publicOrderId = (id: string): string => (id.startsWith(EXIT_NS) ? id.slice(EXIT_NS.length) : id);
+
 /** Optional per-bar trade ticks for trade-level fills. */
 export type TickProvider = (bar: number) => { t: Float64Array; p: Float64Array; q: Float64Array } | null;
 
@@ -251,8 +277,9 @@ export class StrategyBroker {
     }
   }
 
+  /** strategy.cancel: removes pending entries/orders and exits with this name. */
   cancel(id: string): void {
-    this.pending = this.pending.filter((p) => p.id !== id);
+    this.pending = this.pending.filter((p) => p.id !== id && p.id !== EXIT_NS + id);
   }
 
   cancelAll(): void {
@@ -261,6 +288,76 @@ export class StrategyBroker {
 
   private removeOrder(o: StratOrder): void {
     this.pending = this.pending.filter((p) => p !== o);
+  }
+
+  /**
+   * Fill market orders still pending after the last bar as if the next bar opened at `price`.
+   * Live bots act when a bar closes, which is the moment the next bar opens.
+   */
+  flushMarket(price = this.data.c[this.i]): void {
+    if (!(price > 0)) return;
+    const markets = this.pending.filter((p) => p.limit === undefined && p.stop === undefined && p.kind !== 'exit');
+    if (!markets.length) return;
+    const f0 = this.fills.length;
+    const c0 = this.closed.length;
+    const before = new Set(this.open);
+    for (const m of markets) {
+      this.removeOrder(m);
+      this.fillMarket(m, price, this.i);
+    }
+    // these fills happen when the bar closes, i.e. at the next bar's open
+    const t = this.data.tc && this.data.tc[this.i] > 0 ? this.data.tc[this.i] : this.data.t[this.i];
+    for (let k = f0; k < this.fills.length; k++) {
+      this.fills[k].t = t;
+      this.fills[k].bar = this.i + 1;
+    }
+    for (let k = c0; k < this.closed.length; k++) {
+      this.closed[k].exitTime = t;
+      this.closed[k].exitBar = this.i + 1;
+    }
+    for (const tr of this.open) {
+      if (before.has(tr)) continue;
+      tr.entryTime = t;
+      tr.entryBar = this.i + 1;
+    }
+  }
+
+  /** Resting orders with resolved prices and quantities (market orders are not included — see flushMarket). */
+  pendingSnapshot(price = this.data.c[this.i]): PendingSnap[] {
+    const out: PendingSnap[] = [];
+    const pos = this.positionSize;
+    for (const o of this.pending) {
+      if (o.kind === 'exit') {
+        const trades = this.open.filter((t) => !o.fromEntry || t.entryId === o.fromEntry);
+        if (!trades.length) continue;
+        let q = trades.reduce((s, t) => s + t.qty, 0);
+        if (o.qtyPercent !== undefined) q *= o.qtyPercent / 100;
+        else if (o.qty > 0) q = Math.min(q, o.qty);
+        q = this.roundQty(q);
+        if (!(q > 0)) continue;
+        const dir = trades[0].dir;
+        const { tp, sl, trail } = this.exitLevels(o);
+        const stop = trail !== undefined && sl !== undefined ? (dir === 1 ? Math.max(sl, trail) : Math.min(sl, trail)) : (trail ?? sl);
+        if (tp === undefined && stop === undefined) continue;
+        out.push({ id: publicOrderId(o.id), kind: 'exit', side: -dir as 1 | -1, closeQty: q, openQty: 0, closeAll: q >= Math.abs(pos) - 1e-12, limit: tp, stop, trailing: trail !== undefined && stop === trail, fromEntry: o.fromEntry, comment: o.comment });
+        continue;
+      }
+      if (o.kind === 'close' || (o.limit === undefined && o.stop === undefined)) continue;
+      const ref = o.limit ?? o.stop ?? price;
+      if (!(ref > 0)) continue;
+      let open = this.resolveQty(o, ref);
+      let close = 0;
+      if (o.kind === 'entry') {
+        if (pos !== 0 && Math.sign(pos) === o.dir && this.open.filter((t) => t.dir === o.dir).length > this.cfg.pyramiding) continue;
+        if (pos !== 0 && Math.sign(pos) !== o.dir) close = Math.abs(pos);
+      } else if (pos !== 0 && Math.sign(pos) !== o.dir) {
+        close = Math.min(Math.abs(pos), open);
+        open -= close;
+      }
+      if (!(open + close > 0)) continue;
+      out.push({ id: o.id, kind: o.kind, side: o.dir, closeQty: close, openQty: open, closeAll: false, limit: o.limit, stop: o.triggered ? undefined : o.stop, fromEntry: o.fromEntry, comment: o.comment });
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ quantities
@@ -279,7 +376,7 @@ export class StrategyBroker {
 
   private roundQty(q: number): number {
     const s = this.cfg.step;
-    return s > 0 ? Math.floor(q / s + 1e-9) * s : q;
+    return s > 0 ? floorToStep(q, s) : q;
   }
 
   private slipPrice(price: number, side: 1 | -1): number {
@@ -337,7 +434,7 @@ export class StrategyBroker {
     }
     const fee = this.fee(qty, price, maker);
     this.ledger.applyFill({ symbol: this.cfg.symbol, side: side === 1 ? 'buy' : 'sell', qty, price, fee, t, leverage: this.cfg.leverage, marginMode: this.cfg.marginMode });
-    this.fills.push({ bar, t, side: side === 1 ? 'buy' : 'sell', qty, price, fee, id: o.id, kind: o.kind });
+    this.fills.push({ bar, t, side: side === 1 ? 'buy' : 'sell', qty, price, fee, id: publicOrderId(o.id), kind: o.kind });
     // trade bookkeeping
     let rem = qty;
     let feeLeft = fee;
@@ -356,7 +453,7 @@ export class StrategyBroker {
       this.cumProfit += profit;
       this.closed.push({
         entryId: tr.entryId,
-        exitId: o.id,
+        exitId: publicOrderId(o.id),
         dir: tr.dir,
         qty: q,
         entryPrice: tr.entryPrice,

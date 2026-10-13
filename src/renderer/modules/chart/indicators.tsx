@@ -726,7 +726,7 @@ function IndicatorSettings({ moduleId, indId, onClose }: { moduleId: string; ind
   );
 }
 
-function ParamSetPicker({ scriptId, onPick, current, scriptName }: { scriptId: string; onPick: (inputs: Record<string, unknown>) => void; current: Record<string, unknown>; scriptName: string }) {
+export function ParamSetPicker({ scriptId, onPick, current, scriptName }: { scriptId: string; onPick: (inputs: Record<string, unknown>) => void; current: Record<string, unknown>; scriptName: string }) {
   const [sets, setSets] = useState<{ id: string; name: string; inputs: Record<string, unknown>; context?: { symbol?: string; tf?: string } }[] | null>(null);
   useEffect(() => {
     const load = () => void api.call<any[]>('paramsets:list', scriptId).then(setSets).catch(() => setSets([]));

@@ -91,6 +91,11 @@ export interface StrategyRaw {
   warnings: string[];
   ticksUsedBars: number;
   config: Record<string, unknown>;
+  /** Position at the end of the run (signed) and its average entry price. */
+  position?: number;
+  avgPrice?: number;
+  /** Orders still resting at the end of the run. */
+  pending?: import('./backtest/broker').PendingSnap[];
 }
 
 export interface ScriptResult {

@@ -130,7 +130,7 @@ export function AccountModule({ module }: ModuleProps) {
   );
 }
 
-function Stat({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {
+export function Stat({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <div className="stat">
       <span className="k">{k}</span>
@@ -140,7 +140,7 @@ function Stat({ k, v, sub }: { k: string; v: React.ReactNode; sub?: React.ReactN
   );
 }
 
-function Positions({ a }: { a: AccountSnapshot }) {
+export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: boolean }) {
   if (!a.positions.length) return <Empty icon="wallet" title="No open positions" />;
   const isFut = a.config.market === 'futures';
   const act = (p: Promise<unknown>, what: string) => p.catch((e) => toast({ title: `${what} failed`, body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' }));
@@ -197,15 +197,25 @@ function Positions({ a }: { a: AccountSnapshot }) {
                 {fmtSignedUsd(p.uPnl)} <span style={{ fontSize: 11 }}>({fmtPct(p.uPnlPct, 1)})</span>
               </td>
               <td>
-                <BracketCell a={a} symbol={p.symbol} tp={p.tp} sl={p.sl} pd={pd} />
+                {readOnly ? (
+                  <span className="row" style={{ gap: 4 }}>
+                    <span className="up num">{p.tp ? fmtNum(p.tp, pd) : '—'}</span>/<span className="down num">{p.sl ? fmtNum(p.sl, pd) : '—'}</span>
+                  </span>
+                ) : (
+                  <BracketCell a={a} symbol={p.symbol} tp={p.tp} sl={p.sl} pd={pd} />
+                )}
               </td>
               <td className="r">
-                <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol, +(p.qty / 2).toFixed(8)), 'Close')} data-tip="Close half at market">
-                  ½
-                </button>{' '}
-                <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol), 'Close')}>
-                  Close
-                </button>
+                {!readOnly && (
+                  <>
+                    <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol, +(p.qty / 2).toFixed(8)), 'Close')} data-tip="Close half at market">
+                      ½
+                    </button>{' '}
+                    <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol), 'Close')}>
+                      Close
+                    </button>
+                  </>
+                )}
               </td>
             </tr>
           );
@@ -250,7 +260,7 @@ function BracketCell({ a, symbol, tp, sl, pd }: { a: AccountSnapshot; symbol: st
   );
 }
 
-function Orders({ a }: { a: AccountSnapshot }) {
+export function Orders({ a, readOnly }: { a: AccountSnapshot; readOnly?: boolean }) {
   if (!a.orders.length) return <Empty icon="list" title="No open orders" />;
   return (
     <table className="table">
@@ -269,15 +279,18 @@ function Orders({ a }: { a: AccountSnapshot }) {
             <td className="faint">{fmtTime(o.createdAt, true)}</td>
             <td>
               <span className={o.side === 'buy' ? 'up' : 'down'}>{describeOrderUi(o)}</span>
+              {o.reason && o.source === 'bot' && <span className="faint" style={{ marginLeft: 6 }}>{o.reason}</span>}
               {o.reduceOnly && <span className="badge" style={{ marginLeft: 6 }}>reduce</span>}
               {o.trigger === 'mark' && o.stopPrice && <span className="badge" style={{ marginLeft: 6 }}>mark</span>}
             </td>
             <td className="r">{o.filledQty ? fmtNum(o.filledQty, 4) : '—'}</td>
             <td className="faint">{o.source}</td>
             <td className="r">
-              <button className="btn small" onClick={() => api.call('trading:cancel', a.config.id, o.id)}>
-                Cancel
-              </button>
+              {!readOnly && (
+                <button className="btn small" onClick={() => api.call('trading:cancel', a.config.id, o.id).catch((e) => toast({ title: 'Cancel failed', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' }))}>
+                  Cancel
+                </button>
+              )}
             </td>
           </tr>
         ))}
@@ -286,7 +299,7 @@ function Orders({ a }: { a: AccountSnapshot }) {
   );
 }
 
-function Trades({ trades }: { trades: ClosedTrade[] }) {
+export function Trades({ trades }: { trades: ClosedTrade[] }) {
   if (!trades.length) return <Empty icon="history" title="No closed trades yet" />;
   const list = trades.slice().reverse();
   const wins = trades.filter((t) => t.pnl > 0).length;
@@ -334,7 +347,7 @@ function Trades({ trades }: { trades: ClosedTrade[] }) {
   );
 }
 
-function Events({ events }: { events: AccountEvent[] }) {
+export function Events({ events }: { events: AccountEvent[] }) {
   if (!events.length) return <Empty icon="list" title="No activity yet" />;
   const color: Record<string, string> = { liquidation: 'var(--danger)', marginCall: 'var(--warn)', rule: 'var(--warn)', error: 'var(--danger)', fill: 'var(--ok)', funding: 'var(--info)' };
   return (

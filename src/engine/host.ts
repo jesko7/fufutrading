@@ -9,12 +9,12 @@
 import { PineInstance, analyzePine, compileCached, securityRequests, toScriptError } from './pine';
 import { runPython, analyzePython, type PyInitOptions, type DebugControl } from './python/host';
 import { LiveBars, fromPacked } from './data';
-import type { BarSeries, RunContext, ScriptLanguage, ScriptResult, ScriptInputDef, ScriptWarning, ScriptError } from './types';
+import type { BarSeries, RunContext, ScriptLanguage, ScriptResult, ScriptInputDef, ScriptWarning, ScriptError, StrategyRaw, TradeRec } from './types';
 import { emptyResult } from './types';
 import { makePatch, type ResultPatch } from './patch';
 import { computeMetrics, type Metrics } from './backtest/metrics';
 import type { CompactTrade } from './optimize/analysis';
-import type { BrokerConfig, TickProvider } from './backtest/broker';
+import type { BrokerConfig, PendingSnap, TickProvider } from './backtest/broker';
 
 export type { ResultPatch, PlotPatch } from './patch';
 export { applyPatch, makePatch } from './patch';
@@ -86,6 +86,8 @@ export interface RunSpec {
   upTo?: number;
   debug?: DebugControl;
   shouldStop?: () => boolean;
+  /** Live bot step (see PineRunOptions.bot). */
+  bot?: boolean;
 }
 
 export function keyParts(key: string): { market: 'spot' | 'futures'; symbol: string; tf: string; chartType: string } {
@@ -389,7 +391,7 @@ export class ScriptHost {
       security[k] = toBars(v, kp.tf, kp.chartType);
     }
     if (spec.lang === 'python') {
-      return runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security, ticks: spec.ticks, debug: spec.debug, maxMs: spec.maxMs });
+      return runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security, ticks: spec.ticks, debug: spec.debug, maxMs: spec.maxMs, bot: spec.bot });
     }
     let c;
     try {
@@ -399,7 +401,7 @@ export class ScriptHost {
     }
     const need = [...new Set(securityRequests(c, spec.inputs, spec.ctx).map((r) => r.key))].filter((k) => !security[k]);
     if (need.length) return { result: emptyResult('pine', { message: `Missing data: ${need.join(', ')}`, kind: 'runtime' }), need };
-    const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop });
+    const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop, bot: spec.bot });
     return { result: inst.run(), need: [] };
   }
 }
@@ -441,6 +443,102 @@ export async function runTrial(host: ScriptHost, spec: TrialSpec): Promise<Trial
   }
   const trades = result.strategy.trades.filter((t) => t.exitBar >= spec.from).map((t) => ({ entryBar: t.entryBar, exitBar: t.exitBar, returnPct: t.returnPct, profit: t.profit, dir: t.dir }));
   return { ok: true, need: [], metrics, trades, daily };
+}
+
+export interface BotStepSpec extends Omit<RunSpec, 'debug' | 'trace' | 'upTo' | 'bot'> {
+  /** Report trades, fills, logs and alerts from this time on (ms). */
+  since: number;
+}
+
+/** What a live bot needs from one strategy run over the closed bars. */
+export interface BotStepResult {
+  ok: boolean;
+  error?: string;
+  errorLine?: number;
+  need: string[];
+  title: string;
+  isStrategy: boolean;
+  bars: number;
+  ms: number;
+  lastBarTime: number;
+  lastClose: number;
+  /** Simulated position after market orders of the last bar filled at its close. */
+  position: number;
+  avgPrice: number;
+  equity: number;
+  initialCapital: number;
+  netProfit: number;
+  openProfit: number;
+  feesPaid: number;
+  openTrades: StrategyRaw['openTrades'];
+  pending: PendingSnap[];
+  trades: TradeRec[];
+  tradesTotal: number;
+  fills: StrategyRaw['fills'];
+  logs: ScriptResult['logs'];
+  alerts: ScriptResult['alertEvents'];
+  warnings: string[];
+  /** Plot values on the last closed bar (the strategy's indicators). */
+  values: { title: string; value: number; prev: number; color: string }[];
+}
+
+/** Run a strategy over closed bars for a live bot and reduce the result to its current state. */
+export async function botStep(host: ScriptHost, spec: BotStepSpec): Promise<BotStepResult> {
+  const data = (spec.data instanceof Float64Array ? fromPacked(spec.data, spec.ctx.tf, spec.ctx.chartType) : spec.data) as BarSeries;
+  const n = data.length;
+  const base: BotStepResult = { ok: false, need: [], title: '', isStrategy: false, bars: n, ms: 0, lastBarTime: n ? data.t[n - 1] : 0, lastClose: n ? data.c[n - 1] : NaN, position: 0, avgPrice: NaN, equity: NaN, initialCapital: 0, netProfit: 0, openProfit: 0, feesPaid: 0, openTrades: [], pending: [], trades: [], tradesTotal: 0, fills: [], logs: [], alerts: [], warnings: [], values: [] };
+  const { result, need } = await host.run({ ...spec, data, bot: true });
+  base.need = need;
+  base.title = result.meta?.title || '';
+  base.ms = result.stats?.ms || 0;
+  const timeOf = (bar: number) => (bar >= 0 && bar < n ? data.t[bar] : 0);
+  base.logs = result.logs.map((l) => ({ ...l, time: l.time || timeOf(l.bar) })).filter((l) => l.time >= spec.since).slice(-200);
+  base.alerts = result.alertEvents.filter((a) => (a.time || timeOf(a.bar)) >= spec.since).slice(-100);
+  base.warnings = result.warnings.map((w) => w.message).slice(0, 20);
+  if (need.length) {
+    base.error = 'missing data';
+    return base;
+  }
+  if (!result.ok) {
+    base.error = result.error?.message || 'Script error';
+    base.errorLine = result.error?.line;
+    return base;
+  }
+  const st = result.strategy;
+  base.isStrategy = !!st;
+  if (!st) {
+    base.error = `"${base.title}" is an indicator — bots need a strategy (strategy() in Pine, @strategy in Python).`;
+    return base;
+  }
+  base.ok = true;
+  base.position = st.position ?? 0;
+  base.avgPrice = st.avgPrice ?? NaN;
+  base.initialCapital = st.initialCapital;
+  base.feesPaid = st.feesPaid;
+  base.openTrades = st.openTrades;
+  base.pending = st.pending || [];
+  const eq = st.equity;
+  let last = NaN;
+  for (let i = Math.min(eq.length, n) - 1; i >= 0; i--) {
+    if (eq[i] === eq[i]) {
+      last = eq[i];
+      break;
+    }
+  }
+  base.equity = last;
+  base.netProfit = st.trades.reduce((s, t) => s + t.profit, 0);
+  const lc = base.lastClose;
+  base.openProfit = st.openTrades.reduce((s, t) => s + (lc - t.entryPrice) * t.qty * t.dir, 0);
+  base.tradesTotal = st.trades.length;
+  base.trades = st.trades.filter((t) => t.exitTime >= spec.since).slice(-300);
+  base.fills = st.fills.filter((f) => f.t >= spec.since).slice(-300);
+  for (const p of result.plots) {
+    if (p.kind !== 'plot' || !p.display) continue;
+    const v = p.values;
+    base.values.push({ title: p.title || p.id, value: n ? v[n - 1] : NaN, prev: n > 1 ? v[n - 2] : NaN, color: (p.colors && p.colors[n - 1]) || p.color });
+    if (base.values.length >= 24) break;
+  }
+  return base;
 }
 
 /** Static checks for common Python lookahead/repaint pitfalls (heuristic, line-based). */

@@ -73,6 +73,65 @@ export interface BotConfig {
   /** Bars processed / last bar time (for resume diagnostics). */
   lastBarTime?: number;
   autostart: boolean;
+  /** Script name when the bot was configured (display). */
+  scriptName?: string;
+  /** Input titles by key (display). */
+  paramTitles?: Record<string, string>;
+  /** 'next': start flat and act on the first signal after the start; 'join': adopt the strategy's current position. */
+  startMode?: 'next' | 'join';
+  /** Bars before the start that warm up the strategy's indicators. */
+  warmupBars?: number;
+  /** Run state that survives restarts (cleared when the bot stops). */
+  state?: BotRunState;
+}
+
+export interface BotRunState {
+  /** Bar time from which the strategy may trade (0 = whole loaded history, "join" mode). */
+  simFrom: number;
+  /** Simulation capital: account equity when the bot started. */
+  capital: number;
+  scale: { k: number; dir: 1 | -1 } | null;
+  hold: { simPos: number } | null;
+  prevSimPos: number | null;
+  prevTarget: number | null;
+  /** Open time of the last processed closed bar. */
+  lastBarTime: number;
+  steps: number;
+  failures: number;
+}
+
+/** A bot as shown in the Bots module. */
+export interface BotView {
+  accountId: string;
+  name: string;
+  color: string;
+  market: Market;
+  config: BotConfig | null;
+  phase: 'loading' | 'waiting' | 'evaluating' | 'waitingData' | 'error' | 'paused' | 'stopped' | 'running';
+  phaseText: string;
+  nextStepAt: number | null;
+  lastStepAt: number | null;
+  stepMs: number;
+  bars: number;
+  account: {
+    equity: number;
+    initial: number;
+    startEquity: number | null;
+    realized: number;
+    unrealized: number;
+    fees: number;
+    /** Signed position on the bot's symbol. */
+    position: number;
+    entry: number | null;
+    mark: number | null;
+    liqPrice: number | null;
+    openOrders: number;
+    status: AccountSnapshot['status'];
+    trades: number;
+  };
+  /** Latest strategy evaluation. */
+  sim: import('../../engine/host').BotStepResult | null;
+  lastPlan: { t: number; target: number; actual: number; actions: string[]; notes: string[]; simPosition: number; scale: number | null; holding: boolean } | null;
 }
 
 export interface AccountConfig {

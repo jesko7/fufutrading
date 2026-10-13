@@ -7,6 +7,7 @@ import { registerScripts, type ScriptService } from './scripts/service';
 import { registerBacktests, type BacktestService } from './backtest/service';
 import { registerOptimizer, type OptimizerService } from './backtest/optimizer';
 import { registerExperiments, type ExperimentService } from './backtest/experiments';
+import { registerBots, type BotService } from './trading/bots';
 
 export interface Services {
   trading: TradingEngine;
@@ -14,6 +15,7 @@ export interface Services {
   backtests: BacktestService;
   optimizer: OptimizerService;
   experiments: ExperimentService;
+  bots: BotService;
 }
 
 export async function registerServices(core: AppCore): Promise<Services> {
@@ -23,7 +25,8 @@ export async function registerServices(core: AppCore): Promise<Services> {
   const backtests = registerBacktests(core, scripts);
   const optimizer = registerOptimizer(core, scripts, backtests);
   const experiments = registerExperiments(core);
-  const services: Services = { trading, scripts, backtests, optimizer, experiments };
+  const bots = registerBots(core, trading, scripts);
+  const services: Services = { trading, scripts, backtests, optimizer, experiments, bots };
   (core as any).services = services;
   return services;
 }
