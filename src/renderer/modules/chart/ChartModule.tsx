@@ -93,7 +93,7 @@ export function ChartModule({ module }: ModuleProps) {
     engRef.current = e;
     setEng(e);
     // test/diagnostics hook: last bar time and count of each chart
-    ((window as any).__charts ||= {})[module.id] = { bars: () => { const b = storeRef.current; return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null }; } };
+    ((window as any).__charts ||= {})[module.id] = { bars: () => { const b = storeRef.current; return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null }; }, footprint: () => e.footprint?.bars.size ?? 0 };
     const onTheme = () => e.setTheme(chartTheme(useApp.getState().settings));
     window.addEventListener('fufu-theme', onTheme);
     return () => {
@@ -397,6 +397,28 @@ export function ChartModule({ module }: ModuleProps) {
                     { label: `Source: ${cfg.renko?.source === 'hl' ? 'High/Low' : 'Close'}`, onClick: () => update({ renko: { ...(cfg.renko || {}), source: cfg.renko?.source === 'hl' ? 'close' : 'hl' } }) },
                   ]
                 : []),
+              ...(cfg.chartType === 'footprint'
+                ? (() => {
+                    const fpc = { group: 0, mode: 'bidask' as const, imbalanceRatio: 3, ...(cfg.footprint || {}) };
+                    const setFp = (patch: Partial<typeof fpc>) => update({ footprint: { ...fpc, ...patch } });
+                    return [
+                      { title: 'Footprint cells' },
+                      { label: 'Sell × Buy volume', checked: fpc.mode === 'bidask', onClick: () => setFp({ mode: 'bidask' }) },
+                      { label: 'Delta (buy − sell)', checked: fpc.mode === 'delta', onClick: () => setFp({ mode: 'delta' }) },
+                      { label: 'Total volume', checked: fpc.mode === 'volume', onClick: () => setFp({ mode: 'volume' }) },
+                      { title: 'Stacked imbalance ratio' },
+                      ...[2, 3, 4].map((r) => ({ label: `${r}× (diagonal)`, checked: fpc.imbalanceRatio === r, onClick: () => setFp({ imbalanceRatio: r }) })),
+                      {
+                        label: `Row size: ${fpc.group ? fmtNum(fpc.group, 2) : 'auto'}…`,
+                        onClick: async () => {
+                          const v = await promptDialog({ title: 'Footprint row size', label: 'Price step per row (empty = automatic, adapts to zoom)', initial: fpc.group ? String(fpc.group) : '' });
+                          if (v === null) return;
+                          setFp({ group: +v > 0 ? +v : 0 });
+                        },
+                      },
+                    ];
+                  })()
+                : []),
             ]}
           />
         )}
@@ -432,6 +454,7 @@ export function ChartModule({ module }: ModuleProps) {
           </div>
           <PaneLegends moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} panes={panes} />
           {replay.overlay}
+          {fp.overlay}
           <div className="axis-btns">
             {scaleBtn('percent', '%', 'Percentage scale')}
             {scaleBtn('log', 'log', 'Logarithmic scale')}

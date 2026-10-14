@@ -11,6 +11,8 @@ import { registerBots, type BotService } from './trading/bots';
 import { registerReplay, type ReplayService } from './market/replay';
 import { registerAlerts, type AlertService } from './alerts';
 import { registerAI, type AIService } from './ai/service';
+import { registerFootprint } from './market/footprint';
+import type { TradeStore } from './storage/tradeStore';
 
 export interface Services {
   trading: TradingEngine;
@@ -22,6 +24,7 @@ export interface Services {
   replay: ReplayService;
   alerts: AlertService;
   ai: AIService;
+  trades: TradeStore;
 }
 
 export async function registerServices(core: AppCore): Promise<Services> {
@@ -35,7 +38,8 @@ export async function registerServices(core: AppCore): Promise<Services> {
   const replay = registerReplay(core, trading);
   const alerts = registerAlerts(core, scripts);
   const ai = registerAI(core, { scripts, backtests, optimizer });
-  const services: Services = { trading, scripts, backtests, optimizer, experiments, bots, replay, alerts, ai };
+  const trades = registerFootprint(core);
+  const services: Services = { trading, scripts, backtests, optimizer, experiments, bots, replay, alerts, ai, trades };
   (core as any).services = services;
   return services;
 }

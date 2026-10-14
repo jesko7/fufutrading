@@ -498,3 +498,28 @@
   border-bottom: 1px solid var(--border);
   flex: none;
 }
+
+.fp-status {
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--text-2);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.fp-status.err {
+  color: var(--danger);
+  white-space: normal;
+  max-width: 80%;
+}

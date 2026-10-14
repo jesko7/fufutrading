@@ -575,6 +575,20 @@ const S = {
     check(runs.some((r) => r.request.symbol === 'ETHUSDT' && r.request.tf === '4h'), 'backtest recorded in the Strategy Tester history');
     await shot('27-ai-backtest');
   },
+  async footprint() {
+    console.log('scenario: footprint');
+    const id = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
+    await page.locator('.stack-head button.tab:has-text("1m")').first().click();
+    await page.locator('.stack-head button[data-tip^="Chart type"]').first().click();
+    await page.click('.menu-item:has-text("Footprint")');
+    await page.waitForFunction((id) => window.__charts[id].footprint() > 5, id, { timeout: 120000, polling: 1000 });
+    const n = await page.evaluate((id) => window.__charts[id].footprint(), id);
+    check(n > 5, `footprint bars built from aggregate trades (${n})`);
+    await wait(2500);
+    await shot('28-footprint');
+    const n2 = await page.evaluate((id) => window.__charts[id].footprint(), id);
+    check(n2 >= n, 'footprint keeps updating live');
+  },
 };
 
 try {
