@@ -109,6 +109,7 @@ export function ScriptEditorModule({ module }: ModuleProps) {
   const bpRef = useRef<number[]>([]);
   const menu = usePopover();
   const newMenu = usePopover();
+  const aiMenu = usePopover();
   const panel = cfg.panel === undefined ? 'problems' : cfg.panel;
   const [rootRef, size] = useSize<HTMLDivElement>();
   const narrow = size.width > 0 && size.width < 720;
@@ -559,9 +560,39 @@ export function ScriptEditorModule({ module }: ModuleProps) {
             <Icon name="bug" size={15} />
           </button>
         )}
+        <button className="btn small ghost ai-btn" onClick={(e) => aiMenu.toggle(e.currentTarget)} data-tip="Ask Claude about this script">
+          <Icon name="spark" size={14} />
+          {!narrow && ' AI'}
+        </button>
         <button className="icon-btn" onClick={(e) => newMenu.toggle(e.currentTarget)} data-tip="New script">
           <Icon name="plus" />
         </button>
+        {aiMenu.anchor && (
+          <Menu
+            anchor={aiMenu.anchor}
+            onClose={aiMenu.close}
+            align="end"
+            width={280}
+            items={(() => {
+              const script = doc ? { id: doc.id, name: doc.name, language: lang } : { id: 'unsaved', name: title, language: lang };
+              // unsaved changes travel with the request; saved scripts are read by id
+              const base = { script, ...(dirty || !doc ? { selection: code() } : {}) };
+              const err = analysis && !analysis.ok && analysis.error ? `${analysis.error.line ? `line ${analysis.error.line}: ` : ''}${analysis.error.message}` : undefined;
+              const ask = (prompt: string, mode: 'build' | 'plan' | 'ask', send: boolean, extra: Record<string, unknown> = {}) => bus.emit('ai:open', { prompt, mode, send, context: { ...base, ...extra } }, false);
+              return [
+                { title: 'Claude' },
+                ...(err ? [{ label: 'Fix the error', icon: 'bug', hint: 'build', onClick: () => ask("This script doesn't compile. Find the cause, fix it, verify with check_script (and a run on real data), then save the fixed version and explain the fix briefly.", 'build', true, { error: err }) }] : []),
+                { label: 'Explain this script', icon: 'info', hint: 'ask', onClick: () => ask('Explain what this script does: the logic, how its signals or values are computed, what each input changes, and its main weaknesses or failure modes.', 'ask', true) },
+                ...(kind === 'strategy'
+                  ? [{ label: 'Assess this strategy', icon: 'flask', hint: 'plan', onClick: () => ask('Backtest this strategy on BTC, ETH and SOL over the last year with realistic costs, compare with buy & hold, check robustness (out-of-sample, parameter stability) and tell me honestly how good it is and what could improve it.', 'plan', true) }]
+                  : [{ label: 'Check it on real data', icon: 'play', hint: 'ask', onClick: () => ask('Run this indicator on recent BTC data and check that the values behave as intended (warm-up, ranges, signals). Report anything suspicious.', 'ask', true) }]),
+                { label: 'Improve it…', icon: 'spark', hint: 'build', onClick: () => ask('', 'build', false) },
+                { sep: true },
+                { label: 'New script with Claude…', icon: 'plus', onClick: () => bus.emit('ai:open', { prompt: '', mode: 'build', send: false }, false) },
+              ];
+            })()}
+          />
+        )}
         <button className="icon-btn" onClick={(e) => menu.toggle(e.currentTarget)} data-tip="More">
           <Icon name="more" />
         </button>

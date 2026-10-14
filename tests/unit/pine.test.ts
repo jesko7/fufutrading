@@ -471,3 +471,22 @@ plot(fast)`,
     expect(Number.isNaN(r.trace!.fast[0])).toBe(true);
   });
 });
+
+describe('repaint and lookahead warnings', () => {
+  it('flags varip, timenow, barstate.isrealtime and negative plot offsets', async () => {
+    const { analyzePine } = await import('../../src/engine/pine');
+    const a = analyzePine(`//@version=5
+indicator("w")
+varip int ticks = 0
+ticks += 1
+t = timenow
+live = barstate.isrealtime
+plot(close, offset=-2)
+`);
+    const msgs = (a.warnings || []).map((w: { kind: string; message: string }) => `${w.kind}: ${w.message}`);
+    expect(msgs.some((m) => /^repaint: .*varip/.test(m))).toBe(true);
+    expect(msgs.some((m) => /^repaint: .*timenow/.test(m))).toBe(true);
+    expect(msgs.some((m) => /^repaint: .*barstate\.isrealtime/.test(m))).toBe(true);
+    expect(msgs.some((m) => /^lookahead: .*offset=-2/.test(m))).toBe(true);
+  });
+});

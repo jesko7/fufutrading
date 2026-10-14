@@ -559,6 +559,7 @@ class Compiler {
       return;
     }
     // var / varip: persistent across bars in the context
+    if (s.mode === 'varip') this.warn(s, `Repainting: varip '${s.name}' changes on every realtime update; on historical bars (and in backtests) it only sees one update per bar.`, 'repaint');
     const slot = s.mode === 'var' ? this.fn.vars++ : this.fn.varips++;
     const arr = s.mode === 'var' ? 'v' : 'vp';
     const flags = s.mode === 'var' ? 'vi' : 'vpi';
@@ -876,7 +877,10 @@ class Compiler {
     if (!this.fn.isGlobal && this.globalsUsedInFns.has(e.name)) return { js: `G.v_${e.name}`, ret: 'any' };
     if (e.name === 'na') return { js: want && want !== 'num' && want !== 'any' ? 'null' : 'NaN', ret: 'num' };
     const bv = VARIABLES[e.name];
-    if (bv) return { js: bv.js, ret: bv.ret };
+    if (bv) {
+      if (e.name === 'timenow') this.warn(e, 'Repainting: timenow is the current clock time — logic based on it gives different results on historical bars than it did live.', 'repaint');
+      return { js: bv.js, ret: bv.ret };
+    }
     if (this.udts.has(e.name)) return { js: `U_${e.name}`, ret: 'obj' };
     if (this.enums.has(e.name)) return { js: `E_${e.name}`, ret: 'obj' };
     if (e.name === 'strategy' || e.name === 'ta' || e.name === 'math') this.err(`'${e.name}' is a namespace`, e);
@@ -895,7 +899,10 @@ class Compiler {
   member(e: Extract<Expr, { k: 'member' }>): { js: string; ret: Ret } {
     const full = this.fullName(e);
     if (full) {
-      if (VARIABLES[full]) return { js: VARIABLES[full].js, ret: VARIABLES[full].ret };
+      if (VARIABLES[full]) {
+        if (full === 'barstate.isrealtime' || full === 'barstate.isnew') this.warn(e, `Repainting: logic gated on ${full} behaves differently on historical bars (backtests) than in real time.`, 'repaint');
+        return { js: VARIABLES[full].js, ret: VARIABLES[full].ret };
+      }
       if (CONSTANTS[full]) return { js: CONSTANTS[full], ret: 'any' };
       if (full.startsWith('color.') && COLORS[e.prop]) return { js: JSON.stringify(COLORS[e.prop]), ret: 'color' };
       const ns = full.split('.')[0];
@@ -981,6 +988,13 @@ class Compiler {
 
   boolJs(r: { js: string; ret: Ret }): string {
     return r.ret === 'bool' ? r.js : `R.bool(${r.js})`;
+  }
+
+  /** Constant plot offset; negative offsets draw values on bars before they were known. */
+  plotOffset(arg: Expr | undefined, node: { line: number }): number {
+    const off = Number(this.constEval(arg) ?? 0);
+    if (off < 0) this.warn(node, `Lookahead: offset=${off} draws each value ${-off} bar(s) before it was calculated, so the plot shows information that was not available at that bar.`, 'lookahead');
+    return off;
   }
 
   warn(node: { line: number }, message: string, kind: CompiledPine['warnings'][number]['kind']): void {
@@ -1280,7 +1294,7 @@ class Compiler {
           colorDynamic: dynamic,
           style: String(this.constEval(style) ?? 'style_line'),
           width: Number(this.constEval(linewidth) ?? 1),
-          offset: Number(this.constEval(offset) ?? 0),
+          offset: this.plotOffset(offset, e),
           histbase: Number(this.constEval(histbase) ?? 0),
           display: disp !== 'none',
           trackPrice: !!this.constEval(trackprice),
@@ -1315,7 +1329,7 @@ class Compiler {
           colorDynamic: dynamic,
           style: String(this.constEval(get('style')) ?? (name === 'plotchar' ? 'char' : name === 'plotarrow' ? 'arrow' : 'xcross')),
           width: 1,
-          offset: Number(this.constEval(get('offset')) ?? 0),
+          offset: this.plotOffset(get('offset'), e),
           histbase: 0,
           display: this.constEval(get('display')) !== 'none',
           trackPrice: false,

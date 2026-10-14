@@ -527,6 +527,54 @@ const S = {
     check(states.filter(Boolean).length === 0, 'switching an alert off works (all off now)');
     await shot('24-alerts');
   },
+  async ai() {
+    console.log('scenario: ai (Claude Code with a small model)');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add AI Studio');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.ai-studio', { timeout: 15000 });
+    await page.waitForSelector('.ai-new .ai-input', { timeout: 15000 });
+    const missing = await page.$('.ai-missing');
+    check(!missing, 'Claude Code CLI detected');
+    await shot('25-ai-new');
+    // small model, low effort, build mode
+    await page.selectOption('.ai-composer select[data-tip="Model"], .ai-composer select', 'haiku').catch(() => {});
+    const sels = await page.$$('.ai-composer select');
+    if (sels[0]) await sels[0].selectOption('haiku');
+    if (sels[1]) await sels[1].selectOption('low');
+    await page.fill('.ai-input', 'Create a Pine Script v5 indicator named "AI SMA Test" that plots a 20-period SMA of close. Check it compiles, save it with save_script, then add it to the chart with show_in_app. Keep the final answer to one sentence.');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.ai-chat', { timeout: 20000 });
+    check(true, 'chat started');
+    // wait for Claude to finish (meta line appears when done)
+    await page.waitForFunction(() => !!document.querySelector('.ai-msg.assistant .ai-meta') || !!document.querySelector('.ai-msg.assistant .ai-error'), null, { timeout: 240000, polling: 1000 });
+    const err = await page.$eval('.ai-msg.assistant .ai-error', (e) => e.textContent).catch(() => null);
+    check(!err, `Claude finished without error ${err || ''}`);
+    const tools = await page.$$eval('.ai-tool', (els) => els.map((e) => e.textContent || ''));
+    console.log('    tools:', tools.map((t) => t.replace(/\s+/g, ' ').slice(0, 60)).join(' | '));
+    check(tools.some((t) => /Compiles|Checking/.test(t)), 'Claude checked the code with the app tool');
+    check(tools.some((t) => /Saved/.test(t)), 'Claude saved the script to the library');
+    const scripts = await page.evaluate(() => window.fufu.invoke('scripts:list'));
+    const made = scripts.find((x) => /AI SMA Test/i.test(x.name));
+    check(!!made, `script saved in the library (${made?.name})`);
+    await wait(1500);
+    const legend = await page.evaluate(() => [...document.querySelectorAll('.ind-item')].map((x) => x.textContent || '').join(' | '));
+    check(/SMA/i.test(legend), `script shown on the chart (${legend.slice(0, 80)})`);
+    await shot('26-ai-chat');
+    // second turn (resumes the Claude session): a real backtest through the app
+    const n0 = await page.$$eval('.ai-msg.assistant', (e) => e.length);
+    await page.fill('.ai-input', 'Now backtest the built-in "MA Crossover Strategy" on ETHUSDT spot 4h over the last 180 days and give me its net profit and buy & hold in one sentence.');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction((n) => document.querySelectorAll('.ai-msg.assistant').length > n && !!document.querySelectorAll('.ai-msg.assistant')[n].querySelector('.ai-meta, .ai-error'), n0, { timeout: 300000, polling: 1000 });
+    const err2 = await page.$$eval('.ai-msg.assistant', (e) => e[e.length - 1].querySelector('.ai-error')?.textContent || null);
+    check(!err2, `second turn finished ${err2 || ''}`);
+    const kpis = await page.$$eval('.ai-kpis', (e) => e.map((x) => x.textContent || ''));
+    check(kpis.some((t) => /Net profit/.test(t) && /Buy & hold/.test(t)), `backtest card with KPIs (${(kpis[0] || '').replace(/\s+/g, ' ').slice(0, 90)})`);
+    const runs = await page.evaluate(() => window.fufu.invoke('backtests:list'));
+    check(runs.some((r) => r.request.symbol === 'ETHUSDT' && r.request.tf === '4h'), 'backtest recorded in the Strategy Tester history');
+    await shot('27-ai-backtest');
+  },
 };
 
 try {
