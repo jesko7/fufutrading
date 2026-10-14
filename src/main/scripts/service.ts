@@ -57,7 +57,7 @@ export function runContext(spec: Pick<SeriesSpec, 'symbol' | 'market' | 'tf' | '
 }
 
 /** One live script on one chart series. */
-class LiveScript {
+export class LiveScript {
   readonly inst = `live_${uid()}`;
   private series!: ManagedSeries;
   private releaseSeries: (() => void) | null = null;

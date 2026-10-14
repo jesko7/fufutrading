@@ -1,0 +1,415 @@
+import { useEffect, useMemo, useState } from 'react';
+import { api, errorMessage } from '../../api';
+import { toast } from '../../state/store';
+import { Modal, openModal, NumberField, Toggle, Select, Segmented, SymbolPicker, TimeframePicker, Spinner } from '../../components/ui';
+import { useScripts, type AnalyzeResult } from '../scripts/client';
+import { InputControl } from '../chart/indicators';
+import { describeAlert, newAlert, type Alert, type AlertKind, type BookAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import type { Market, SymbolId } from '../../../shared/symbols';
+import { SYMBOL_SPECS, roundToTick, priceDecimals } from '../../../shared/symbols';
+
+export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book' };
+
+/** Open the alert editor for a new alert (kind + defaults) or an existing one. */
+export function openAlertEditor(init: Alert | { kind: AlertKind; symbol: SymbolId; market: Market; patch?: Partial<Alert> }): void {
+  const a = 'id' in init && init.id ? init : newAlert(init.kind, init.symbol, init.market, ('patch' in init && init.patch) || {});
+  openModal('alert-editor', (close) => <AlertEditor initial={a as Alert} onClose={close} />);
+}
+
+/** Create a price alert at once (chart context menu), with an Edit action in the toast. */
+export async function quickPriceAlert(symbol: SymbolId, market: Market, level: number, last: number): Promise<void> {
+  const lv = roundToTick(level, SYMBOL_SPECS[symbol][market].tickSize);
+  const a = newAlert('price', symbol, market, { level: lv, condition: isFinite(last) ? (lv >= last ? 'crossesAbove' : 'crossesBelow') : 'crosses' } as Partial<PriceAlert>);
+  try {
+    const saved = await api.call<Alert>('alerts:save', a);
+    toast({ title: 'Alert created', body: describeAlert(saved), kind: 'ok', action: { label: 'Edit', run: () => openAlertEditor(saved) } });
+  } catch (e) {
+    toast({ title: 'Alert not created', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' });
+  }
+}
+
+function AlertEditor({ initial, onClose }: { initial: Alert; onClose: () => void }) {
+  const [a, setA] = useState<Alert>(initial);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (p: Partial<Alert>) => setA((x) => ({ ...x, ...p }) as Alert);
+  const isNew = !initial.id;
+  const save = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.call('alerts:save', { ...a, enabled: isNew ? true : a.enabled || a.status !== 'active' });
+      toast({ title: isNew ? 'Alert created' : 'Alert saved', body: describeAlert(a), kind: 'ok' });
+      onClose();
+    } catch (e) {
+      setErr(errorMessage(e).replace(/^Validation: /, ''));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const preview = useMemo(() => {
+    try {
+      return describeAlert(a);
+    } catch {
+      return '';
+    }
+  }, [a]);
+  return (
+    <Modal
+      title={isNew ? `New ${KIND_LABEL[a.kind].toLowerCase()} alert` : 'Edit alert'}
+      icon="bell"
+      onClose={onClose}
+      width={560}
+      footer={
+        <>
+          {err && <span className="danger-text small grow">{err}</span>}
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={() => void save()} disabled={busy}>
+            {isNew ? 'Create alert' : 'Save'}
+          </button>
+        </>
+      }
+    >
+      <div className="alert-editor">
+        {isNew && (
+          <Segmented
+            value={a.kind}
+            onChange={(k) => setA({ ...newAlert(k, a.symbol, a.market), name: a.name })}
+            options={(Object.keys(KIND_LABEL) as AlertKind[]).map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+          />
+        )}
+        <div className="ae-row">
+          <span className="ae-label">Market</span>
+          <SymbolPicker symbol={a.symbol} market={a.market} onChange={(s, m) => set({ symbol: s, market: m })} />
+        </div>
+        {a.kind === 'price' && <PriceFields a={a} set={set} />}
+        {a.kind === 'move' && <MoveFields a={a} set={set} />}
+        {(a.kind === 'indicator' || a.kind === 'script') && <ScriptFields a={a} set={set} />}
+        {a.kind === 'book' && <BookFields a={a} set={set} />}
+        <div className="ae-preview">
+          <span className="faint small">Notify when</span>
+          <b>{preview}</b>
+        </div>
+        <div className="ae-sep" />
+        <div className="ae-row">
+          <span className="ae-label">Trigger</span>
+          <Select
+            value={a.frequency}
+            onChange={(f) => set({ frequency: f })}
+            options={[
+              { value: 'once', label: 'Only once (then switch off)' },
+              ...(a.kind === 'indicator' || a.kind === 'script' ? [{ value: 'perBar' as const, label: 'Once per bar' }] : []),
+              { value: 'perMinute', label: 'At most once per minute' },
+              { value: 'every', label: 'Every time (with a pause)' },
+            ]}
+          />
+          {a.frequency === 'every' && (
+            <NumberField value={a.cooldownSec} onChange={(v) => set({ cooldownSec: Math.max(0, Math.round(v)) })} min={0} step={30} decimals={0} suffix="s pause" style={{ width: 130 }} />
+          )}
+        </div>
+        <div className="ae-row">
+          <span className="ae-label">Name</span>
+          <input className="input grow" placeholder="Optional — the condition is used otherwise" value={a.name} onChange={(e) => set({ name: e.target.value })} />
+        </div>
+        <div className="ae-row" style={{ alignItems: 'flex-start' }}>
+          <span className="ae-label">Message</span>
+          <textarea className="input grow ae-msg" placeholder="Optional. Placeholders: {{symbol}} {{price}} {{value}} {{name}} {{time}} {{message}}" value={a.message || ''} onChange={(e) => set({ message: e.target.value })} />
+        </div>
+        <div className="ae-row">
+          <span className="ae-label">Expires</span>
+          <input
+            className="input"
+            type="datetime-local"
+            value={a.expiresAt ? toLocalInput(a.expiresAt) : ''}
+            onChange={(e) => set({ expiresAt: e.target.value ? new Date(e.target.value).getTime() : null })}
+          />
+          {a.expiresAt ? (
+            <button className="btn small ghost" onClick={() => set({ expiresAt: null })}>
+              Never
+            </button>
+          ) : (
+            <span className="faint small">never</span>
+          )}
+        </div>
+        <div className="ae-row">
+          <span className="ae-label">Notify</span>
+          <label className="row" style={{ gap: 6 }}>
+            <Toggle value={a.notify.desktop} onChange={(v) => set({ notify: { ...a.notify, desktop: v } })} /> Desktop notification
+          </label>
+          <label className="row" style={{ gap: 6 }}>
+            <Toggle value={a.notify.sound} onChange={(v) => set({ notify: { ...a.notify, sound: v } })} /> Sound
+          </label>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function toLocalInput(t: number): string {
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function useLastPrice(symbol: SymbolId, market: Market): number {
+  const [p, setP] = useState(NaN);
+  useEffect(() => {
+    let alive = true;
+    void api.call<number>('market:lastPrice', symbol, market).then((v) => alive && setP(v)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [symbol, market]);
+  return p;
+}
+
+function PriceFields({ a, set }: { a: PriceAlert; set: (p: Partial<PriceAlert>) => void }) {
+  const last = useLastPrice(a.symbol, a.market);
+  useEffect(() => {
+    if (!(a.level > 0) && last > 0) set({ level: +last.toFixed(2) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [last]);
+  const channel = a.condition === 'enterChannel' || a.condition === 'exitChannel';
+  const tick = SYMBOL_SPECS[a.symbol][a.market].tickSize;
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Condition</span>
+        <Select
+          value={a.condition}
+          onChange={(c) => set({ condition: c, level2: c === 'enterChannel' || c === 'exitChannel' ? a.level2 || +(a.level * 1.01).toFixed(2) : a.level2 })}
+          options={[
+            { value: 'crosses', label: 'Crosses' },
+            { value: 'crossesAbove', label: 'Crosses above' },
+            { value: 'crossesBelow', label: 'Crosses below' },
+            { value: 'above', label: 'Is above' },
+            { value: 'below', label: 'Is below' },
+            { value: 'enterChannel', label: 'Enters channel' },
+            { value: 'exitChannel', label: 'Exits channel' },
+          ]}
+        />
+      </div>
+      <div className="ae-row">
+        <span className="ae-label">{channel ? 'From' : 'Price'}</span>
+        <NumberField value={a.level || null} onChange={(v) => set({ level: v })} step={tick * 100} decimals={priceDecimals(a.symbol, a.market)} style={{ width: 160 }} />
+        {channel && (
+          <>
+            <span className="faint">to</span>
+            <NumberField value={a.level2 || null} onChange={(v) => set({ level2: v })} step={tick * 100} decimals={priceDecimals(a.symbol, a.market)} style={{ width: 160 }} />
+          </>
+        )}
+        {last > 0 && (
+          <button className="btn small ghost" onClick={() => set({ level: +last.toFixed(2) })} data-tip="Use the current price">
+            now {last.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function MoveFields({ a, set }: { a: MoveAlert; set: (p: Partial<MoveAlert>) => void }) {
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Direction</span>
+        <Segmented
+          value={a.direction}
+          onChange={(d) => set({ direction: d })}
+          options={[
+            { value: 'either', label: 'Up or down' },
+            { value: 'up', label: 'Up' },
+            { value: 'down', label: 'Down' },
+          ]}
+        />
+      </div>
+      <div className="ae-row">
+        <span className="ae-label">Move</span>
+        <NumberField value={a.pct} onChange={(v) => set({ pct: Math.max(0.01, v) })} min={0.01} step={0.5} decimals={2} suffix="%" style={{ width: 110 }} />
+        <span className="faint">within</span>
+        <NumberField value={a.minutes} onChange={(v) => set({ minutes: Math.max(1, Math.round(v)) })} min={1} step={5} decimals={0} suffix="min" style={{ width: 110 }} />
+      </div>
+    </>
+  );
+}
+
+function ScriptFields({ a, set }: { a: IndicatorAlert | ScriptAlert; set: (p: Partial<IndicatorAlert> | Partial<ScriptAlert>) => void }) {
+  const scripts = useScripts();
+  const list = useMemo(() => (scripts || []).filter((s) => s.kind === 'indicator' || s.kind === 'strategy'), [scripts]);
+  const [an, setAn] = useState<AnalyzeResult | null>(null);
+  useEffect(() => {
+    if (!a.scriptId && list.length) {
+      const pick = a.kind === 'indicator' ? list.find((s) => /rsi|relative strength/i.test(s.name)) || list[0] : list.find((s) => s.kind === 'strategy') || list[0];
+      set({ scriptId: pick.id, scriptName: pick.name });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.length]);
+  useEffect(() => {
+    setAn(null);
+    if (!a.scriptId) return;
+    let alive = true;
+    void api
+      .call('scripts:get', a.scriptId)
+      .then((d: any) => api.call<AnalyzeResult>('scripts:analyze', d.language, d.code, { symbol: a.symbol, market: a.market, tf: a.tf, chartType: 'candles' }))
+      .then((r) => alive && setAn(r))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [a.scriptId, a.symbol, a.market, a.tf]);
+  // sensible defaults once the script is known
+  useEffect(() => {
+    if (!an?.ok) return;
+    if (a.kind === 'indicator' && an.plots?.length && !an.plots.some((p) => p.id === a.plot || p.title === a.plot)) {
+      const p = an.plots[0];
+      const t = (a as IndicatorAlert).target;
+      // RSI-like oscillators: start with the usual overbought level instead of 0
+      const level = /rsi|stoch|mfi/i.test(an.meta?.title || '') && t.type === 'value' && t.value === 0 ? { target: { type: 'value' as const, value: 70 } } : {};
+      set({ plot: p.id, plotTitle: p.title, ...level });
+    }
+    if (a.kind === 'script' && a.trigger.type === 'alertcondition' && !an.alertconditions?.includes(a.trigger.title)) set({ trigger: an.alertconditions?.length ? { type: 'alertcondition', title: an.alertconditions[0] } : { type: 'alert' } } as Partial<ScriptAlert>);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [an]);
+  const isStrategy = an?.meta?.type === 'strategy';
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Script</span>
+        <Select value={a.scriptId} onChange={(id) => set({ scriptId: id, scriptName: list.find((s) => s.id === id)?.name, inputs: {}, plot: '' } as Partial<IndicatorAlert>)} options={[{ value: '', label: 'Choose…' }, ...list.map((s) => ({ value: s.id, label: `${s.name}${s.kind === 'strategy' ? ' (strategy)' : ''}${s.language === 'python' ? ' · Py' : ''}` }))]} style={{ flex: 1, minWidth: 0 }} />
+      </div>
+      <div className="ae-row">
+        <span className="ae-label">Timeframe</span>
+        <TimeframePicker tf={a.tf} onChange={(tf) => set({ tf })} />
+      </div>
+      {!an && a.scriptId && (
+        <div className="faint small">
+          <Spinner size={10} /> Reading the script…
+        </div>
+      )}
+      {an && !an.ok && <div className="danger-text small">Script error{an.error?.line ? ` (line ${an.error.line})` : ''}: {an.error?.message}</div>}
+      {an?.ok && an.inputs.length > 0 && (
+        <details className="ae-inputs">
+          <summary>Inputs ({an.inputs.length})</summary>
+          {an.inputs.map((d) => (
+            <label key={d.key} className="set-row">
+              <span className="ellipsis">{d.title}</span>
+              <InputControl def={d} value={a.inputs?.[d.key]} onChange={(v) => set({ inputs: { ...(a.inputs || {}), [d.key]: v } })} />
+            </label>
+          ))}
+        </details>
+      )}
+      {a.kind === 'indicator' && an?.ok && <IndicatorCondition a={a} set={set} plots={an.plots || []} />}
+      {a.kind === 'script' && an?.ok && (
+        <div className="ae-row">
+          <span className="ae-label">When</span>
+          <Select
+            value={a.trigger.type === 'alertcondition' ? `ac:${a.trigger.title}` : a.trigger.type}
+            onChange={(v) => set({ trigger: v.startsWith('ac:') ? { type: 'alertcondition', title: v.slice(3) } : v === 'orders' ? { type: 'orders' } : { type: 'alert' } } as Partial<ScriptAlert>)}
+            options={[
+              ...(an.alertconditions || []).map((t) => ({ value: `ac:${t}`, label: `alertcondition: ${t}` })),
+              { value: 'alert', label: 'Any alert() call' },
+              ...(isStrategy ? [{ value: 'orders', label: 'Strategy order fills' }] : []),
+            ]}
+            style={{ flex: 1, minWidth: 0 }}
+          />
+        </div>
+      )}
+      <div className="ae-row">
+        <span className="ae-label">Evaluate</span>
+        <Segmented
+          value={a.onBarClose ? 'close' : 'live'}
+          onChange={(v) => set({ onBarClose: v === 'close' })}
+          options={[
+            { value: 'close', label: 'On bar close', title: 'Only confirmed bars — no signals that disappear again' },
+            { value: 'live', label: 'Intrabar', title: 'On every update of the forming bar (signals may repaint)' },
+          ]}
+        />
+      </div>
+    </>
+  );
+}
+
+function IndicatorCondition({ a, set, plots }: { a: IndicatorAlert; set: (p: Partial<IndicatorAlert>) => void; plots: { id: string; title: string }[] }) {
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Plot</span>
+        {plots.length ? (
+          <Select value={a.plot} onChange={(id) => set({ plot: id, plotTitle: plots.find((p) => p.id === id)?.title })} options={plots.map((p) => ({ value: p.id, label: p.title }))} />
+        ) : (
+          <input className="input" placeholder="Plot title (Python)" value={a.plot} onChange={(e) => set({ plot: e.target.value, plotTitle: e.target.value })} />
+        )}
+        <Select
+          value={a.condition}
+          onChange={(c) => set({ condition: c })}
+          options={[
+            { value: 'crossesAbove', label: 'crosses above' },
+            { value: 'crossesBelow', label: 'crosses below' },
+            { value: 'crosses', label: 'crosses' },
+            { value: 'above', label: 'is above' },
+            { value: 'below', label: 'is below' },
+          ]}
+        />
+      </div>
+      <div className="ae-row">
+        <span className="ae-label">Than</span>
+        <Select
+          value={a.target.type === 'plot' ? `plot:${a.target.plot}` : a.target.type}
+          onChange={(v) => set({ target: v === 'value' ? { type: 'value', value: a.target.type === 'value' ? a.target.value : 0 } : v === 'price' ? { type: 'price' } : { type: 'plot', plot: v.slice(5), title: plots.find((p) => p.id === v.slice(5))?.title } })}
+          options={[{ value: 'value', label: 'a value' }, { value: 'price', label: 'the price' }, ...plots.filter((p) => p.id !== a.plot).map((p) => ({ value: `plot:${p.id}`, label: `plot: ${p.title}` }))]}
+        />
+        {a.target.type === 'value' && <NumberField value={a.target.value} onChange={(v) => set({ target: { type: 'value', value: v } })} step={1} decimals={4} style={{ width: 130 }} />}
+      </div>
+    </>
+  );
+}
+
+function BookFields({ a, set }: { a: BookAlert; set: (p: Partial<BookAlert>) => void }) {
+  const unit = a.metric === 'imbalance' ? '%' : a.metric === 'spreadBps' ? 'bps' : 'USDT';
+  const defaults: Record<BookAlert['metric'], number> = { imbalance: 40, bidDepth: 5_000_000, askDepth: 5_000_000, spreadBps: 2, largeOrder: 1_000_000 };
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Measure</span>
+        <Select
+          value={a.metric}
+          onChange={(m) => set({ metric: m, value: defaults[m], condition: m === 'spreadBps' ? 'above' : a.condition })}
+          options={[
+            { value: 'imbalance', label: 'Bid/ask imbalance' },
+            { value: 'bidDepth', label: 'Bid liquidity' },
+            { value: 'askDepth', label: 'Ask liquidity' },
+            { value: 'spreadBps', label: 'Spread' },
+            { value: 'largeOrder', label: 'Large resting order appears' },
+          ]}
+        />
+        {a.metric !== 'largeOrder' && (
+          <Select
+            value={a.condition}
+            onChange={(c) => set({ condition: c })}
+            options={[
+              { value: 'above', label: 'above' },
+              { value: 'below', label: 'below' },
+            ]}
+          />
+        )}
+        <NumberField value={a.value} onChange={(v) => set({ value: v })} step={a.metric === 'imbalance' ? 5 : a.metric === 'spreadBps' ? 0.5 : 100000} decimals={a.metric === 'spreadBps' ? 2 : 0} suffix={unit} style={{ width: 150 }} />
+      </div>
+      {a.metric !== 'spreadBps' && (
+        <div className="ae-row">
+          <span className="ae-label">Range</span>
+          <NumberField value={a.rangePct} onChange={(v) => set({ rangePct: Math.max(0.01, Math.min(10, v)) })} step={0.1} decimals={2} suffix="% of mid" style={{ width: 140 }} />
+          <span className="faint small">{a.metric === 'imbalance' ? '(bids − asks) / (bids + asks) in USDT within the range; +100% = only bids' : 'orders within this distance of the mid price'}</span>
+        </div>
+      )}
+      {a.metric !== 'largeOrder' && (
+        <div className="ae-row">
+          <span className="ae-label">Hold for</span>
+          <NumberField value={a.sustainSec} onChange={(v) => set({ sustainSec: Math.max(0, Math.round(v)) })} step={5} decimals={0} suffix="s" style={{ width: 110 }} />
+          <span className="faint small">the condition must hold this long (filters out flickering orders)</span>
+        </div>
+      )}
+    </>
+  );
+}

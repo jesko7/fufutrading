@@ -32,6 +32,9 @@ export interface AnalyzeResult {
   functions?: { name: string; line: number; params: string[] }[];
   variables?: { name: string; line: number; type?: string }[];
   version?: number;
+  /** Pine: line plots and alertcondition() titles (for alerts). */
+  plots?: { id: string; title: string }[];
+  alertconditions?: string[];
 }
 
 export interface InstanceSpec {
@@ -226,9 +229,20 @@ export class ScriptHost {
       }
     }
     const m = a.meta!;
+    let plots: { id: string; title: string }[] = [];
+    let alertconditions: string[] = [];
+    try {
+      const c = compileCached(code);
+      plots = c.plots.filter((p) => p.kind === 'plot').map((p) => ({ id: p.id, title: p.title || p.id }));
+      alertconditions = c.alertconds.map((x) => x.title);
+    } catch {
+      /* analysis already reported problems */
+    }
     return {
       ok: true,
       language: lang,
+      plots,
+      alertconditions,
       meta: { type: m.type === 'strategy' ? 'strategy' : 'indicator', title: m.title, shortTitle: m.shortTitle, overlay: m.overlay, precision: m.precision },
       inputs: (a.inputs || []).map((i) => ({ key: i.key, type: i.type, title: i.title, defval: i.defval, min: i.min, max: i.max, step: i.step, options: i.options, tooltip: i.tooltip, group: i.group, inline: i.inline })) as ScriptInputDef[],
       warnings: (a.warnings || []).map((w) => ({ line: w.line, message: w.message, kind: w.kind })),

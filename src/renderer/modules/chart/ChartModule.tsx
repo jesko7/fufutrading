@@ -21,6 +21,7 @@ import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, 
 import { useChartTrading } from './trading';
 import { useFootprint } from './footprint';
 import { useReplayForChart, ReplayButton } from './replay';
+import { useAlertLines } from '../alerts/chartLines';
 import './chart.css';
 
 const CHART_TYPES: { value: ChartType; label: string; icon: string }[] = [
@@ -222,10 +223,11 @@ export function ChartModule({ module }: ModuleProps) {
 
   // ---------------------------------------------------------------- trading overlays
   const trading = useChartTrading(cfg, replay);
+  const alertLines = useAlertLines(cfg.symbol, cfg.market);
   useEffect(() => {
-    eng?.setTradeLines(trading.lines as TradeLine[]);
+    eng?.setTradeLines([...(trading.lines as TradeLine[]), ...(replay.active ? [] : alertLines.lines)]);
     eng?.setExecutions(cfg.showExecutions !== false ? (trading.executions as Execution[]) : []);
-  }, [eng, trading.lines, trading.executions, cfg.showExecutions]);
+  }, [eng, trading.lines, trading.executions, cfg.showExecutions, alertLines.lines, replay.active]);
 
   // ---------------------------------------------------------------- navigation requests (Strategy Tester)
   useEffect(() => {
@@ -303,8 +305,12 @@ export function ChartModule({ module }: ModuleProps) {
     onDrawingsChange: (d) => update({ drawings: d }),
     onDrawingSelect: (id) => setSelectedDrawing(id),
     onToolDone: () => setTool(null),
-    onTradeLineDrag: (id, price) => trading.onDrag(id, price),
-    onTradeLineCancel: (id) => trading.onCancel(id),
+    onTradeLineDrag: (id, price) => {
+      if (!alertLines.onDrag(id, price)) trading.onDrag(id, price);
+    },
+    onTradeLineCancel: (id) => {
+      if (!alertLines.onCancel(id)) trading.onCancel(id);
+    },
     onBracketCreate: (posId, kind, price) => trading.onBracket(posId, kind, price),
     onPickBar: (time) => replay.onPickBar(time),
     onLayout: (geo) => setPanes(geo),

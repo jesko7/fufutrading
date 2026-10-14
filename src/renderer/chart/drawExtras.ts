@@ -318,7 +318,7 @@ export function drawTradeLines(rc: RenderCtx, lines: TradeLine[], hoverId: strin
     ctx.strokeStyle = line.color;
     ctx.globalAlpha = hover ? 1 : 0.85;
     ctx.lineWidth = hover ? 1.5 : 1;
-    ctx.setLineDash(line.kind === 'position' ? [] : line.kind === 'liq' ? [2, 2] : [6, 4]);
+    ctx.setLineDash(line.kind === 'position' ? [] : line.kind === 'liq' ? [2, 2] : line.kind === 'alert' ? [2, 4] : [6, 4]);
     ctx.beginPath();
     ctx.moveTo(lb.label.x + lb.label.w, lb.y);
     ctx.lineTo(eng.plotW, lb.y);

@@ -13,6 +13,7 @@ import type { ChartModuleConfig, IndicatorInstance } from '../../../shared/works
 import { newId } from '../../../shared/workspace';
 import type { ScriptResult, ScriptInputDef, ScriptPlot } from '../../../engine/types';
 import { applyPatch } from '../../../engine/patch';
+import { bus } from '../../lib/bus';
 import { Icon } from '../../components/Icon';
 import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover, promptDialog } from '../../components/ui';
 import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd } from '../../lib/format';
@@ -355,6 +356,20 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
             { label: 'Duplicate', icon: 'copy', onClick: () => update({ indicators: [...cfg.indicators, { ...JSON.parse(JSON.stringify(ind)), id: newId('i') }] }) },
             { label: 'Reset inputs to defaults', icon: 'refresh', onClick: () => setInd({ inputs: {} }) },
             ...(r?.strategy ? [{ label: 'Open in Strategy Tester', icon: 'flask', onClick: () => void openStrategyTester(cfg, ind) }] : []),
+            {
+              label: 'Add alert…',
+              icon: 'bell',
+              onClick: () => {
+                const tf = cfg.tf;
+                const common = { scriptId: ind.scriptId, scriptName: live?.script?.name, inputs: ind.inputs || {}, tf, chartType: cfg.chartType === 'heikinashi' ? 'heikinashi' : 'candles', onBarClose: true };
+                if (r?.strategy) bus.emit('alerts:new', { kind: 'script', symbol: cfg.symbol, market: cfg.market, patch: { ...common, trigger: { type: 'orders' } } }, false);
+                else if (r?.alerts.length) bus.emit('alerts:new', { kind: 'script', symbol: cfg.symbol, market: cfg.market, patch: { ...common, trigger: { type: 'alertcondition', title: r.alerts[0].title } } }, false);
+                else {
+                  const p = r?.plots.find((x) => x.kind === 'plot');
+                  bus.emit('alerts:new', { kind: 'indicator', symbol: cfg.symbol, market: cfg.market, patch: { ...common, plot: p?.id || '', plotTitle: p?.title } }, false);
+                }
+              },
+            },
             { sep: true },
             { label: 'Remove', icon: 'trash', danger: true, onClick: remove },
           ]}

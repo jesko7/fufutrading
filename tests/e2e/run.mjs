@@ -460,6 +460,73 @@ const S = {
     await page.waitForFunction(([id, last]) => window.__charts[id].bars().last >= last, [id, before.last], { timeout: 30000 });
     check(true, 'exit replay returns the chart to live data');
   },
+  async alerts() {
+    console.log('scenario: alerts');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Alerts');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.alerts', { timeout: 15000 });
+    // price alert via the editor: "is above" a level below the market fires on the next trade
+    await page.click('.stack-head button:has-text("New alert")');
+    await page.click('.menu-item:has-text("Price level")');
+    await page.waitForSelector('.alert-editor');
+    await page.waitForFunction(() => [...document.querySelectorAll('.alert-editor button')].some((b) => /^now /.test(b.textContent || '')), null, { timeout: 15000 });
+    const last = await page.evaluate(() => window.fufu.invoke('market:lastPrice', 'BTCUSDT', 'spot'));
+    await page.selectOption('.alert-editor .ae-row:has-text("Condition") select', 'above').catch(async () => {
+      await page.click('.alert-editor .ae-row:has-text("Condition") .select');
+    });
+    const price = page.locator('.alert-editor .ae-row:has-text("Price") input').first();
+    await price.fill(String(Math.round(last - 500)));
+    await price.press('Tab');
+    await shot('22-alert-editor');
+    await page.click('.modal button:has-text("Create alert")');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => /🔔/.test(t.textContent || '')), null, { timeout: 30000 });
+    check(true, 'price alert fired on live trades (toast)');
+    // indicator and order-book alerts through the API
+    const res = await page.evaluate(async () => {
+      const f = window.fufu.invoke;
+      const scripts = await f('scripts:list');
+      const rsi = scripts.find((s) => /Relative Strength/.test(s.name));
+      const doc = await f('scripts:get', rsi.id);
+      const an = await f('scripts:analyze', doc.language, doc.code, { symbol: 'BTCUSDT', market: 'spot', tf: '1m', chartType: 'candles' });
+      const base = { name: '', symbol: 'BTCUSDT', market: 'spot', enabled: true, cooldownSec: 0, notify: { desktop: false, sound: false }, triggerCount: 0, status: 'active' };
+      await f('alerts:save', { ...base, kind: 'indicator', frequency: 'once', scriptId: rsi.id, inputs: {}, tf: '1m', chartType: 'candles', onBarClose: false, plot: an.plots[0].id, plotTitle: an.plots[0].title, condition: 'above', target: { type: 'value', value: 1 } });
+      await f('alerts:save', { ...base, kind: 'book', frequency: 'once', metric: 'spreadBps', condition: 'above', value: 0, rangePct: 1, sustainSec: 0 });
+      return an.plots.length;
+    });
+    check(res > 0, 'RSI plots known from the script analysis');
+    let log = [];
+    for (let k = 0; k < 60; k++) {
+      log = await page.evaluate(() => window.fufu.invoke('alerts:log'));
+      if (log.some((e) => e.kind === 'indicator') && log.some((e) => e.kind === 'book')) break;
+      await wait(1000);
+    }
+    check(log.some((e) => e.kind === 'indicator' && /RSI/.test(e.message)), `indicator alert fired (${log.find((e) => e.kind === 'indicator')?.message})`);
+    check(log.some((e) => e.kind === 'book' && /spread/.test(e.message)), `order-book alert fired (${log.find((e) => e.kind === 'book')?.message})`);
+    // chart right-click: alert at a price, drawn on the chart
+    const box = await page.locator('.chart-host').first().boundingBox();
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.3, { button: 'right' });
+    await page.click('.menu-item:has-text("Add alert at")');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => /Alert created/.test(t.textContent || '')), null, { timeout: 10000 });
+    const list = await page.evaluate(() => window.fufu.invoke('alerts:list'));
+    const fromChart = list.find((a) => a.kind === 'price' && a.enabled);
+    check(!!fromChart, `alert created from the chart (${fromChart ? fromChart.condition + ' ' + fromChart.level : 'none'})`);
+    await page.click('.alerts .tabs .tab:has-text("Log")');
+    await page.waitForSelector('.alert-log-row');
+    const rows = await page.$$eval('.alert-log-row', (r) => r.length);
+    check(rows >= 3, `alert log lists triggers (${rows})`);
+    await shot('23-alerts-log');
+    await page.click('.alerts .tabs .tab:has-text("Alerts")');
+    await page.waitForSelector('.alert-row');
+    const n0 = await page.$$eval('.alert-row', (r) => r.length);
+    check(n0 === 4, `four alerts listed (${n0})`);
+    await page.locator('.alert-row').first().locator('.toggle').click();
+    await wait(400);
+    const states = await page.evaluate(() => window.fufu.invoke('alerts:list').then((l) => l.map((a) => a.enabled)));
+    check(states.filter(Boolean).length === 0, 'switching an alert off works (all off now)');
+    await shot('24-alerts');
+  },
 };
 
 try {
