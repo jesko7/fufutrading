@@ -69,6 +69,34 @@ const S = {
     const watchRows = await page.$$eval('.watch-row', (r) => r.length);
     check(watchRows >= 3, `watchlist rows (${watchRows})`);
   },
+  async presets() {
+    console.log('scenario: workspace presets');
+    const open = async (name) => {
+      if (!(await page.isVisible('.start'))) {
+        await page.keyboard.press('Control+k');
+        await page.waitForSelector('.palette input');
+        await page.fill('.palette input', 'Workspaces & presets');
+        await page.keyboard.press('Enter');
+        await page.waitForSelector('.start', { timeout: 10000 });
+      }
+      await page.click(`.preset:has(.p-name:text-is("${name}"))`);
+      await page.waitForSelector('.start', { state: 'detached', timeout: 15000 });
+    };
+    for (const [name, sels, file] of [
+      ['Automation', ['.bots', '.chart-host canvas', '.alerts'], '03-preset-automation'],
+      ['Prop Challenge', ['.prop-mod', '.chart-host canvas'], '03-preset-prop'],
+      ['Strategy Lab', ['.ai-studio', '.chart-host canvas', '.tester'], '03-preset-lab'],
+    ]) {
+      await open(name);
+      for (const s of sels) await page.waitForSelector(s, { timeout: 30000 });
+      check(true, `${name} preset opens with ${sels.join(', ')}`);
+      await wait(1500);
+      await shot(file);
+    }
+    // later scenarios expect the Trader layout from the smoke test
+    await open('Trader');
+    await page.waitForSelector('.trade-panel, .empty-title:has-text("No paper account")', { timeout: 30000 });
+  },
   async charts() {
     console.log('scenario: charts');
     // switch chart type & timeframe on the first chart
@@ -101,6 +129,15 @@ const S = {
     check(/Long/.test(posText || ''), `position shown in account module (${(posText || '').replace(/\s+/g, ' ').slice(0, 80)})`);
     await wait(1500);
     await shot('04-position');
+    // Binance lets a cross position change its leverage: raise it by one step with the keyboard
+    const levText = () => page.textContent('.trade-panel .row:has(input[type=range]) b.num');
+    const lev0 = parseInt((await levText()) || '0');
+    await page.focus('.trade-panel input[type=range]');
+    await page.keyboard.press('ArrowRight');
+    await wait(1000);
+    const lev1 = parseInt((await levText()) || '0');
+    const badge = await page.textContent('.acct table.table tbody tr .badge');
+    check(lev1 === lev0 + 1 && new RegExp(`${lev1}x`).test(badge || ''), `leverage of the open position raised ${lev0}x → ${lev1}x (${badge})`);
     // set TP/SL via the account table editor
     await page.click('.acct td span[data-tip^="Edit"]');
     const fields = await page.$$('.acct td input.input');

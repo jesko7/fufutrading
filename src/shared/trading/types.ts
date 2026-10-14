@@ -294,7 +294,8 @@ export interface AccountSnapshot {
   maintenanceMargin: number;
   marginRatio: number;
   exposure: number;
-  positions: (Position & { mark: number; uPnl: number; uPnlPct: number; notional: number; liqPrice: number; maintMargin: number; sl?: number; tp?: number })[];
+  /** maxRemoveMargin: how much isolated margin can be removed now (isolated positions only). */
+  positions: (Position & { mark: number; uPnl: number; uPnlPct: number; notional: number; liqPrice: number; maintMargin: number; sl?: number; tp?: number; maxRemoveMargin?: number })[];
   orders: Order[];
   holdings: { symbol: SymbolId; qty: number; avgCost: number; value: number; uPnl: number }[];
   dayStartEquity: number;

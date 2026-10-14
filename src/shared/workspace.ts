@@ -354,13 +354,28 @@ export function presetWorkspaces(): Workspace[] {
       const tape = add(mod('trades'));
       return split('row', [split('col', [stack([heat]), stack([fp])], [0.5, 0.5]), split('col', [stack([book]), stack([depth, tape])], [0.6, 0.4])], [0.74, 0.26]);
     }),
-    makeWs('Strategy Lab', 'Chart, script editor, strategy tester and AI Studio.', (add) => {
+    makeWs('Strategy Lab', 'Chart, AI Studio, script editor, strategy builder, tester and optimizer.', (add) => {
       const chart = add(mod('chart', defaultChartConfig({ tf: '1h' })));
       const ed = add(mod('scripts'));
       const bt = add(mod('backtest'));
       const opt = add(mod('optimizer'));
       const ai = add(mod('ai'));
-      return split('row', [split('col', [stack([chart]), stack([bt, opt])], [0.55, 0.45]), stack([ai, ed])], [0.6, 0.4]);
+      const builder = add(mod('builder'));
+      return split('row', [split('col', [stack([chart]), stack([bt, opt])], [0.55, 0.45]), stack([ai, ed, builder])], [0.6, 0.4]);
+    }),
+    makeWs('Automation', 'Bots trading your strategies, alerts and news around a chart.', (add) => {
+      const bots = add(mod('bots'));
+      const chart = add(mod('chart', defaultChartConfig({ tf: '15m' })));
+      const alerts = add(mod('alerts'));
+      const news = add(mod('news'));
+      return split('row', [stack([bots]), split('col', [stack([chart]), stack([alerts, news])], [0.6, 0.4])], [0.5, 0.5]);
+    }),
+    makeWs('Prop Challenge', 'An FTMO or Lucid challenge: objectives, chart, trade panel and positions.', (add) => {
+      const chart = add(mod('chart', defaultChartConfig({ symbol: 'BTCUSDT', market: 'futures', tf: '15m' })));
+      const prop = add(mod('propRules'));
+      const entry = add(mod('orderEntry', { market: 'futures' }));
+      const acct = add(mod('account'));
+      return split('row', [split('col', [stack([chart]), stack([acct])], [0.72, 0.28]), split('col', [stack([prop]), stack([entry])], [0.55, 0.45])], [0.72, 0.28]);
     }),
     makeWs('Minimal', 'Just one chart.', (add) => stack([add(mod('chart', defaultChartConfig({ tf: '1h' })))])),
   ].map((w) => ({ ...w, preset: true }));

@@ -210,7 +210,11 @@ export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: bool
                       className="icon-btn small"
                       data-tip="Add / remove isolated margin"
                       onClick={async () => {
-                        const v = await promptDialog({ title: 'Adjust isolated margin', label: 'USDT (negative to remove)', initial: '100' });
+                        const v = await promptDialog({
+                          title: `Adjust ${SYMBOL_SPECS[p.symbol].base} isolated margin`,
+                          label: `USDT to add, negative to remove (add up to ${fmtUsd(a.available)}, remove up to ${fmtUsd(p.maxRemoveMargin || 0)})`,
+                          initial: '100',
+                        });
                         if (v && isFinite(+v)) void act(api.call('trading:adjustMargin', a.config.id, p.symbol, +v), 'Margin change');
                       }}
                     >

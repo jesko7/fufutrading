@@ -121,6 +121,67 @@ export class AccountRuntime {
     return this.config.futures.leverage[symbol] || this.config.futures.defaultLeverage;
   }
 
+  /**
+   * Change a symbol's leverage as Binance allows it: also with an open position, within the
+   * leverage bracket for the position's size. Cross positions can go up or down (down needs
+   * enough available balance for the larger initial margin); isolated positions can only go up
+   * and keep their allocated margin.
+   */
+  setLeverage(symbol: SymbolId, L: number, ctx: MarketCtx): number {
+    if (this.config.market !== 'futures') throw new OrderError('Leverage applies to futures accounts');
+    const max = Math.min(this.config.risk.maxLeverage, SYMBOL_SPECS[symbol].futures.maxLeverage);
+    L = Math.round(L);
+    if (!(L >= 1 && L <= max)) throw new OrderError(`Leverage must be 1–${max}x`);
+    const old = this.leverageFor(symbol);
+    if (L === old) return L;
+    const pos = this.ledger.position(symbol);
+    const marks = this.marks(ctx);
+    if (pos) {
+      const notional = pos.qty * (marks[symbol] || pos.entry);
+      const bracketMax = maxLeverageFor(symbol, notional);
+      if (L > bracketMax) throw new OrderError(`A position of ${notional.toFixed(0)} USDT allows at most ${bracketMax}x (Binance leverage brackets)`);
+      if (pos.marginMode === 'isolated' && L < pos.leverage) throw new OrderError('Binance doesn’t allow lowering the leverage of an open isolated position. Add margin to it instead.');
+    }
+    if (L < old) {
+      // more initial margin for the cross position and the symbol's open orders
+      const posIm = pos && pos.marginMode === 'cross' ? pos.qty * (marks[symbol] || pos.entry) : 0;
+      const orders = this.reserved(ctx, symbol).quote * old;
+      const extra = (posIm + orders) * (1 / L - 1 / old);
+      const avail = this.ledger.available(marks, this.reserved(ctx).quote);
+      if (extra > avail + 1e-9) throw new OrderError(`Insufficient margin for ${L}x: needs ${extra.toFixed(2)} USDT more, ${avail.toFixed(2)} available`);
+    }
+    if (pos) pos.leverage = L;
+    this.config.futures.leverage = { ...this.config.futures.leverage, [symbol]: L };
+    this.event('info', `${symbol} leverage set to ${L}x`, undefined, ctx.now());
+    this.onChange();
+    return L;
+  }
+
+  /** Isolated margin that can be removed: the position keeps its initial margin (and covers losses). */
+  maxRemovableMargin(p: Position, mark: number): number {
+    if (p.marginMode !== 'isolated') return 0;
+    return Math.max(0, p.isolatedMargin + Math.min(0, this.ledger.uPnl(p, mark)) - (p.qty * mark) / Math.max(1, p.leverage));
+  }
+
+  /** Add (+) or remove (−) margin of an open isolated position, within Binance's limits. */
+  adjustMargin(symbol: SymbolId, delta: number, ctx: MarketCtx): void {
+    const pos = this.ledger.position(symbol);
+    if (!pos || pos.marginMode !== 'isolated') throw new OrderError('Margin can only be adjusted on an open isolated position');
+    if (!(Math.abs(delta) > 0) || !isFinite(delta)) throw new OrderError('Enter an amount');
+    const marks = this.marks(ctx);
+    const mark = marks[symbol] || pos.entry;
+    if (delta > 0) {
+      const avail = this.ledger.available(marks, this.reserved(ctx).quote);
+      if (delta > avail + 1e-9) throw new OrderError(`Only ${avail.toFixed(2)} USDT available to add`);
+    } else {
+      const max = this.maxRemovableMargin(pos, mark);
+      if (-delta > max + 1e-9) throw new OrderError(`At most ${max.toFixed(2)} USDT can be removed (the position keeps its initial margin)`);
+    }
+    if (!this.ledger.adjustIsolatedMargin(symbol, delta)) throw new OrderError('Margin adjustment not possible');
+    this.event('info', `${symbol} isolated margin ${delta > 0 ? 'added' : 'removed'}: ${Math.abs(delta).toFixed(2)} USDT`, undefined, ctx.now());
+    this.onChange();
+  }
+
   marginModeFor(symbol: SymbolId) {
     return this.config.futures.marginModes[symbol] || this.config.futures.marginMode;
   }
@@ -136,12 +197,12 @@ export class AccountRuntime {
     return m;
   }
 
-  /** Margin (futures) or cash/base (spot) reserved by open orders. */
-  reserved(ctx: MarketCtx): { quote: number; base: Partial<Record<SymbolId, number>> } {
+  /** Margin (futures) or cash/base (spot) reserved by open orders (optionally of one symbol). */
+  reserved(ctx: MarketCtx, only?: SymbolId): { quote: number; base: Partial<Record<SymbolId, number>> } {
     let quote = 0;
     const base: Partial<Record<SymbolId, number>> = {};
     for (const o of this.orders) {
-      if (o.reduceOnly || o.closePosition) continue;
+      if (o.reduceOnly || o.closePosition || (only && o.symbol !== only)) continue;
       const rem = o.qty - o.filledQty;
       const px = o.price || o.stopPrice || ctx.last(this.config.market, o.symbol) || 0;
       if (this.config.market === 'spot') {
@@ -296,9 +357,12 @@ export class AccountRuntime {
     const pos = this.ledger.position(symbol);
     if (pos && pos.marginMode !== this.marginModeFor(symbol)) throw new OrderError('Margin mode differs from the open position');
     const marks = this.marks(ctx);
-    const required = (increase * price) / lev;
+    // Binance order cost = initial margin + open loss (an order priced worse than the mark price)
+    const mark = marks[symbol] || price;
+    const openLoss = increase * Math.max(0, dir * (price - mark));
+    const required = (increase * price) / lev + openLoss;
     const avail = this.ledger.available(marks, this.reserved(ctx).quote);
-    if (required > avail + 1e-9) throw new OrderError(`Insufficient margin: need ${required.toFixed(2)} USDT, available ${avail.toFixed(2)}`);
+    if (required > avail + 1e-9) throw new OrderError(`Insufficient margin: need ${required.toFixed(2)} USDT${openLoss > 0.005 ? ` (incl. open loss ${openLoss.toFixed(2)})` : ''}, available ${avail.toFixed(2)}`);
   }
 
   private checkRiskLimits(symbol: SymbolId, dir: 1 | -1, qty: number, price: number, ctx: MarketCtx, reduce: boolean): void {
@@ -323,9 +387,8 @@ export class AccountRuntime {
     const t = ctx.now();
     let qty = o.qty - o.filledQty;
     if (o.reduceOnly) {
-      const signed = this.ledger.signedQty(o.symbol);
-      qty = Math.min(qty, Math.abs(signed));
-      if (o.closePosition) qty = Math.abs(signed);
+      const r = this.reducibleQty(o);
+      qty = o.closePosition ? r : Math.min(qty, r);
       if (!(qty > 0)) {
         this.finish(o, 'canceled', t, 'Nothing to reduce');
         return;
@@ -333,6 +396,13 @@ export class AccountRuntime {
     }
     const px = this.marketFillPrice(o.symbol, o.side, qty, ctx);
     this.fill(o, qty, px.price, 'taker', t, reason, px.estimated);
+  }
+
+  /** How much a reduce-only order may still close: 0 when flat or when it would add to the position. */
+  private reducibleQty(o: Order): number {
+    const signed = this.ledger.signedQty(o.symbol);
+    const dir = o.side === 'buy' ? 1 : -1;
+    return signed === 0 || Math.sign(signed) === dir ? 0 : Math.abs(signed);
   }
 
   /** Market fill price: order-book sweep when available, otherwise last price ± slippage. */
@@ -375,13 +445,15 @@ export class AccountRuntime {
     if (res.closedTrade) this.trades.push(res.closedTrade);
     const after = this.ledger.signedQty(o.symbol);
     if (this.prop) {
-      if (Math.abs(after) > Math.abs(before) || Math.sign(after) !== Math.sign(before)) this.prop.onPositionOpened(t);
+      // a trading day counts when a position is opened, increased or reversed, not when it is closed
+      if (after !== 0 && (Math.abs(after) > Math.abs(before) || Math.sign(after) !== Math.sign(before))) this.prop.onPositionOpened(t);
       if (res.realized !== 0 || fee) this.prop.onRealized(t, res.realized - fee);
     }
     this.event('fill', `${o.side === 'buy' ? 'Bought' : 'Sold'} ${fmtQ(qty)} ${SYMBOL_SPECS[o.symbol].base} @ ${price.toFixed(2)}${res.realized ? ` · P&L ${res.realized >= 0 ? '+' : ''}${res.realized.toFixed(2)}` : ''}${estimated ? ' (est. price)' : ''}`, { orderId: o.id, fillId: f.id, source: o.source }, t);
-    // brackets
-    if (after === 0) this.cancelBrackets(o.symbol, t);
-    else {
+    // brackets: like Binance, reduce-only orders of a position that closed or reversed are canceled
+    // (otherwise an old stop loss would add to the new position)
+    if (before !== 0 && Math.sign(after) !== Math.sign(before)) this.cancelReduceOnly(o.symbol, t, after === 0 ? 'position closed' : 'position reversed');
+    if (after !== 0) {
       const pb = this.pendingBrackets[o.id];
       if (pb && o.status === 'filled') {
         delete this.pendingBrackets[o.id];
@@ -419,8 +491,8 @@ export class AccountRuntime {
     return list.length;
   }
 
-  private cancelBrackets(symbol: SymbolId, t: number): void {
-    for (const o of this.orders.filter((x) => x.symbol === symbol && (x.bracket || x.closePosition))) this.cancelOrder(o.id, t, 'position closed');
+  private cancelReduceOnly(symbol: SymbolId, t: number, reason: string): void {
+    for (const o of this.orders.filter((x) => x.symbol === symbol && (x.reduceOnly || x.closePosition || x.bracket))) this.cancelOrder(o.id, t, reason);
   }
 
   modifyOrder(id: string, patch: { price?: number; stopPrice?: number; qty?: number }, ctx: MarketCtx): Order {
@@ -555,8 +627,7 @@ export class AccountRuntime {
           this.executeMarket(o, ctx, o.bracket === 'sl' ? 'stop loss' : o.bracket === 'tp' ? 'take profit' : o.reason);
         } else {
           let qty = o.qty - o.filledQty;
-          if (o.reduceOnly) qty = Math.min(qty, Math.abs(this.ledger.signedQty(o.symbol)));
-          if (o.closePosition) qty = Math.abs(this.ledger.signedQty(o.symbol));
+          if (o.reduceOnly) qty = o.closePosition ? this.reducibleQty(o) : Math.min(qty, this.reducibleQty(o));
           if (qty > 0) this.fill(o, qty, slip(d!.price, o.side, this.config.costs.slippage.model === 'none' ? 0 : this.config.costs.slippage.bps), 'taker', seg.t, o.bracket === 'sl' ? 'stop loss' : o.bracket === 'tp' ? 'take profit' : o.reason);
           else this.finish(o, 'canceled', seg.t, 'Nothing to reduce');
         }
@@ -564,7 +635,7 @@ export class AccountRuntime {
       }
       // limit fill
       let qty = d!.qty;
-      if (o.reduceOnly) qty = Math.min(qty, Math.abs(this.ledger.signedQty(o.symbol)));
+      if (o.reduceOnly) qty = Math.min(qty, this.reducibleQty(o));
       if (qty > 0) this.fill(o, qty, d!.price, d!.liquidity, seg.t, o.reason);
       else this.finish(o, 'canceled', seg.t, 'Nothing to reduce');
     }
@@ -653,7 +724,8 @@ export class AccountRuntime {
       const im = l.initialMargin(p, mark);
       const sl = this.orders.find((o) => o.symbol === p.symbol && o.bracket === 'sl')?.stopPrice;
       const tp = this.orders.find((o) => o.symbol === p.symbol && o.bracket === 'tp')?.stopPrice;
-      return { ...p, mark, uPnl: u, uPnlPct: im > 0 ? (u / (p.marginMode === 'isolated' ? p.isolatedMargin || im : im)) * 100 : 0, notional: p.qty * mark, liqPrice: l.liqPrice(p, marks), maintMargin: l.maintMargin(p, mark), sl, tp };
+      const maxRemoveMargin = p.marginMode === 'isolated' ? this.maxRemovableMargin(p, mark) : undefined;
+      return { ...p, mark, uPnl: u, uPnlPct: im > 0 ? (u / (p.marginMode === 'isolated' ? p.isolatedMargin || im : im)) * 100 : 0, notional: p.qty * mark, liqPrice: l.liqPrice(p, marks), maintMargin: l.maintMargin(p, mark), sl, tp, maxRemoveMargin };
     });
     const holdings =
       this.config.market === 'spot'

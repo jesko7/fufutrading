@@ -160,8 +160,9 @@ export class Ledger {
       upnlCross += this.uPnl(p, m);
       imCross += this.initialMargin(p, m);
     }
-    // Binance does not let unrealized profit increase available balance beyond wallet for new positions
-    return Math.max(0, this.crossWallet() + Math.min(0, upnlCross) - imCross - reservedForOrders);
+    // Binance: available balance = wallet balance − initial margin + unrealized PNL (cross positions;
+    // isolated margin and its PNL stay with the isolated position)
+    return Math.max(0, this.crossWallet() + upnlCross - imCross - reservedForOrders);
   }
 
   liqPrice(p: Position, marks: Marks): number {

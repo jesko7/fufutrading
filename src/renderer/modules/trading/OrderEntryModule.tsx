@@ -65,6 +65,8 @@ export function OrderEntryModule({ module }: ModuleProps) {
   }, [symbol]);
 
   const lev = acct ? (market === 'futures' ? acct.config.futures.leverage[symbol] || acct.config.futures.defaultLeverage : 1) : 1;
+  // the slider moves freely and the leverage is applied when it is released
+  const [levDraft, setLevDraft] = useState<number | null>(null);
   const mode = acct ? acct.config.futures.marginModes[symbol] || acct.config.futures.marginMode : 'cross';
   const pos = acct?.positions.find((p) => p.symbol === symbol);
   const refPrice = type === 'limit' || type === 'stopLimit' ? price || last : type === 'stop' ? stop || last : last;
@@ -140,10 +142,15 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const setLeverage = async (L: number) => {
     if (!acct) return;
     try {
-      await api.call('trading:setLeverage', acct.config.id, symbol, L);
+      if (L !== lev) await api.call('trading:setLeverage', acct.config.id, symbol, L);
     } catch (e) {
       toast({ title: 'Leverage not changed', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'warn' });
+    } finally {
+      setLevDraft(null);
     }
+  };
+  const commitLeverage = () => {
+    if (levDraft !== null) void setLeverage(levDraft);
   };
 
   if (!accounts.length && !replay)
@@ -157,7 +164,13 @@ export function OrderEntryModule({ module }: ModuleProps) {
       </div>
     );
 
-  const maxLev = market === 'futures' ? Math.min(acct?.config.risk.maxLeverage || 20, maxLeverageFor(symbol, 0)) : 1;
+  // Binance: the leverage bracket of the current position size caps the leverage
+  const maxLev = market === 'futures' ? Math.min(acct?.config.risk.maxLeverage || 20, maxLeverageFor(symbol, pos ? pos.notional : 0)) : 1;
+  const levTip = !pos
+    ? undefined
+    : pos.marginMode === 'isolated'
+      ? 'Open isolated position: leverage can only be raised (Binance). Add margin to lower the risk instead.'
+      : 'Open cross position: lowering the leverage needs enough available balance for the larger margin (Binance).';
   return (
     <div className="mod-scroll trade-panel">
       <HeadControls>
@@ -187,9 +200,21 @@ export function OrderEntryModule({ module }: ModuleProps) {
           <span className="muted" style={{ width: 70 }}>
             Leverage
           </span>
-          <input type="range" min={1} max={maxLev} step={1} value={lev} disabled={!!pos} onChange={(e) => void setLeverage(+e.target.value)} className="grow" data-tip={pos ? 'Close the position to change leverage' : undefined} />
+          <input
+            type="range"
+            min={pos && pos.marginMode === 'isolated' ? pos.leverage : 1}
+            max={Math.max(maxLev, lev)}
+            step={1}
+            value={levDraft ?? lev}
+            onChange={(e) => setLevDraft(+e.target.value)}
+            onPointerUp={commitLeverage}
+            onKeyUp={commitLeverage}
+            onBlur={commitLeverage}
+            className="grow"
+            data-tip={levTip}
+          />
           <b className="num" style={{ width: 38, textAlign: 'right' }}>
-            {lev}x
+            {levDraft ?? lev}x
           </b>
           <Segmented size="sm" value={mode} onChange={(m) => api.call('trading:setMarginMode', acct.config.id, symbol, m).catch((e) => toast({ title: 'Margin mode not changed', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'warn' }))} options={[{ value: 'cross', label: 'Cross' }, { value: 'isolated', label: 'Iso' }]} />
         </div>

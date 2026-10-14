@@ -27,8 +27,14 @@ Futures accounts follow Binance's rules for USDⓈ-M perpetuals:
 
 - **Leverage** per symbol, limited by Binance's leverage brackets. A larger position allows
   less leverage, exactly per the bracket table, which is refreshed from Binance at start-up
-  (a bundled snapshot is the offline fallback).
-- **Cross and isolated margin.** Isolated margin can be added or removed.
+  (a bundled snapshot is the offline fallback). As on Binance, leverage can be changed with an
+  open position: a cross position up or down (down only with enough available balance for the
+  larger margin), an isolated position only up.
+- **Cross and isolated margin.** Isolated margin can be added (up to the available balance) or
+  removed (down to the position's initial margin).
+- **Available balance** = wallet balance − initial margin + unrealized PNL of cross positions −
+  margin of open orders. An order costs its initial margin plus the open loss when it is priced
+  worse than the mark price.
 - **Maintenance margin** uses Binance's tiered rates and maintenance amounts.
 - **Liquidation price** uses Binance's published formula for one-way mode. This is verified
   against Binance's own worked example in the test suite. A position is liquidated when the

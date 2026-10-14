@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, errorMessage } from '../api';
 import { useApp } from '../state/store';
 import { Icon } from '../components/Icon';
@@ -52,9 +52,8 @@ function Thumb({ ws }: { ws?: Workspace }) {
 
 export function StartScreen() {
   const [items, setItems] = useState<ListItem[]>([]);
-  const [saved, setSaved] = useState<Record<string, Workspace>>({});
   const settings = useApp((s) => s.settings);
-  const builtins = presetWorkspaces();
+  const builtins = useMemo(() => presetWorkspaces(), []);
   const refresh = async () => {
     const list = await api.call<ListItem[]>('ws:list');
     setItems(list);
@@ -62,8 +61,6 @@ export function StartScreen() {
   useEffect(() => {
     void refresh();
   }, []);
-  void saved;
-  void setSaved;
 
   const load = async (id: string) => {
     try {
@@ -76,7 +73,9 @@ export function StartScreen() {
 
   const builtinItems = items.filter((i) => i.builtin);
   const userItems = items.filter((i) => !i.builtin);
-  const hasCurrent = !!useApp.getState().workspace;
+  // only offer to continue a session that has something in it (a fresh install starts empty)
+  const current = useApp((s) => s.workspace);
+  const hasCurrent = !!current && Object.keys(current.modules).length > 0;
 
   return (
     <div className="start">

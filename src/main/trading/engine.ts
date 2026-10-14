@@ -440,31 +440,20 @@ export function registerTrading(core: AppCore): TradingEngine {
     eng.assertManual(id);
     return eng.get(id).setBrackets(symbol, b, eng.ctxFor(id));
   }));
-  r.handle('trading:setLeverage', ([id, symbol, lev]) =>
-    wrap(() => {
-      const rt = eng.get(id);
-      if (rt.config.market !== 'futures') throw new Error('Leverage applies to futures accounts');
-      const L = Math.round(lev);
-      if (!(L >= 1 && L <= Math.min(rt.config.risk.maxLeverage, SYMBOL_SPECS[symbol as SymbolId].futures.maxLeverage))) throw new Error(`Leverage must be 1–${Math.min(rt.config.risk.maxLeverage, SYMBOL_SPECS[symbol as SymbolId].futures.maxLeverage)}x`);
-      if (rt.ledger.position(symbol)) throw new Error('Close the position before changing leverage');
-      rt.config.futures.leverage = { ...rt.config.futures.leverage, [symbol]: L };
-      rt.event('info', `${symbol} leverage set to ${L}x`);
-      return L;
-    }),
-  );
+  r.handle('trading:setLeverage', ([id, symbol, lev]) => wrap(() => eng.get(id).setLeverage(symbol, lev, eng.ctxFor(id))));
   r.handle('trading:setMarginMode', ([id, symbol, mode]) =>
     wrap(() => {
       const rt = eng.get(id);
       if (rt.ledger.position(symbol) || rt.orders.some((o) => o.symbol === symbol)) throw new Error('Close positions and orders on this symbol first');
       rt.config.futures.marginModes = { ...rt.config.futures.marginModes, [symbol]: mode };
-      rt.event('info', `${symbol} margin mode: ${mode}`);
+      rt.event('info', `${symbol} margin mode: ${mode}`, undefined, eng.ctxFor(id).now());
+      rt.onChange();
       return mode;
     }),
   );
   r.handle('trading:adjustMargin', ([id, symbol, delta]) =>
     wrap(() => {
-      const ok = eng.get(id).ledger.adjustIsolatedMargin(symbol, delta);
-      if (!ok) throw new Error('Margin adjustment not possible');
+      eng.get(id).adjustMargin(symbol, delta, eng.ctxFor(id));
       return true;
     }),
   );
