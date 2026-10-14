@@ -589,6 +589,31 @@ const S = {
     const n2 = await page.evaluate((id) => window.__charts[id].footprint(), id);
     check(n2 >= n, 'footprint keeps updating live');
   },
+  async news() {
+    console.log('scenario: news & data');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add News');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.news', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelectorAll('.news-item').length > 5, null, { timeout: 45000 });
+    const n = await page.$$eval('.news-item', (e) => e.length);
+    check(n > 5, `headlines loaded from the feeds (${n})`);
+    await page.click('.stack-head .seg button:has-text("BTC")');
+    await wait(300);
+    const btc = await page.$$eval('.news-item', (e) => e.map((x) => x.querySelector('.coin-chip.btc') !== null));
+    check(btc.length > 0 && btc.every(Boolean), `BTC filter shows only BTC headlines (${btc.length})`);
+    await shot('29-news');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Data');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.data-mod', { timeout: 15000 });
+    await page.waitForSelector('.data-row', { timeout: 15000 });
+    const rows = await page.$$eval('.data-row', (e) => e.length);
+    check(rows > 0, `cached data listed (${rows} rows)`);
+    await shot('30-data');
+  },
 };
 
 try {

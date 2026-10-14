@@ -148,6 +148,8 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
       return { tab: 'alerts', filter: 'all' };
     case 'ai':
       return { chatId: null };
+    case 'news':
+      return { filter: 'all' };
     default:
       return {};
   }
