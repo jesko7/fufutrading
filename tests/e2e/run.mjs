@@ -25,9 +25,11 @@ function check(cond, msg) {
   }
 }
 
+// FUFU_E2E_EXE=path/to/FuFu Trading.exe tests the packaged build instead of the source checkout
+const exe = process.env.FUFU_E2E_EXE;
 const app = await electron.launch({
-  executablePath: require('electron'),
-  args: [root],
+  executablePath: exe || require('electron'),
+  args: exe ? [] : [root],
   env: Object.fromEntries(Object.entries({ ...process.env, FUFU_USER_DATA: userData, FUFU_QUIET: '1' }).filter(([k]) => k !== 'ELECTRON_RUN_AS_NODE')),
   timeout: 60000,
 });
