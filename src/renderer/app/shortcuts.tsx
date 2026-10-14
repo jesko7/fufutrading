@@ -1,3 +1,4 @@
+import { DOCS, openDoc } from './help';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../state/store';
@@ -121,6 +122,7 @@ export function buildActions(): Action[] {
     { id: 'replay.play', label: 'Bar replay: play / pause', group: 'Replay', keys: 'space', icon: 'play', run: () => bus.emit('replay:cmd', 'toggle', false), enabled: () => !!(window as any).__replayActive },
     { id: 'replay.step', label: 'Bar replay: step forward', group: 'Replay', keys: 'shift+arrowright', icon: 'step', run: () => bus.emit('replay:cmd', 'step', false), enabled: () => !!(window as any).__replayActive },
   ];
+  for (const d of DOCS) list.push({ id: `help.${d.id}`, label: `Help: ${d.title}`, group: 'Help', icon: 'notebook', run: () => openDoc(d.id) });
   for (const t of Object.keys(MODULE_INFO) as ModuleType[]) list.push({ id: `add.${t}`, label: `Add ${MODULE_INFO[t].title}`, group: 'Modules', icon: MODULE_INFO[t].icon, run: () => void addModule(t), terms: MODULE_INFO[t].description });
   for (const s of SYMBOLS) for (const m of ['spot', 'futures'] as const) list.push({ id: `go.${s}.${m}`, label: `${SYMBOL_SPECS[s].base}${m === 'futures' ? ' Perp' : ''} — ${SYMBOL_SPECS[s].name}`, group: 'Instruments', icon: 'chart', run: () => setChart({ symbol: s, market: m }), terms: s });
   for (const tf of STANDARD_TIMEFRAMES) list.push({ id: `tf.${tf}`, label: `Timeframe ${tf} (${tfLongLabel(tf)})`, group: 'Timeframes', icon: 'history', run: () => setChart({ tf }) });

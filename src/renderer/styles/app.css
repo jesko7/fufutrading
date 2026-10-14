@@ -476,3 +476,14 @@
   color: #fff;
   flex: none;
 }
+
+.doc-body {
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  padding-right: 6px;
+  font-size: 13px;
+}
+.doc-body .md-table td,
+.doc-body .md-table th {
+  vertical-align: top;
+}

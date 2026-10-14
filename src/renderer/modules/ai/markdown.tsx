@@ -99,9 +99,11 @@ export function Markdown({ text }: { text: string }) {
       const ordered = /^\s*\d+[.)]/.test(line);
       const items: ReactNode[] = [];
       while (i < lines.length && /^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) {
-        const content = lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, '');
-        items.push(<li key={items.length}>{inline(content)}</li>);
+        let content = lines[i].replace(/^\s*([-*•]|\d+[.)])\s+/, '');
         i++;
+        // indented continuation lines belong to the item
+        while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*•]|\d+[.)])\s+/.test(lines[i])) content += ` ${lines[i++].trim()}`;
+        items.push(<li key={items.length}>{inline(content)}</li>);
       }
       blocks.push(ordered ? <ol key={key++}>{items}</ol> : <ul key={key++}>{items}</ul>);
       continue;
@@ -113,12 +115,15 @@ export function Markdown({ text }: { text: string }) {
     // paragraph (consecutive non-special lines)
     const para: string[] = [];
     while (i < lines.length && lines[i].trim() && !/^\s*```/.test(lines[i]) && !/^#{1,4}\s/.test(lines[i]) && !/^\s*([-*•]|\d+[.)])\s+/.test(lines[i]) && !/^\s*\|.*\|\s*$/.test(lines[i])) para.push(lines[i++]);
+    // single newlines inside a paragraph are soft breaks (Markdown); a trailing double space or
+    // backslash forces a line break
+    const parts = para.join('\n').split(/(?: {2,}|\\)\n/);
     blocks.push(
       <p key={key++}>
-        {para.map((p, k) => (
+        {parts.map((p, k) => (
           <Fragment key={k}>
             {k > 0 && <br />}
-            {inline(p, k * 1000)}
+            {inline(p.replace(/\n/g, ' '), k * 1000)}
           </Fragment>
         ))}
       </p>,

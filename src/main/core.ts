@@ -3,6 +3,8 @@
  */
 import { app, shell, Notification, clipboard, ClipboardItem } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
+import { pineFunctionReference } from '../engine/docs';
 import { createLogger, type Logger, type LogEntry } from './logger';
 import { IpcRouter } from './ipc';
 import { JsonFile } from './storage/jsonStore';
@@ -286,6 +288,16 @@ export class AppCore {
       push(this.hub.connectionInfo());
       const timer = setInterval(() => push(this.hub.connectionInfo()), 2000);
       return () => clearInterval(timer);
+    });
+    r.handle('docs:get', ([name]) => {
+      const allowed = ['pine', 'python', 'backtesting', 'trading', 'replay-alerts-data'];
+      if (name === 'pine-reference') return pineFunctionReference();
+      if (!allowed.includes(String(name))) throw new Error('Validation: unknown document');
+      for (const d of [path.join(this.paths.dist, 'docs'), path.resolve(this.paths.dist, '../docs')]) {
+        const f = path.join(d, `${name}.md`);
+        if (fs.existsSync(f)) return fs.readFileSync(f, 'utf8');
+      }
+      throw new Error('Documentation not found in this build');
     });
     r.handle('market:clock', () => ({ offset: this.hub.clock.offset, rtt: this.hub.clock.rtt, syncedAt: this.hub.clock.syncedAt }));
     r.handle('market:lastPrice', ([symbol, market]) => {

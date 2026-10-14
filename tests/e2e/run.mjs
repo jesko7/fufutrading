@@ -673,6 +673,22 @@ const S = {
     check(true, 'builder strategy saved and backtested in the Strategy Tester');
     await shot('33-builder-backtest');
   },
+  async help() {
+    console.log('scenario: help');
+    await page.click('.titlebar button[data-tip^="Help"], button[data-tip^="Help: documentation"]');
+    await page.click('.menu-item:has-text("Pine Script built-ins")');
+    await page.waitForFunction(() => /ta\.sma\(source, length\)/.test(document.querySelector('.doc-body')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'generated Pine reference opens from the help menu');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Help: Python');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => /class SmaCross\(Strategy\)/.test(document.querySelector('.doc-body')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'Python API doc opens from the command palette');
+    await shot('34-help');
+    await page.keyboard.press('Escape');
+  },
 };
 
 try {

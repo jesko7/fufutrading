@@ -8,6 +8,7 @@ import type { ConnectionInfo } from '../../shared/marketTypes';
 import { AddModuleMenu } from './WorkspaceView';
 import { SettingsModal } from './Settings';
 import { ShortcutsModal } from './shortcuts';
+import { DOCS, openDoc } from './help';
 import { clsx } from '../lib/format';
 
 export function TitleBar() {
@@ -15,6 +16,7 @@ export function TitleBar() {
   const windowId = useApp((s) => s.windowId);
   const settings = useApp((s) => s.settings);
   const wsMenu = usePopover();
+  const helpMenu = usePopover();
   const addMenu = usePopover();
   const addRef = useRef<HTMLButtonElement>(null);
   const conn = useTopicValue<ConnectionInfo>('conn', {});
@@ -106,9 +108,23 @@ export function TitleBar() {
       <button className="icon-btn no-drag" onClick={() => useApp.getState().setPalette(true)} data-tip="Command palette (Ctrl+K)">
         <Icon name="search" />
       </button>
-      <button className="icon-btn no-drag" onClick={() => openModal('shortcuts', (close) => <ShortcutsModal onClose={close} />)} data-tip="Keyboard shortcuts (?)">
-        <Icon name="keyboard" />
+      <button className="icon-btn no-drag" onClick={(e) => helpMenu.toggle(e.currentTarget)} data-tip="Help: documentation and keyboard shortcuts">
+        <Icon name="info" />
       </button>
+      {helpMenu.anchor && (
+        <Menu
+          anchor={helpMenu.anchor}
+          onClose={helpMenu.close}
+          align="end"
+          width={330}
+          items={[
+            { title: 'Documentation' },
+            ...DOCS.map((d) => ({ label: d.title, icon: 'notebook', onClick: () => openDoc(d.id) })),
+            { sep: true },
+            { label: 'Keyboard shortcuts', icon: 'keyboard', hint: '?', onClick: () => openModal('shortcuts', (close) => <ShortcutsModal onClose={close} />) },
+          ]}
+        />
+      )}
       <button className="icon-btn no-drag" onClick={toggleTheme} data-tip="Toggle light / dark">
         <Icon name={settings.theme === 'light' ? 'moon' : 'sun'} />
       </button>

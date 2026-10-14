@@ -14,7 +14,7 @@
  * TMM1/UPNL1 = maintenance margin / unrealized PnL of all *other* cross positions (0 for isolated),
  * cumB = maintenance amount of the tier, Side = 1 long / −1 short, Position = |size|, EP = entry.
  * Verified against Binance's published worked example (ETHUSDT LP 1153.26, BTCUSDT LP 26316.89)
- * in tests/unit/brackets.test.ts.
+ * in tests/unit/trading.test.ts.
  */
 import type { SymbolId } from '../symbols';
 
