@@ -614,6 +614,31 @@ const S = {
     check(rows > 0, `cached data listed (${rows} rows)`);
     await shot('30-data');
   },
+  async prop() {
+    console.log('scenario: prop challenges');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Prop Challenges');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.prop-mod', { timeout: 15000 });
+    await page.click('.prop-mod button:has-text("Start a challenge")');
+    await page.waitForSelector('.modal');
+    check(await page.isVisible('.modal .seg button.on:has-text("Prop-firm rules")'), 'prop template preselected');
+    await page.click('.modal button:has-text("Create account")');
+    await page.waitForSelector('.prop-card', { timeout: 15000 });
+    const card = await page.textContent('.prop-card');
+    check(/FTMO|LUCID/.test(card || '') && /Active/.test(card || ''), `challenge card shows firm and status (${(card || '').replace(/\s+/g, ' ').slice(0, 90)})`);
+    // the new challenge is selected right away and shows every rule
+    await page.waitForSelector('.prop-detail .progress', { timeout: 10000 });
+    check(await page.isVisible('.prop-card.on'), 'new challenge selected with its rule detail');
+    await page.click('.prop-card');
+    await page.waitForSelector('.prop-detail', { state: 'detached', timeout: 5000 });
+    check(true, 'clicking the card again collapses the detail');
+    await page.click('.prop-mod .tabs .tab:has-text("Programs")');
+    const programs = await page.$$eval('.prop-programs .card', (e) => e.length);
+    check(programs >= 3, `supported programs listed (${programs})`);
+    await shot('31-prop');
+  },
 };
 
 try {

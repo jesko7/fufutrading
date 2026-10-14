@@ -150,6 +150,8 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
       return { chatId: null };
     case 'news':
       return { filter: 'all' };
+    case 'propRules':
+      return { tab: 'challenges', accountId: null };
     default:
       return {};
   }
@@ -173,7 +175,7 @@ export const MODULE_INFO: Record<ModuleType, { title: string; description: strin
   ai: { title: 'AI Studio', description: 'Claude builds, tests and explains strategies', icon: 'spark' },
   bots: { title: 'Bots', description: 'Automated paper-trading bots', icon: 'bot' },
   data: { title: 'Data Manager', description: 'Local historical data and tick downloads', icon: 'database' },
-  propRules: { title: 'Prop Rules', description: 'Prop-firm account rules and compliance', icon: 'shield' },
+  propRules: { title: 'Prop Challenges', description: 'FTMO and Lucid challenges: objectives, limits and rules at a glance', icon: 'shield' },
 };
 
 // ---------------------------------------------------------------------------------- tree ops

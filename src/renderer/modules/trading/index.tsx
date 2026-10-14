@@ -1,6 +1,7 @@
 import { registerModule } from '../registry';
 import { AccountModule } from './AccountModule';
 import { OrderEntryModule } from './OrderEntryModule';
+import { PropModule } from './PropModule';
 import { bus } from '../../lib/bus';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
@@ -11,6 +12,7 @@ import { resolveAccountId } from './accounts';
 
 registerModule('account', AccountModule);
 registerModule('orderEntry', OrderEntryModule);
+registerModule('propRules', PropModule);
 
 /** Quick-trade shortcuts act on the focused chart's instrument and the resolved paper account. */
 bus.on('trade:quick', async (d: { side: 'buy' | 'sell' | 'flatten' | 'cancel'; chart?: string }) => {

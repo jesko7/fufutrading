@@ -477,7 +477,7 @@ function RulesStrip({ a, onDetails }: { a: AccountSnapshot; onDetails: () => voi
   );
 }
 
-function RulesDetail({ a }: { a: AccountSnapshot }) {
+export function RulesDetail({ a }: { a: AccountSnapshot }) {
   const presets = usePresets();
   const r = a.rules!;
   const profile = presets?.profiles.find((p) => p.id === r.profileId);

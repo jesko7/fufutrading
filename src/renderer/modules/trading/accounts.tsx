@@ -131,14 +131,14 @@ export function AccountSelect({ value, onChange, market, compact }: { value: str
   );
 }
 
-export function openCreateAccount(onCreated?: (id: string) => void, defaults?: { kind?: 'manual' | 'bot' }): void {
+export function openCreateAccount(onCreated?: (id: string) => void, defaults?: { kind?: 'manual' | 'bot'; template?: 'generic' | 'prop' }): void {
   openModal('create-account', (close) => <CreateAccountModal onClose={close} onCreated={onCreated} defaults={defaults} />);
 }
 
-function CreateAccountModal({ onClose, onCreated, defaults }: { onClose: () => void; onCreated?: (id: string) => void; defaults?: { kind?: 'manual' | 'bot' } }) {
+function CreateAccountModal({ onClose, onCreated, defaults }: { onClose: () => void; onCreated?: (id: string) => void; defaults?: { kind?: 'manual' | 'bot'; template?: 'generic' | 'prop' } }) {
   const presets = usePresets();
   const [kind, setKind] = useState<'manual' | 'bot'>(defaults?.kind || 'manual');
-  const [template, setTemplate] = useState<'generic' | 'prop'>('generic');
+  const [template, setTemplate] = useState<'generic' | 'prop'>(defaults?.template || 'generic');
   const [presetId, setPresetId] = useState('perp-10k');
   const [name, setName] = useState('');
   const [market, setMarket] = useState<Market>('futures');
