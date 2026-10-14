@@ -392,6 +392,74 @@ const S = {
     const after = await page.evaluate((id) => window.fufu.invoke('bots:get', id), id);
     check(after.config.status === 'stopped' && after.account.position === 0 && after.account.openOrders === 0, 'stopped flat without orders');
   },
+  async replay() {
+    console.log('scenario: replay');
+    const iso = (t) => (t ? new Date(t).toISOString().slice(0, 19) : String(t));
+    // an indicator and a strategy on the chart must run on replay data only
+    await page.locator('button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    for (const q of ['Relative Strength', 'MA Crossover Strategy']) {
+      await page.fill('.picker-main input', q);
+      await wait(150);
+      await page.keyboard.press('Enter');
+      await wait(150);
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => [...document.querySelectorAll('.pane-legend .ind-item')].some((r) => /RSI/.test(r.textContent || '') && /\d+\.\d+/.test(r.textContent || '')), null, { timeout: 30000 });
+    const ids = await page.evaluate(() => Object.keys(window.__charts || {}));
+    const id = ids[0];
+    const before = await page.evaluate((id) => window.__charts[id].bars(), id);
+    await page.locator('.stack-head button:has-text("Replay")').first().click();
+    const box = await page.locator('.chart-host').first().boundingBox();
+    await wait(300);
+    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.45);
+    await page.waitForSelector('.replay-bar', { timeout: 20000 });
+    check(true, 'replay started from a picked bar');
+    const v0 = await page.evaluate(() => window.fufu.invoke('replay:get'));
+    await page.waitForFunction(([id, last]) => { const b = window.__charts[id].bars(); return b.n > 50 && b.last < last; }, [id, before.last], { timeout: 30000 });
+    const b0 = await page.evaluate((id) => window.__charts[id].bars(), id);
+    check(b0.last < v0.cursor && b0.last < before.last, `chart cut at the replay point (last bar ${iso(b0.last)} < cursor ${iso(v0.cursor)}, live last ${iso(before.last)})`);
+    await page.click('.replay-bar button[data-tip^="Forward one"]');
+    await page.waitForFunction(([id, last]) => window.__charts[id].bars().last > last, [id, b0.last], { timeout: 20000 });
+    const b1 = await page.evaluate((id) => window.__charts[id].bars(), id);
+    const v1 = await page.evaluate(() => window.fufu.invoke('replay:get'));
+    check(b1.last < v1.cursor, `step revealed one more bar (${iso(b1.last)}), cursor ${iso(v1.cursor)}`);
+    // trade on the replayed prices
+    await page.click('.replay-bar .btn.buy');
+    await page.waitForFunction(() => /L [\d.]/.test(document.querySelector('.replay-pnl')?.textContent || ''), null, { timeout: 15000 });
+    check(true, 'replay buy filled; position shown in the replay bar');
+    // play at 15 min/s
+    await page.click('.replay-bar button[data-tip^="Playback speed"]');
+    await page.click('.menu-item:has-text("15 min / s")');
+    await page.click('.replay-bar button[data-tip^="Play"]');
+    await wait(4000);
+    await page.click('.replay-bar button[data-tip^="Pause"]');
+    const v2 = await page.evaluate(() => window.fufu.invoke('replay:get'));
+    const b2 = await page.evaluate((id) => window.__charts[id].bars(), id);
+    check(v2.cursor - v1.cursor > 20 * 60000, `played forward ${Math.round((v2.cursor - v1.cursor) / 60000)} min in 4 s (interval ${v2.interval})`);
+    check(b2.last < v2.cursor && b2.last > b1.last, `chart follows the replay without future bars (${iso(b2.last)} < ${iso(v2.cursor)})`);
+    const acct = await page.evaluate((v) => window.fufu.invoke('trading:snapshot', v.accounts.spot), v2);
+    check(acct.positions.length === 1 && Math.abs(acct.positions[0].mark - b2.close) / b2.close < 0.01, `replay position marked at replay prices (mark ${acct.positions[0]?.mark}, chart close ${b2.close})`);
+    const lv = await page.evaluate(() => [...document.querySelectorAll('.ind-item')].map((x) => x.textContent || '').join(' | '));
+    const errs = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
+    check(errs.length === 0 && /RSI/.test(lv) && /trades/.test(lv), `indicator and strategy run on replay data (${lv.replace(/\s+/g, ' ').slice(0, 140)})`);
+    const notice = await page.textContent('.ob .replay-notice').catch(() => '');
+    check(/Live/.test(notice || ''), 'order book is marked as live data during the replay');
+    // the trade panel trades the replay account at replay prices: a limit order below the replay price
+    check(await page.isVisible('.badge:has-text("Replay account")'), 'trade panel switched to the replay account');
+    await shot('21-replay');
+    await page.click('.replay-bar button:has-text("Close")');
+    await page.waitForFunction(() => !/L [\d.]/.test(document.querySelector('.replay-pnl')?.textContent || ''), null, { timeout: 15000 });
+    const hist = await page.evaluate((v) => window.fufu.invoke('trading:history', v.accounts.spot), v2);
+    check(hist.trades.length >= 1 && hist.trades.at(-1).closedAt <= v2.cursor + 1000, `replay trade closed at replay time (${iso(hist.trades.at(-1)?.closedAt)})`);
+    // live accounts are not affected and replay accounts are hidden from account lists
+    const list = await page.evaluate(() => window.fufu.invoke('trading:list'));
+    check(!list.some((a) => a.config.replay), 'replay accounts are not listed with live accounts');
+    await page.click('.replay-bar button[data-tip^="Exit replay"]');
+    await page.waitForSelector('.replay-bar', { state: 'detached', timeout: 10000 });
+    await page.waitForFunction(([id, last]) => window.__charts[id].bars().last >= last, [id, before.last], { timeout: 30000 });
+    check(true, 'exit replay returns the chart to live data');
+  },
 };
 
 try {

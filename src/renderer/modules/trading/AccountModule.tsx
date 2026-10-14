@@ -10,6 +10,7 @@ import type { AccountSnapshot, ClosedTrade, Fill, AccountEvent } from '../../../
 import { SYMBOL_SPECS, priceDecimals, qtyDecimals } from '../../../shared/symbols';
 import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtDuration, fmtTime } from '../../lib/format';
 import { describeOrderUi } from './util';
+import { useReplayView } from '../chart/replay';
 import './trading.css';
 
 type Tab = 'positions' | 'orders' | 'trades' | 'events' | 'equity' | 'rules';
@@ -18,7 +19,12 @@ export function AccountModule({ module }: ModuleProps) {
   const cfg = module.config as { accountId: string | null; tab?: Tab };
   const set = (p: Record<string, unknown>) => useApp.getState().setModuleConfig(module.id, p);
   const accounts = useAccounts();
-  const id = resolveAccountId(cfg.accountId, accounts);
+  // while the window replays, the replay accounts can be inspected here as well
+  const replay = useReplayView();
+  const replayAccts = replay ? (Object.entries(replay.accounts).filter(([, v]) => !!v) as [string, string][]) : [];
+  const [replayPick, setReplayPick] = useState<string | null>(null);
+  const showReplay = !!replay && replayPick !== null && replayAccts.some(([, v]) => v === replayPick);
+  const id = showReplay ? replayPick : resolveAccountId(cfg.accountId, accounts);
   const a = useAccount(id);
   const tab: Tab = cfg.tab || 'positions';
   const menu = usePopover();
@@ -35,8 +41,26 @@ export function AccountModule({ module }: ModuleProps) {
     };
   }, [id, tab]);
 
-  if (!accounts.length)
+  const replayStrip = replayAccts.length ? (
+    <div className="replay-notice" style={{ gap: 8 }}>
+      <Icon name="replay" size={13} />
+      <span>Replay running</span>
+      <span className="spacer" />
+      <button className={clsx('btn small ghost', !showReplay && 'on')} onClick={() => setReplayPick(null)}>
+        Live accounts
+      </button>
+      {replayAccts.map(([m, v]) => (
+        <button key={v} className={clsx('btn small ghost', showReplay && replayPick === v && 'on')} onClick={() => setReplayPick(v)}>
+          Replay {m}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  if (!accounts.length && !showReplay)
     return (
+      <>
+      {replayStrip}
       <Empty icon="wallet" title="No paper accounts">
         <div className="col" style={{ alignItems: 'center' }}>
           Create a manual or bot account — standard, or with FTMO / Lucid prop-firm rules.
@@ -45,6 +69,7 @@ export function AccountModule({ module }: ModuleProps) {
           </button>
         </div>
       </Empty>
+      </>
     );
   if (!a) return <div className="empty"><span className="spinner" /></div>;
 
@@ -83,8 +108,9 @@ export function AccountModule({ module }: ModuleProps) {
 
   return (
     <div className="acct">
+      {replayStrip}
       <HeadControls>
-        <AccountSelect value={id} onChange={(nid) => set({ accountId: nid })} />
+        {showReplay ? <span className="badge warn">{a.config.name}</span> : <AccountSelect value={id} onChange={(nid) => set({ accountId: nid })} />}
         {statusBadge(a)}
         <div className="spacer" />
         <button className="icon-btn" onClick={(e) => menu.toggle(e.currentTarget)}>

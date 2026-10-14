@@ -91,12 +91,15 @@ export function ChartModule({ module }: ModuleProps) {
     const e = new ChartEngine(hostRef.current!, chartTheme(useApp.getState().settings));
     engRef.current = e;
     setEng(e);
+    // test/diagnostics hook: last bar time and count of each chart
+    ((window as any).__charts ||= {})[module.id] = { bars: () => { const b = storeRef.current; return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null }; } };
     const onTheme = () => e.setTheme(chartTheme(useApp.getState().settings));
     window.addEventListener('fufu-theme', onTheme);
     return () => {
       window.removeEventListener('fufu-theme', onTheme);
       e.destroy();
       engRef.current = null;
+      delete (window as any).__charts?.[module.id];
     };
   }, []);
 
@@ -176,6 +179,11 @@ export function ChartModule({ module }: ModuleProps) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eng, replay.active, replay.sessionId, spec]);
+
+  // replay start-bar picking
+  useEffect(() => {
+    eng?.setPickBarMode(replay.picking);
+  }, [eng, replay.picking]);
 
   // countdown refresh
   useEffect(() => {

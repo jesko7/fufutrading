@@ -1,3 +1,4 @@
+import { ReplayLiveNotice } from '../chart/replay';
 import { useEffect, useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp } from '../../state/store';
@@ -140,6 +141,7 @@ export function DepthModule({ module }: ModuleProps) {
         <Segmented size="sm" value={unit} onChange={(v) => set({ unit: v })} options={[{ value: 'quote', label: 'USDT' }, { value: 'base', label: SYMBOL_SPECS[cfg.symbol].base }]} />
         <Segmented size="sm" value={String(range)} onChange={(v) => set({ rangePct: +v })} options={['0.25', '0.5', '1', '2', '5'].map((v) => ({ value: v, label: `±${v}%` }))} />
       </HeadControls>
+      <ReplayLiveNotice what="order books aren't recorded historically" />
       <div
         className="canvas-fill"
         ref={ref}

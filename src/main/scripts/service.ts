@@ -33,6 +33,8 @@ export interface IndicatorParams {
   spec: SeriesSpec;
   strategy?: Partial<BrokerConfig> | null;
   bars?: number;
+  /** Run on a replay session's series (no data beyond the replay clock). */
+  replay?: { session: string; epoch: number };
 }
 
 const THROTTLE_MS = 250;
@@ -88,7 +90,7 @@ class LiveScript {
     if (!isSymbol(this.p.spec?.symbol) || (this.p.spec.market !== 'spot' && this.p.spec.market !== 'futures')) throw new Error('Validation: invalid instrument');
     if (!parseTimeframe(this.p.spec.tf)) throw new Error('Validation: invalid timeframe');
     this.loadCode();
-    const { series, release } = core.series.acquire(this.p.spec, { bars: this.p.bars });
+    const { series, release } = this.acquire(this.p.spec, this.p.bars);
     this.series = series;
     this.releaseSeries = release;
     this.push({ type: 'status', status: 'loading', script: this.scriptInfo() });
@@ -123,6 +125,11 @@ class LiveScript {
     this.svc.pool.lostListeners.add(onLost);
     this.offLost = () => this.svc.pool.lostListeners.delete(onLost);
     await this.open();
+  }
+
+  /** Live series, or the replay session's series for replay charts (request.security included). */
+  private acquire(spec: SeriesSpec, bars?: number) {
+    return this.p.replay ? this.svc.core.acquireReplay(spec, this.p.replay) : this.svc.core.series.acquire(spec, { bars });
   }
 
   private loadCode(): void {
@@ -214,7 +221,7 @@ class LiveScript {
         return;
       }
       const spec: SeriesSpec = { symbol: kp.symbol as SymbolId, market: kp.market, tf: kp.tf, chartType: kp.chartType === 'heikinashi' ? 'heikinashi' : 'candles' };
-      const { series, release } = this.svc.core.series.acquire(spec, { bars: Math.min(20000, Math.max(500, this.p.bars || 2000)) });
+      const { series, release } = this.acquire(spec, Math.min(20000, Math.max(500, this.p.bars || 2000)));
       const entry = { series, release, unsub: () => {}, dirtyFrom: Infinity, sent: false };
       this.sec.set(key, entry);
       try {

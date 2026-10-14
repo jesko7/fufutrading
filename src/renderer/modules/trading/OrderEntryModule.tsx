@@ -11,6 +11,7 @@ import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick, typ
 import { liquidationPrice, maxLeverageFor } from '../../../shared/trading/brackets';
 import type { OrderType, PlaceOrderRequest } from '../../../shared/trading/types';
 import { clsx, fmtNum, fmtUsd } from '../../lib/format';
+import { useReplayView } from '../chart/replay';
 import './trading.css';
 
 type SizeUnit = 'base' | 'quote' | 'pct';
@@ -19,12 +20,18 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const cfg = module.config as { accountId: string | null; symbol: SymbolId; market: Market };
   const set = (p: Record<string, unknown>) => useApp.getState().setModuleConfig(module.id, p);
   const accounts = useAccounts();
-  const accountId = resolveAccountId(cfg.accountId, accounts);
+  // during a replay this panel trades the window's replay account at replay prices
+  const replay = useReplayView();
+  const replayId = replay ? replay.accounts[cfg.market] || null : null;
+  useEffect(() => {
+    if (replay && !replayId) void api.call('replay:account', cfg.market).catch(() => {});
+  }, [replay?.id, replayId, cfg.market]);
+  const accountId = replay ? replayId : resolveAccountId(cfg.accountId, accounts);
   const acct = useAccount(accountId);
-  const market: Market = acct?.config.market || cfg.market;
+  const market: Market = replay ? cfg.market : acct?.config.market || cfg.market;
   const symbol = cfg.symbol;
   const ticker = useTicker(symbol, market);
-  const last = ticker?.last || NaN;
+  const last = replay ? (replay.prices[`${market}:${symbol}`] ?? NaN) : ticker?.last || NaN;
   const spec = SYMBOL_SPECS[symbol][market];
   const pd = priceDecimals(symbol, market);
   const qd = qtyDecimals(symbol, market);
@@ -139,7 +146,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
     }
   };
 
-  if (!accounts.length)
+  if (!accounts.length && !replay)
     return (
       <div className="empty">
         <Icon name="wallet" size={26} />
@@ -154,8 +161,14 @@ export function OrderEntryModule({ module }: ModuleProps) {
   return (
     <div className="mod-scroll trade-panel">
       <HeadControls>
-        <AccountSelect value={accountId} onChange={(id) => set({ accountId: id })} compact />
-        <SymbolPicker symbol={symbol} market={market} onChange={(s) => set({ symbol: s })} showMarket={false} />
+        {replay ? (
+          <span className="badge warn" data-tip="Orders go to this window's replay account and fill on replayed prices">
+            <Icon name="replay" size={11} /> Replay account
+          </span>
+        ) : (
+          <AccountSelect value={accountId} onChange={(id) => set({ accountId: id })} compact />
+        )}
+        <SymbolPicker symbol={symbol} market={market} onChange={(s, m) => set(replay ? { symbol: s, market: m } : { symbol: s })} showMarket={!!replay} />
         <div className="spacer" />
         {acct && statusBadge(acct)}
       </HeadControls>

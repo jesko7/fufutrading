@@ -1,3 +1,4 @@
+import { ReplayLiveNotice } from '../chart/replay';
 import { serverNow } from '../../lib/clock';
 import { useEffect, useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
@@ -326,6 +327,7 @@ export function HeatmapModule({ module }: ModuleProps) {
           </Popover>
         )}
       </HeadControls>
+      <ReplayLiveNotice what="order books aren't recorded historically" />
       <div
         className="canvas-fill"
         ref={ref}

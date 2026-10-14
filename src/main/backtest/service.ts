@@ -124,7 +124,7 @@ function downsample(m: Metrics['curves']): BacktestRecord['curves'] {
 }
 
 /** Historical funding events per symbol, cached with coverage ranges. */
-class FundingCache {
+export class FundingCache {
   constructor(
     private dir: string,
     private core: AppCore,

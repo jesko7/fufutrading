@@ -1,3 +1,4 @@
+import { ReplayLiveNotice } from '../chart/replay';
 import { useMemo, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp } from '../../state/store';
@@ -87,6 +88,7 @@ export function OrderBookModule({ module }: ModuleProps) {
         />
         <ImbalanceSettings method={imb.method} param={imb.param} onChange={(mm, p) => set({ imbalance: { method: mm, param: p } })} />
       </HeadControls>
+      <ReplayLiveNotice what="order books aren't recorded historically" />
       <div className="ob-head">
         <span>Price ({spec.quote})</span>
         <span>Size ({spec.base})</span>

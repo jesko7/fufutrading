@@ -37,7 +37,7 @@ function seriesSpec(cfg: ChartModuleConfig) {
   return { symbol: cfg.symbol, market: cfg.market, tf: cfg.tf, chartType: ct, renko: cfg.chartType === 'renko' ? cfg.renko || { atrLength: 14 } : undefined };
 }
 
-export function useChartIndicators(moduleId: string, cfg: ChartModuleConfig, storeRef: { current: BarStore }, dataVersion: number, liveTick: number, replay: { active: boolean }): { outputs: IndicatorOutput[]; lives: Map<string, Live> } {
+export function useChartIndicators(moduleId: string, cfg: ChartModuleConfig, storeRef: { current: BarStore }, dataVersion: number, liveTick: number, replay: { active: boolean; ref?: { session: string; epoch: number } | null }): { outputs: IndicatorOutput[]; lives: Map<string, Live> } {
   const subs = useRef(new Map<string, { hash: string; unsub: () => void }>());
   const lives = useRef(new Map<string, Live>());
   const [version, setVersion] = useState(0);
@@ -54,7 +54,9 @@ export function useChartIndicators(moduleId: string, cfg: ChartModuleConfig, sto
 
   useEffect(() => {
     const want = new Map<string, string>();
-    if (!replay.active) for (const ind of indicators) want.set(ind.id, JSON.stringify([ind.scriptId, ind.inputs, ind.strategy ?? null, spec]));
+    // in replay, scripts run on the replay session's series (nothing beyond the replay point)
+    const rref = replay.active ? replay.ref || null : null;
+    if (!replay.active || rref) for (const ind of indicators) want.set(ind.id, JSON.stringify([ind.scriptId, ind.inputs, ind.strategy ?? null, spec, rref]));
     for (const [id, s] of subs.current) {
       if (want.get(id) !== s.hash) {
         s.unsub();
@@ -72,7 +74,7 @@ export function useChartIndicators(moduleId: string, cfg: ChartModuleConfig, sto
       const st: Live = { result: prev?.result ?? null, t0: prev?.t0 ?? NaN, status: 'loading', script: prev?.script };
       lives.current.set(ind.id, st);
       registry.set(`${moduleId}/${ind.id}`, st);
-      const unsub = api.sub<any>('indicator', { scriptId: ind.scriptId, inputs: ind.inputs || {}, strategy: ind.strategy ?? undefined, spec }, (msg) => {
+      const unsub = api.sub<any>('indicator', { scriptId: ind.scriptId, inputs: ind.inputs || {}, strategy: ind.strategy ?? undefined, spec, replay: rref || undefined }, (msg) => {
         if (msg.__error) {
           st.status = 'error';
           st.error = String(msg.__error).replace(/^Validation: /, '');
@@ -102,7 +104,7 @@ export function useChartIndicators(moduleId: string, cfg: ChartModuleConfig, sto
     }
     bump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(indicators.map((i) => [i.id, i.scriptId, i.inputs, i.strategy ?? null])), spec, replay.active, moduleId]);
+  }, [JSON.stringify(indicators.map((i) => [i.id, i.scriptId, i.inputs, i.strategy ?? null])), spec, replay.active, replay.ref?.session, replay.ref?.epoch, moduleId]);
 
   useEffect(
     () => () => {

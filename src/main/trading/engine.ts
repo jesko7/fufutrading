@@ -48,6 +48,8 @@ export class TradingEngine {
   eventListeners = new Set<(id: string, e: AccountEvent) => void>();
   /** Called before an account is removed or reset (bots stop their runners). */
   beforeRemove = new Set<(id: string) => void>();
+  /** Market context of a replay account while its replay runs (set by the replay service). */
+  replayCtx: ((id: string) => MarketCtx | null) | null = null;
 
   constructor(private core: AppCore) {
     this.store = new DocStore(path.join(core.paths.userData, 'accounts'));
@@ -341,6 +343,17 @@ export class TradingEngine {
     this.needsRecalc = true;
   }
 
+  /** Prices, time and order book an account trades on: live, or its replay's clock. */
+  ctxFor(id: string): MarketCtx {
+    const rt = this.accounts.get(id);
+    if (rt?.config.replay) {
+      const c = this.replayCtx?.(id);
+      if (!c) throw new Error('Validation: replay accounts trade only while their replay is running');
+      return c;
+    }
+    return this.ctx;
+  }
+
   /** Manual actions on an account a running bot controls would be undone by the bot. */
   assertManual(id: string): void {
     const b = this.get(id).config.bot;
@@ -352,7 +365,7 @@ export class TradingEngine {
     const rt = this.get(id);
     if ((req.source || 'manual') === 'manual') this.assertManual(id);
     try {
-      const o = rt.placeOrder(req, this.ctx);
+      const o = rt.placeOrder(req, this.ctxFor(id));
       this.needsRecalc = true;
       this.markDirty(id);
       return o;
@@ -363,7 +376,8 @@ export class TradingEngine {
   }
 
   snapshot(id: string): AccountSnapshot {
-    return this.get(id).snapshot(this.ctx);
+    const rt = this.get(id);
+    return rt.snapshot(rt.config.replay ? this.replayCtx?.(id) || this.ctx : this.ctx);
   }
 
   list(): AccountSnapshot[] {
@@ -412,19 +426,19 @@ export function registerTrading(core: AppCore): TradingEngine {
   }));
   r.handle('trading:modify', ([id, orderId, patch]) => wrap(() => {
     eng.assertManual(id);
-    return eng.get(id).modifyOrder(orderId, patch, eng.ctx);
+    return eng.get(id).modifyOrder(orderId, patch, eng.ctxFor(id));
   }));
   r.handle('trading:close', ([id, symbol, qty]) => wrap(() => {
     eng.assertManual(id);
-    return eng.get(id).closePosition(symbol, eng.ctx, qty);
+    return eng.get(id).closePosition(symbol, eng.ctxFor(id), qty);
   }));
   r.handle('trading:flatten', ([id]) => wrap(() => {
     eng.assertManual(id);
-    return eng.get(id).flattenAll(eng.ctx, 'manual', 'flatten all');
+    return eng.get(id).flattenAll(eng.ctxFor(id), 'manual', 'flatten all');
   }));
   r.handle('trading:setBrackets', ([id, symbol, b]) => wrap(() => {
     eng.assertManual(id);
-    return eng.get(id).setBrackets(symbol, b, eng.ctx);
+    return eng.get(id).setBrackets(symbol, b, eng.ctxFor(id));
   }));
   r.handle('trading:setLeverage', ([id, symbol, lev]) =>
     wrap(() => {

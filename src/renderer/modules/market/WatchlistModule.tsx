@@ -1,3 +1,4 @@
+import { ReplayLiveNotice } from '../chart/replay';
 import { useEffect, useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp } from '../../state/store';
@@ -21,6 +22,7 @@ export function WatchlistModule({ module }: ModuleProps) {
   }
   return (
     <div className="mod-scroll">
+      <ReplayLiveNotice what="current prices" />
       <HeadControls>
         <div className="spacer" />
         <Segmented size="sm" value={filter} onChange={(v) => set({ filter: v })} options={[{ value: 'all', label: 'All' }, { value: 'spot', label: 'Spot' }, { value: 'futures', label: 'Perp' }]} />

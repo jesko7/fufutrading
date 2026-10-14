@@ -1,3 +1,4 @@
+import { ReplayLiveNotice } from '../chart/replay';
 import { serverNow } from '../../lib/clock';
 import { useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
@@ -49,6 +50,7 @@ export function TradesModule({ module }: ModuleProps) {
         <div className="spacer" />
         <Select value={String(min)} onChange={(v) => set({ minNotional: +v })} options={[0, 1000, 10000, 50000, 100000, 500000].map((v) => ({ value: String(v), label: v ? `≥ $${fmtCompact(v)}` : 'All sizes' }))} style={{ height: 24, fontSize: 12 }} />
       </HeadControls>
+      <ReplayLiveNotice what="the replay reveals klines, not single trades" />
       <div className="row" style={{ padding: '6px 10px', fontSize: 11.5, borderBottom: '1px solid var(--border)' }}>
         <span className="faint">Last 60s</span>
         <span className="up num">Buy ${fmtCompact(stats.buy)}</span>
