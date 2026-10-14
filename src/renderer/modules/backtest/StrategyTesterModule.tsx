@@ -129,7 +129,8 @@ export function StrategyTesterModule({ module }: ModuleProps) {
   };
 
   // external "run now" requests (editor / legend)
-  const lastAuto = useRef(cfg.autorun || 0);
+  // a fresh request (module just opened for it) runs once; a stale value from a saved layout does not
+  const lastAuto = useRef(cfg.autorun && Date.now() - cfg.autorun < 15000 ? 0 : cfg.autorun || 0);
   useEffect(() => {
     if (cfg.autorun && cfg.autorun !== lastAuto.current) {
       lastAuto.current = cfg.autorun;

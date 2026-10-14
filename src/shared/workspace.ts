@@ -24,7 +24,8 @@ export type ModuleType =
   | 'ai'
   | 'bots'
   | 'data'
-  | 'propRules';
+  | 'propRules'
+  | 'builder';
 
 export interface Rect {
   x: number;
@@ -152,6 +153,8 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
       return { filter: 'all' };
     case 'propRules':
       return { tab: 'challenges', accountId: null };
+    case 'builder':
+      return { model: null };
     default:
       return {};
   }
@@ -176,6 +179,7 @@ export const MODULE_INFO: Record<ModuleType, { title: string; description: strin
   bots: { title: 'Bots', description: 'Automated paper-trading bots', icon: 'bot' },
   data: { title: 'Data Manager', description: 'Local historical data and tick downloads', icon: 'database' },
   propRules: { title: 'Prop Challenges', description: 'FTMO and Lucid challenges: objectives, limits and rules at a glance', icon: 'shield' },
+  builder: { title: 'Strategy Builder', description: 'Build a strategy as a flowchart; get editable Pine Script or Python', icon: 'flow' },
 };
 
 // ---------------------------------------------------------------------------------- tree ops

@@ -1,0 +1,75 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import path from 'node:path';
+import { runPine, analyzePine, securityRequests, compileCached } from '../../src/engine/pine';
+import { runPython, initPython, type PyInitOptions } from '../../src/engine/python/host';
+import { TEMPLATES, generate, validate, defaultInd, type BuilderModel, type IndKind } from '../../src/shared/builder';
+import type { BarSeries } from '../../src/engine/types';
+import { bars, aggregateBars, ctx } from '../helpers/bars';
+
+const root = path.resolve(__dirname, '../..');
+const PY: PyInitOptions = {
+  pyodideDir: path.join(root, 'node_modules/pyodide'),
+  cacheDir: path.join(root, '.cache/pyodide'),
+  pythonDir: path.join(root, 'src/engine/python'),
+  bundledWheels: path.join(root, 'resources/wheels'),
+};
+
+// a noisy trending series so every template trades
+const data: BarSeries = bars(3000, (i) => 100 + Math.sin(i / 23) * 9 + Math.sin(i / 7) * 3 + Math.sin(i / 131) * 15 + i * 0.004);
+const htf = aggregateBars(data, 240);
+
+function securityFor(code: string): Record<string, BarSeries> {
+  const out: Record<string, BarSeries> = {};
+  for (const r of securityRequests(compileCached(code), {}, ctx)) out[r.key] = htf;
+  return out;
+}
+
+beforeAll(async () => {
+  await initPython(PY);
+}, 240000);
+
+describe('strategy builder code generation', () => {
+  for (const t of TEMPLATES) {
+    it(`"${t.label}" compiles and trades in Pine`, () => {
+      // the synthetic history holds only a few 4h bars: use a short trend-filter EMA here
+      const m: BuilderModel = { ...t.model, filter: { ...t.model.filter, len: 3 }, short: { ...t.model.short, enabled: true, when: t.model.short.when.conds.length ? t.model.short.when : t.model.long.when } };
+      expect(validate(m)).toEqual([]);
+      const code = generate({ ...m, language: 'pine' });
+      const a = analyzePine(code);
+      expect(a.ok, a.error?.message).toBe(true);
+      expect((a.warnings || []).filter((w) => w.kind === 'lookahead')).toEqual([]);
+      const r = runPine(code, { data, ctx, inputs: {}, security: securityFor(code) });
+      expect(r.ok, r.error?.message).toBe(true);
+      expect(r.strategy!.trades.length).toBeGreaterThan(2);
+    });
+
+    it(`"${t.label}" runs and trades in Python`, async () => {
+      const code = generate({ ...t.model, filter: { ...t.model.filter, len: 3 }, language: 'python' });
+      const sec: Record<string, BarSeries> = t.model.filter.enabled ? { [`spot:BTCUSDT:${t.model.filter.tf}:candles`]: htf } : {};
+      const r = await runPython(PY, { code, data, ctx, inputs: {}, security: sec });
+      expect(r.need).toEqual([]);
+      expect(r.result.ok, r.result.error?.message).toBe(true);
+      expect(r.result.strategy!.trades.length).toBeGreaterThan(2);
+    }, 120000);
+  }
+
+  it('generates every indicator kind in both languages', async () => {
+    const kinds: IndKind[] = ['sma', 'ema', 'rsi', 'macd', 'macdSignal', 'macdHist', 'bbUpper', 'bbBasis', 'bbLower', 'atr', 'stochK', 'stochD', 'highest', 'lowest', 'vwap', 'volume', 'volumeSma', 'supertrend'];
+    const m: BuilderModel = {
+      ...TEMPLATES[0].model,
+      long: { enabled: true, when: { op: 'or', conds: kinds.map((k) => ({ left: defaultInd(k), cmp: 'above' as const, right: { kind: 'value' as const, v: 1e12 } })) } },
+      risk: { stopPct: 2, takePct: 4, trailPct: 3, sizePct: 50 },
+    };
+    const pine = generate({ ...m, language: 'pine' });
+    const a = analyzePine(pine);
+    expect(a.ok, a.error?.message).toBe(true);
+    expect(runPine(pine, { data, ctx, inputs: {} }).ok).toBe(true);
+    const py = await runPython(PY, { code: generate({ ...m, language: 'python' }), data, ctx, inputs: {} });
+    expect(py.result.ok, py.result.error?.message).toBe(true);
+  }, 120000);
+
+  it('reports invalid models', () => {
+    const m: BuilderModel = { ...TEMPLATES[0].model, long: { enabled: true, when: { op: 'and', conds: [] } } };
+    expect(validate(m)[0]).toMatch(/long entry condition/);
+  });
+});

@@ -639,6 +639,40 @@ const S = {
     check(programs >= 3, `supported programs listed (${programs})`);
     await shot('31-prop');
   },
+  async builder() {
+    console.log('scenario: strategy builder');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Strategy Builder');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.builder', { timeout: 15000 });
+    await page.click('.builder-bar button:has-text("Templates")');
+    await page.click('.menu-item:has-text("RSI mean reversion")');
+    await page.waitForFunction(() => /ta\.rsi/.test(document.querySelector('.code-pre')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'template loaded; Pine code generated');
+    await page.waitForFunction(() => /compiles/.test(document.querySelector('.code-head')?.textContent || ''), null, { timeout: 20000 });
+    check(true, 'generated Pine compiles');
+    // edit: change the RSI entry level from 30 to 25
+    await page.locator('.flow-node.t-long .operand.value').first().click();
+    const val = page.locator('.popover input').first();
+    await val.fill('25');
+    await val.press('Tab');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => /crossover\(x_rsi_14_close, 25\)/.test(document.querySelector('.code-pre')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'editing a condition updates the code');
+    // Python output compiles too
+    await page.click('.builder-bar .seg button:has-text("Python")');
+    await page.waitForFunction(() => /class .*\(Strategy\)/.test(document.querySelector('.code-pre')?.textContent || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /compiles/.test(document.querySelector('.code-head')?.textContent || ''), null, { timeout: 120000 });
+    check(true, 'generated Python compiles');
+    await page.click('.builder-bar .seg button:has-text("Pine Script")');
+    await shot('32-builder');
+    await page.click('.builder-bar button:has-text("Backtest")');
+    await page.waitForSelector('.tester', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelectorAll('.tester .kpi, .tester .stat').length > 3, null, { timeout: 180000 });
+    check(true, 'builder strategy saved and backtested in the Strategy Tester');
+    await shot('33-builder-backtest');
+  },
 };
 
 try {

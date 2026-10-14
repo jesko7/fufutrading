@@ -34,6 +34,7 @@ export const MODULES: Record<ModuleType, { component: ComponentType<ModuleProps>
   bots: { component: Pending },
   data: { component: Pending },
   propRules: { component: Pending },
+  builder: { component: Pending },
 };
 
 /** Register (or replace) a module component — used by feature packages. */
