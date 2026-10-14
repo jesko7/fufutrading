@@ -138,6 +138,7 @@ export class OptimizerService {
     let bars = shareDeep(P.bars);
     let broker = shareDeep(P.brokerCfg);
     let security = shareDeep(P.security);
+    const magnifier = P.magnifier ? shareDeep(P.magnifier) : undefined;
     const n = bars.length;
     const from = P.tradeFrom;
     const cache = new Map<string, TrialResult>();
@@ -153,7 +154,7 @@ export class OptimizerService {
       const job = (async () => {
         for (let round = 0; round < 4; round++) {
           if (signal.cancelled) throw new Error('Cancelled');
-          const h = this.scripts.pool.trial({ lang: P.language, code: P.code, ctx: P.ctx, inputs: { ...(req.inputs || {}), ...pt }, strategy: broker, data: bars, security, from, riskFree: req.riskFree ?? 0 });
+          const h = this.scripts.pool.trial({ lang: P.language, code: P.code, ctx: P.ctx, inputs: { ...(req.inputs || {}), ...pt }, strategy: broker, data: bars, security, from, riskFree: req.riskFree ?? 0, magnifier });
           handles.add(h);
           let r: TrialResult;
           try {

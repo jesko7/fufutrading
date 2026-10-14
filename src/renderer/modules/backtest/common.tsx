@@ -26,6 +26,7 @@ export interface TesterCfg {
   allowShortSpot?: boolean;
   borrowRateAnnual?: number;
   riskFree?: number;
+  intrabar?: 'auto' | 'off' | '1s' | '1m' | '5m' | '15m' | '1h';
   runId?: string | null;
   autorun?: number;
   tab?: string;
@@ -65,7 +66,7 @@ export function buildRequest(cfg: TesterCfg): BacktestRequest {
     broker.allowShortSpot = true;
     broker.borrowRateAnnual = (cfg.borrowRateAnnual ?? 5) / 100;
   }
-  return { scriptId: cfg.scriptId || undefined, inputs: cfg.inputs || {}, symbol: cfg.symbol, market: cfg.market, tf: cfg.tf, chartType: cfg.chartType || 'candles', from, to, warmupBars: cfg.warmupBars ?? 500, costs: cfg.costs || (cfg.market === 'futures' ? 'binance-futures' : 'binance-spot'), broker, fillOnStandardOhlc: cfg.fillOnStandardOhlc !== false, feeSensitivity: !!cfg.feeSensitivity, riskFree: (cfg.riskFree ?? 0) / 100 };
+  return { scriptId: cfg.scriptId || undefined, inputs: cfg.inputs || {}, symbol: cfg.symbol, market: cfg.market, tf: cfg.tf, chartType: cfg.chartType || 'candles', from, to, warmupBars: cfg.warmupBars ?? 500, costs: cfg.costs || (cfg.market === 'futures' ? 'binance-futures' : 'binance-spot'), broker, fillOnStandardOhlc: cfg.fillOnStandardOhlc !== false, feeSensitivity: !!cfg.feeSensitivity, riskFree: (cfg.riskFree ?? 0) / 100, intrabar: cfg.intrabar || 'auto' };
 }
 
 // ------------------------------------------------------------------ settings
@@ -111,6 +112,22 @@ export function TesterSettings({ cfg, setCfg }: { cfg: TesterCfg; setCfg: (p: Pa
         </label>
       )}
       <div className="set-group-title">Fills</div>
+      <label className="set-row" data-tip="Fill orders along real lower-timeframe klines inside each bar (TradingView's 'bar magnifier'). Auto picks the finest interval that stays practical for the range.">
+        <span>Intrabar precision</span>
+        <Select
+          value={cfg.intrabar || 'auto'}
+          options={[
+            { value: 'auto', label: 'Auto (recommended)' },
+            { value: 'off', label: 'Off — bar OHLC path' },
+            ...(cfg.market === 'spot' ? [{ value: '1s' as const, label: '1-second klines' }] : []),
+            { value: '1m', label: '1-minute klines' },
+            { value: '5m', label: '5-minute klines' },
+            { value: '15m', label: '15-minute klines' },
+            { value: '1h', label: '1-hour klines' },
+          ]}
+          onChange={(v) => setCfg({ intrabar: v })}
+        />
+      </label>
       <label className="set-row">
         <span>Limit orders fill when price</span>
         <Select value={cfg.limitFill || 'through'} options={[{ value: 'through', label: 'trades through the limit' }, { value: 'touch', label: 'touches the limit' }]} onChange={(v) => setCfg({ limitFill: v })} />

@@ -197,7 +197,8 @@ const EXIT_NS = '__exit_';
 export const publicOrderId = (id: string): string => (id.startsWith(EXIT_NS) ? id.slice(EXIT_NS.length) : id);
 
 /** Optional per-bar trade ticks for trade-level fills. */
-export type TickProvider = (bar: number) => { t: Float64Array; p: Float64Array; q: Float64Array } | null;
+/** `path: true` marks a reconstructed price path (bar magnifier) rather than real trades. */
+export type TickProvider = (bar: number) => { t: Float64Array; p: Float64Array; q: Float64Array; path?: boolean } | null;
 
 export class StrategyBroker {
   readonly cfg: BrokerConfig;
@@ -543,7 +544,7 @@ export class StrategyBroker {
       this.ticksUsedBars++;
       let prev = o;
       for (let k = 0; k < ticks.p.length; k++) {
-        this.segment(prev, ticks.p[k], ticks.q[k], i, true);
+        this.segment(prev, ticks.p[k], ticks.q[k], i, !ticks.path);
         prev = ticks.p[k];
       }
     } else {

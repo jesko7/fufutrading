@@ -18,10 +18,11 @@ import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
 import { keyParts } from '../../engine/host';
 import { fromCandles } from '../../engine/data';
 import type { BrokerConfig } from '../../engine/backtest/broker';
+import { buildMagnifier, magnifierCoverage, type Magnifier } from '../../engine/backtest/magnifier';
 import type { BarSeries, ScriptLanguage, StrategyRaw, TradeRec } from '../../engine/types';
 import { CandleSeries, aggregate, heikinAshi, renko, type RenkoOptions } from '../../shared/candles';
 import { SYMBOL_SPECS, isSymbol, type Market, type SymbolId } from '../../shared/symbols';
-import { parseTimeframe, timeForBarsBack, baseIntervalFor, intervalToTf, bucketStart } from '../../shared/timeframes';
+import { parseTimeframe, timeForBarsBack, baseIntervalFor, intervalToTf, bucketStart, tfDurationMs, intervalMs, type Timeframe } from '../../shared/timeframes';
 import { costPreset } from '../../shared/trading/presets';
 
 export interface BacktestRequest {
@@ -47,6 +48,8 @@ export interface BacktestRequest {
   feeSensitivity?: boolean;
   riskFree?: number;
   label?: string;
+  /** Intrabar precision: fill along lower-timeframe klines ('auto' picks the finest practical interval). */
+  intrabar?: 'auto' | 'off' | '1s' | '1m' | '5m' | '15m' | '1h';
 }
 
 export interface FeeSensitivityRow {
@@ -94,6 +97,7 @@ export interface Prepared {
   markUsed: boolean;
   source: string;
   inputs: import('../../engine/types').ScriptInputDef[];
+  magnifier?: Magnifier;
 }
 
 const MAX_POINTS = 2500;
@@ -304,6 +308,25 @@ export class BacktestService {
         }
       }
     }
+    // ---- bar magnifier (intrabar precision from lower-timeframe klines)
+    let magnifier: Magnifier | undefined;
+    if (req.chartType !== 'renko' && req.intrabar !== 'off') {
+      const iv = this.magnifierInterval(req, tf, bars.tc[bars.length - 1] - bars.t[0], bars.length);
+      if (iv) {
+        try {
+          progress({ phase: `Loading ${iv} klines for intrabar precision` });
+          const sub = await this.core.store.get('klines', req.market, req.symbol, iv, bars.t[0], bars.tc[bars.length - 1], progress);
+          if (signal.cancelled) throw new Error('Cancelled');
+          magnifier = buildMagnifier(bars, sub, iv);
+          const cov = magnifierCoverage(magnifier, tradeFrom);
+          fills = `Bar magnifier: orders fill along the ${iv} klines inside each ${req.tf} bar (${Math.round(cov * 100)}% of bars), each following open → nearer extreme → other extreme → close`;
+          if (cov < 0.95) warnings.push(`Intrabar data (${iv}) covers ${Math.round(cov * 100)}% of the bars; the rest use the bar's own OHLC path.`);
+        } catch (e) {
+          if ((e as Error).message === 'Cancelled') throw e;
+          warnings.push(`Intrabar precision unavailable (${(e as Error).message}); bar OHLC paths used.`);
+        }
+      } else if (req.intrabar && req.intrabar !== 'auto') warnings.push(`${req.intrabar} intrabar data is not finer than ${req.tf} or too large for this range; bar OHLC paths used.`);
+    }
     if (markUsed) fills += '; liquidations on mark price';
     if (signal.cancelled) throw new Error('Cancelled');
     const security: Record<string, BarSeries> = {};
@@ -321,7 +344,23 @@ export class BacktestService {
         security[key] = fromCandles(other, kp.tf, kp.chartType);
       }
     };
-    return { code, language, name, ctx, bars, tradeFrom, brokerCfg, security, loadSecurity, warnings, fills, fundingN, markUsed, source: `Binance ${req.market} klines (${baseIntervalFor(tf, req.market)} cache, aggregated to ${req.tf})`, inputs: an.inputs };
+    return { code, language, name, ctx, bars, tradeFrom, brokerCfg, security, loadSecurity, warnings, fills, fundingN, markUsed, source: `Binance ${req.market} klines (${baseIntervalFor(tf, req.market)} cache, aggregated to ${req.tf})`, inputs: an.inputs, magnifier };
+  }
+
+  /** Finest lower-timeframe interval that is useful (≥ 3 per bar) and practical (≤ 1.5 M klines). */
+  private magnifierInterval(req: BacktestRequest, tf: Timeframe, spanMs: number, nBars: number): string | null {
+    const tfMs = tfDurationMs(tf);
+    const MAX = 1_500_000;
+    const candidates = req.intrabar && req.intrabar !== 'auto' ? [req.intrabar] : ['1s', '1m', '5m', '15m', '1h'];
+    for (const iv of candidates) {
+      if (iv === '1s' && req.market !== 'spot') continue;
+      const ms = intervalMs(iv);
+      if (tfMs < ms * 3 || tfMs % ms !== 0) continue;
+      if (spanMs / ms > MAX) continue;
+      void nBars;
+      return iv;
+    }
+    return null;
   }
 
   async run(req: BacktestRequest, progress: Progress, signal: { cancelled: boolean; onCancel?: () => void }): Promise<BacktestRecord> {
@@ -330,7 +369,7 @@ export class BacktestService {
     const { bars, tradeFrom, brokerCfg, security } = P;
     const runOnce = async (cfg: Partial<BrokerConfig>) => {
       for (let round = 0; round < 4; round++) {
-        const handle = this.scripts.pool.run({ lang: P.language, code: P.code, ctx: P.ctx, inputs: req.inputs || {}, strategy: cfg, data: bars, security }, { timeoutMs: 30 * 60000 });
+        const handle = this.scripts.pool.run({ lang: P.language, code: P.code, ctx: P.ctx, inputs: req.inputs || {}, strategy: cfg, data: bars, security, magnifier: P.magnifier }, { timeoutMs: 30 * 60000 });
         signal.onCancel = () => handle.cancel();
         const r = await handle.promise;
         if (!r.need.length) return r.result;

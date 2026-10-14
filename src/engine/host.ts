@@ -15,6 +15,7 @@ import { makePatch, type ResultPatch } from './patch';
 import { computeMetrics, type Metrics } from './backtest/metrics';
 import type { CompactTrade } from './optimize/analysis';
 import type { BrokerConfig, PendingSnap, TickProvider } from './backtest/broker';
+import { magnifierTicks, type Magnifier } from './backtest/magnifier';
 
 export type { ResultPatch, PlotPatch } from './patch';
 export { applyPatch, makePatch } from './patch';
@@ -91,6 +92,8 @@ export interface RunSpec {
   shouldStop?: () => boolean;
   /** Live bot step (see PineRunOptions.bot). */
   bot?: boolean;
+  /** Bar magnifier: fill orders along lower-timeframe klines inside each bar. */
+  magnifier?: Magnifier;
 }
 
 export function keyParts(key: string): { market: 'spot' | 'futures'; symbol: string; tf: string; chartType: string } {
@@ -399,6 +402,7 @@ export class ScriptHost {
 
   async run(spec: RunSpec): Promise<{ result: ScriptResult; need: string[] }> {
     const data = toBars(spec.data, spec.ctx.tf, spec.ctx.chartType);
+    if (!spec.ticks && spec.magnifier) spec = { ...spec, ticks: magnifierTicks(spec.magnifier) };
     const security: Record<string, BarSeries> = {};
     for (const [k, v] of Object.entries(spec.security || {})) {
       const kp = keyParts(k);
