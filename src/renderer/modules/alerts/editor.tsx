@@ -4,7 +4,8 @@ import { toast } from '../../state/store';
 import { Modal, openModal, NumberField, Toggle, Select, Segmented, SymbolPicker, TimeframePicker, Spinner } from '../../components/ui';
 import { useScripts, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
-import { describeAlert, newAlert, type Alert, type AlertKind, type BookAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import { describeAlert, newAlert, webhookUrlError, type Alert, type AlertKind, type BookAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import { clsx } from '../../lib/format';
 import type { Market, SymbolId } from '../../../shared/symbols';
 import { SYMBOL_SPECS, roundToTick, priceDecimals } from '../../../shared/symbols';
 
@@ -142,8 +143,45 @@ function AlertEditor({ initial, onClose }: { initial: Alert; onClose: () => void
             <Toggle value={a.notify.sound} onChange={(v) => set({ notify: { ...a.notify, sound: v } })} /> Sound
           </label>
         </div>
+        <WebhookRow url={a.notify.webhook || ''} message={a.message || ''} onChange={(webhook) => set({ notify: { ...a.notify, webhook: webhook || undefined } })} />
       </div>
     </Modal>
+  );
+}
+
+/** TradingView-style webhook: POST the alert message to a URL (JSON when the message is JSON). */
+function WebhookRow({ url, message, onChange }: { url: string; message: string; onChange: (url: string) => void }) {
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const err = webhookUrlError(url);
+  const test = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const sample = message.trim() ? message.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => `<${k}>`) : 'FuFu test alert';
+      const r = await api.call<{ ok: boolean; status?: number; error?: string; ms: number }>('alerts:testWebhook', url, sample);
+      setResult(r.ok ? `Delivered (HTTP ${r.status}, ${r.ms} ms)` : `Failed: ${r.error || `HTTP ${r.status}`}`);
+    } catch (e) {
+      setResult(`Failed: ${errorMessage(e).replace(/^Validation: /, '')}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+  return (
+    <div className="ae-row" style={{ alignItems: 'flex-start' }}>
+      <span className="ae-label">Webhook</span>
+      <div className="col grow" style={{ gap: 4 }}>
+        <div className="row" style={{ gap: 6 }}>
+          <input className="input grow" placeholder="Optional: https://… receives the message as a POST request" value={url} onChange={(e) => onChange(e.target.value)} spellCheck={false} />
+          <button className="btn small" disabled={!url.trim() || !!err || testing} onClick={() => void test()}>
+            {testing ? 'Sending…' : 'Send test'}
+          </button>
+        </div>
+        <span className={clsx('small', err || result?.startsWith('Failed') ? 'danger-text' : 'faint')}>
+          {err || result || 'Sent as JSON when the message is valid JSON, otherwise as text. Use it to drive your own bot, Discord or a Telegram relay.'}
+        </span>
+      </div>
+    </div>
   );
 }
 

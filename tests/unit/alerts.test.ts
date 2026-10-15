@@ -137,3 +137,43 @@ describe('alert engine', () => {
     svc.shutdown();
   });
 });
+
+describe('alert webhooks', () => {
+  it('validates URLs and sends JSON or text bodies', async () => {
+    const { webhookUrlError, webhookBody } = await import('../../src/shared/alerts');
+    const { sendWebhook } = await import('../../src/main/alerts');
+    expect(webhookUrlError('https://example.com/hook')).toBeNull();
+    expect(webhookUrlError('ftp://example.com')).toMatch(/http/);
+    expect(webhookUrlError('not a url')).toMatch(/valid/);
+    expect(webhookBody('{"side":"buy"}').contentType).toBe('application/json');
+    expect(webhookBody('BTC crossed 50k').contentType).toMatch(/text\/plain/);
+    const http = await import('node:http');
+    const got: { type?: string; body: string }[] = [];
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (d) => (body += d));
+      req.on('end', () => {
+        got.push({ type: req.headers['content-type'], body });
+        if (req.url === '/slow') return; // never answers
+        res.statusCode = req.url === '/fail' ? 500 : 200;
+        res.end('ok');
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    try {
+      const ok = await sendWebhook(`http://127.0.0.1:${port}/hook`, '{"symbol":"BTCUSDT","price":50000}');
+      expect(ok.ok).toBe(true);
+      expect(got[0]).toEqual({ type: 'application/json', body: '{"symbol":"BTCUSDT","price":50000}' });
+      const fail = await sendWebhook(`http://127.0.0.1:${port}/fail`, 'text');
+      expect(fail).toMatchObject({ ok: false, status: 500 });
+      expect(got[1].type).toMatch(/text\/plain/);
+      const slow = await sendWebhook(`http://127.0.0.1:${port}/slow`, 'x', 300);
+      expect(slow.ok).toBe(false);
+      expect(slow.error).toMatch(/timed out/);
+    } finally {
+      server.closeAllConnections?.();
+      server.close();
+    }
+  });
+});

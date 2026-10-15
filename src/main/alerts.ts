@@ -19,6 +19,25 @@ import type { TradeTick } from '../shared/live';
 import { alertTitle, describeAlert, instrumentLabel, renderMessage, type Alert, type AlertEvent, type BookAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
 import { isSymbol, type Market, type SymbolId } from '../shared/symbols';
 import { parseTimeframe } from '../shared/timeframes';
+import { webhookBody, webhookUrlError } from '../shared/alerts';
+
+/** One webhook request with a timeout (5 s by default). */
+export async function sendWebhook(url: string, message: string, timeoutMs = 5000): Promise<{ ok: boolean; status?: number; error?: string; ms: number }> {
+  const t0 = Date.now();
+  const err = webhookUrlError(url);
+  if (err) return { ok: false, error: err, ms: 0 };
+  const { body, contentType } = webhookBody(message);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': contentType, 'User-Agent': 'FuFu-Trading-Alerts' }, body, signal: ctl.signal });
+    return { ok: r.ok, status: r.status, error: r.ok ? undefined : `HTTP ${r.status}`, ms: Date.now() - t0 };
+  } catch (e) {
+    return { ok: false, error: ctl.signal.aborted ? `timed out after ${Math.round(timeoutMs / 1000)} s` : (e as Error).message, ms: Date.now() - t0 };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const MAX_LOG = 1000;
 
@@ -545,9 +564,32 @@ export class AlertService {
     this.store.put(cur, true);
     if (cur.notify?.desktop !== false) this.core.notify(`🔔 ${ev.name}`, message);
     this.core.router.broadcast('alert:fired', { event: ev, sound: cur.notify?.sound !== false });
+    if (cur.notify?.webhook?.trim()) void this.deliverWebhook(cur, ev, message);
     if (cur.frequency === 'once') this.reconcile();
     this.changed();
     return true;
+  }
+
+  private lastWebhook = new Map<string, number>();
+
+  /** POST an alert's message to its webhook URL (at most once per second per alert) and record the outcome. */
+  private async deliverWebhook(a: Alert, ev: AlertEvent, message: string): Promise<void> {
+    const url = a.notify.webhook!.trim();
+    const now = Date.now();
+    if (now - (this.lastWebhook.get(a.id) || 0) < 1000) {
+      ev.webhook = { ok: false, error: 'skipped: more than one request per second' };
+      this.logDirty = true;
+      return;
+    }
+    this.lastWebhook.set(a.id, now);
+    const res = await sendWebhook(url, message);
+    ev.webhook = res;
+    this.logDirty = true;
+    this.changed();
+    if (!res.ok) {
+      this.core.log('warn', `alert webhook ${a.id}: ${res.error || res.status}`);
+      this.core.router.broadcast('toast', { title: `Webhook failed: ${alertTitle(a)}`, body: res.error || `HTTP ${res.status}`, kind: 'warn' });
+    }
   }
 
   private housekeeping(): void {
@@ -599,6 +641,11 @@ export function registerAlerts(core: AppCore, scripts: ScriptService): AlertServ
     return true;
   });
   r.handle('alerts:log', () => svc.log.slice(-500));
+  r.handle('alerts:testWebhook', async ([url, message]) => {
+    const err = webhookUrlError(String(url || ''));
+    if (err) throw new Error(`Validation: ${err}`);
+    return sendWebhook(String(url), String(message || 'FuFu test alert'));
+  });
   r.handle('alerts:clearLog', () => {
     svc.clearLog();
     return true;

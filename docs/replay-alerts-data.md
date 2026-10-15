@@ -45,6 +45,12 @@ pause), optional expiry, a message template (`{{symbol}} {{price}} {{value}} {{n
 {{time}}`), desktop notification and sound. Triggers are kept in the alert log. Alerts run in
 the background on the shared live data and don't slow down charts.
 
+**Webhooks:** like TradingView, an alert can POST its message to a URL when it fires. The
+message is sent as JSON when it is valid JSON, otherwise as text. Use it to drive your own bot,
+Discord or a Telegram relay. "Send test" checks the URL. The result of every delivery is shown
+in the alert log. Requests time out after 5 seconds, and at most one request per second is sent
+per alert.
+
 ## Market data
 
 - **Live:** Binance WebSocket streams (aggregate trades, klines, depth, mark price, tickers),

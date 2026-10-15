@@ -193,6 +193,11 @@ function AlertLog({ log, alerts }: { log: AlertEvent[]; alerts: Alert[] }) {
               <div className="col grow" style={{ minWidth: 0, gap: 1 }}>
                 <span>{e.message}</span>
                 {a && a.name && <span className="faint small">{a.name}</span>}
+                {e.webhook && (
+                  <span className={clsx('small', e.webhook.ok ? 'faint' : 'danger-text')}>
+                    Webhook {e.webhook.ok ? `delivered (HTTP ${e.webhook.status}, ${e.webhook.ms} ms)` : `failed: ${e.webhook.error || `HTTP ${e.webhook.status}`}`}
+                  </span>
+                )}
               </div>
               {a && (
                 <button className="icon-btn small" onClick={() => openAlertEditor(a)} data-tip="Edit alert">

@@ -20,7 +20,8 @@ interface AlertBase {
   expiresAt?: number | null;
   /** Message template: {{symbol}} {{price}} {{value}} {{name}} {{time}} {{message}}. */
   message?: string;
-  notify: { desktop: boolean; sound: boolean };
+  /** webhook: POST the message to this http(s) URL when the alert fires (like TradingView's webhook URL). */
+  notify: { desktop: boolean; sound: boolean; webhook?: string };
   created: number;
   updated: number;
   lastTriggered?: number;
@@ -95,6 +96,35 @@ export interface AlertEvent {
   message: string;
   price?: number;
   value?: number;
+  /** Delivery to the webhook URL, when one is set. */
+  webhook?: { ok: boolean; status?: number; error?: string; ms?: number };
+}
+
+/** Why a webhook URL can't be used (null = fine). */
+export function webhookUrlError(url: string): string | null {
+  const u = url.trim();
+  if (!u) return null;
+  try {
+    const p = new URL(u);
+    if (p.protocol !== 'https:' && p.protocol !== 'http:') return 'Use an http:// or https:// URL';
+    return null;
+  } catch {
+    return 'Not a valid URL';
+  }
+}
+
+/** Body and content type of a webhook request: JSON when the message is valid JSON, else plain text. */
+export function webhookBody(message: string): { body: string; contentType: string } {
+  const m = message.trim();
+  if ((m.startsWith('{') && m.endsWith('}')) || (m.startsWith('[') && m.endsWith(']'))) {
+    try {
+      JSON.parse(m);
+      return { body: m, contentType: 'application/json' };
+    } catch {
+      /* not JSON */
+    }
+  }
+  return { body: message, contentType: 'text/plain; charset=utf-8' };
 }
 
 const COND: Record<string, string> = {
