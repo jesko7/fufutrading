@@ -435,6 +435,21 @@ function addIndicator(moduleId: string, scriptId: string): void {
   st.setModuleConfig(moduleId, { indicators: [...cur, { id: newId('i'), scriptId, inputs: {}, visible: true }] });
 }
 
+/** Open the AI Studio to build an indicator for this chart (sent right away when there is a description). */
+function askAIToBuild(moduleId: string, what: string, close: () => void): void {
+  const m = useApp.getState().workspace?.modules[moduleId];
+  const c = m?.config as ChartModuleConfig | undefined;
+  const chart = c ? { symbol: c.symbol, market: c.market, tf: c.tf } : undefined;
+  close();
+  bus.emit(
+    'ai:open',
+    what
+      ? { prompt: `Build an indicator: ${what}. Check it on real data and add it to my chart.`, context: chart ? { chart } : undefined, mode: 'build', send: true }
+      : { prompt: 'Build an indicator that ', context: chart ? { chart } : undefined, mode: 'build', send: false },
+    false,
+  );
+}
+
 function IndicatorPicker({ moduleId, onClose }: { moduleId: string; onClose: () => void }) {
   const scripts = useScripts();
   const [q, setQ] = useState('');
@@ -490,7 +505,20 @@ function IndicatorPicker({ moduleId, onClose }: { moduleId: string; onClose: () 
           />
           <div className="picker-list">
             {!scripts && <Spinner />}
-            {scripts && !list.length && <Empty icon="search" title="No scripts found">Try another search or create a new script.</Empty>}
+            {scripts && !list.length && (
+              <Empty icon="search" title="No scripts found">
+                {q.trim() ? (
+                  <>
+                    <div>Nothing matches “{q.trim()}”. Claude can build it, check it on real data and add it to this chart.</div>
+                    <button className="btn small primary" style={{ marginTop: 10 }} onClick={() => askAIToBuild(moduleId, q.trim(), onClose)}>
+                      <Icon name="spark" size={13} /> Build “{q.trim().slice(0, 40)}” with AI
+                    </button>
+                  </>
+                ) : (
+                  'Try another search or create a new script.'
+                )}
+              </Empty>
+            )}
             {list.map((s, k) => (
               <div key={s.id} className={clsx('picker-row', k === sel && 'sel')} onClick={() => add(s)} onMouseEnter={() => setSel(k)}>
                 <span className={clsx('lang-badge', s.language)}>{s.language === 'python' ? 'Py' : 'Pine'}</span>
@@ -549,6 +577,9 @@ function IndicatorPicker({ moduleId, onClose }: { moduleId: string; onClose: () 
               }
             >
               <Icon name="upload" size={14} /> Import .pine / .py
+            </button>
+            <button className="btn small" onClick={() => askAIToBuild(moduleId, '', onClose)} data-tip="Describe an indicator or strategy; Claude writes, checks and adds it">
+              <Icon name="spark" size={14} /> Create with AI
             </button>
             <div className="spacer" />
             <span className="muted small">Enter adds the highlighted script · click adds · ★ favorites</span>

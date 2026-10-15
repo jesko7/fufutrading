@@ -237,6 +237,14 @@ const S = {
       await wait(150);
     }
     await shot('06-picker');
+    // nothing found: Claude offers to build it; "Create with AI" prepares the request without sending
+    await page.fill('.picker-main input', 'volume weighted squeeze ribbon');
+    await page.waitForSelector('.picker-list button:has-text("with AI")', { timeout: 5000 });
+    check(true, 'an unmatched search offers to build the indicator with AI');
+    await page.click('.picker-foot button:has-text("Create with AI")');
+    await page.waitForSelector('.ai-studio', { timeout: 15000 });
+    await page.waitForFunction(() => /Build an indicator that/.test(document.querySelector('.ai-input')?.value || ''), null, { timeout: 10000 });
+    check(true, 'AI Studio opens with the request prepared');
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.querySelectorAll('.chart-module:first-of-type .ind-item, .ind-item').length >= 4, null, { timeout: 30000 });
     // Python needs Pyodide to start (first run may take a few seconds)
