@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { useTopicValue } from '../../lib/hooks';
-import type { AccountConfig, AccountSnapshot, AccountEvent } from '../../../shared/trading/types';
+import type { AccountConfig, AccountSnapshot, AccountEvent, BotConfig } from '../../../shared/trading/types';
 import type { CostPreset, AccountPreset } from '../../../shared/trading/presets';
 import type { RuleProfile } from '../../../shared/propfirm/types';
 import { Modal, Segmented, Field, NumberField, Select, Toggle, Popover, usePopover, openModal } from '../../components/ui';
@@ -131,16 +131,25 @@ export function AccountSelect({ value, onChange, market, compact }: { value: str
   );
 }
 
-export function openCreateAccount(onCreated?: (id: string) => void, defaults?: { kind?: 'manual' | 'bot'; template?: 'generic' | 'prop' }): void {
+/** Defaults for the new-account dialog; `bot` prefills a bot (strategy, inputs, instrument) to review and start. */
+export interface CreateAccountDefaults {
+  kind?: 'manual' | 'bot';
+  template?: 'generic' | 'prop';
+  market?: Market;
+  name?: string;
+  bot?: Partial<BotConfig>;
+}
+
+export function openCreateAccount(onCreated?: (id: string) => void, defaults?: CreateAccountDefaults): void {
   openModal('create-account', (close) => <CreateAccountModal onClose={close} onCreated={onCreated} defaults={defaults} />);
 }
 
-function CreateAccountModal({ onClose, onCreated, defaults }: { onClose: () => void; onCreated?: (id: string) => void; defaults?: { kind?: 'manual' | 'bot'; template?: 'generic' | 'prop' } }) {
+function CreateAccountModal({ onClose, onCreated, defaults }: { onClose: () => void; onCreated?: (id: string) => void; defaults?: CreateAccountDefaults }) {
   const presets = usePresets();
   const [kind, setKind] = useState<'manual' | 'bot'>(defaults?.kind || 'manual');
   const [template, setTemplate] = useState<'generic' | 'prop'>(defaults?.template || 'generic');
-  const [presetId, setPresetId] = useState('perp-10k');
-  const [name, setName] = useState('');
+  const [presetId, setPresetId] = useState((defaults?.market || defaults?.bot?.market) === 'spot' ? 'spot-10k' : 'perp-10k');
+  const [name, setName] = useState(defaults?.name || '');
   const [market, setMarket] = useState<Market>('futures');
   const [balance, setBalance] = useState(10000);
   const [costPreset, setCostPreset] = useState('binance-futures');
@@ -201,7 +210,7 @@ function CreateAccountModal({ onClose, onCreated, defaults }: { onClose: () => v
         execution: { limitFill, partialFills: partial, stopTrigger },
       };
       if (template === 'prop' && profile) req.prop = { profileId: profile.id, size, options };
-      if (kind === 'bot') req.bot = { scriptId: '', language: 'pine', params: {}, symbol: 'BTCUSDT', market: req.market, tf: '15m', chartType: 'candles', status: 'stopped', sizing: { mode: 'percentEquity', value: 10 }, autostart: true };
+      if (kind === 'bot') req.bot = { scriptId: '', language: 'pine', params: {}, symbol: 'BTCUSDT', tf: '15m', chartType: 'candles', sizing: { mode: 'percentEquity', value: 10 }, autostart: true, ...(defaults?.bot || {}), market: req.market, status: 'stopped' };
       const cfg = await api.call<AccountConfig>('trading:create', req);
       toast({ title: 'Account created', body: cfg.name, kind: 'ok' });
       if (!useApp.getState().settings.trading.defaultAccountId) void useApp.getState().updateSettings({ trading: { ...useApp.getState().settings.trading, defaultAccountId: cfg.id } });

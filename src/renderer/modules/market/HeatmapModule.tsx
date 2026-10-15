@@ -346,6 +346,11 @@ export function HeatmapModule({ module }: ModuleProps) {
             Collecting order-book snapshots…
           </div>
         )}
+        {cols.current.length > 0 && Date.now() - cols.current[0].t < minutes * 60000 * 0.6 && (
+          <div className="heat-history-note">
+            Order-book history since {fmtTime(cols.current[0].t)}. It fills as live snapshots arrive; Binance provides no past order books.
+          </div>
+        )}
       </div>
       <div className="large-list">
         <div className="row" style={{ padding: '5px 10px', position: 'sticky', top: 0, background: 'var(--panel)' }}>

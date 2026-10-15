@@ -724,11 +724,11 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'show_in_app',
       readOnly: true,
       description:
-        'Show something to the user in the app: open a script in the Script Editor, add a script to the focused chart (with inputs), open a backtest in the Strategy Tester or an optimization in the Optimizer. Use it at the end so the user sees the result.',
+        'Show something to the user in the app: open a script in the Script Editor, add a script to the focused chart (with inputs), open a backtest in the Strategy Tester or an optimization in the Optimizer, or prepare a paper-trading bot for a strategy (create_bot: the user reviews the size and starts it). Use it at the end so the user sees the result.',
       inputSchema: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['open_script', 'add_to_chart', 'open_backtest', 'open_optimization'] },
+          action: { type: 'string', enum: ['open_script', 'add_to_chart', 'open_backtest', 'open_optimization', 'create_bot'] },
           id: { type: 'string', description: 'Script id, backtest record id or optimization record id' },
           inputs: { type: 'object' },
           symbol: INSTRUMENT_SCHEMA.symbol,
@@ -740,11 +740,13 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       async run(args) {
         const action = String(args.action);
         const id = str(args.id, 'id');
-        if ((action === 'open_script' || action === 'add_to_chart') && !scripts.library.get(id)) throw new Error(`script "${id}" not found`);
-        deps.core.router.broadcast('ai:ui', { action, id, inputs: args.inputs || {}, symbol: args.symbol, market: args.market, tf: args.tf });
+        const script = scripts.library.get(id);
+        if ((action === 'open_script' || action === 'add_to_chart' || action === 'create_bot') && !script) throw new Error(`script "${id}" not found`);
+        if (action === 'create_bot' && script?.kind !== 'strategy') throw new Error('create_bot needs a strategy');
+        deps.core.router.broadcast('ai:ui', { action, id, inputs: args.inputs || {}, symbol: args.symbol, market: args.market, tf: args.tf, name: script?.name, language: script?.language });
         return { done: true, action, id };
       },
-      card: (a) => ({ kind: 'ui', title: a.action === 'add_to_chart' ? 'Added to the chart' : a.action === 'open_script' ? 'Opened in the editor' : a.action === 'open_backtest' ? 'Opened in the Strategy Tester' : 'Opened in the Optimizer', data: { action: a.action, id: a.id } }),
+      card: (a) => ({ kind: 'ui', title: a.action === 'add_to_chart' ? 'Added to the chart' : a.action === 'open_script' ? 'Opened in the editor' : a.action === 'open_backtest' ? 'Opened in the Strategy Tester' : a.action === 'create_bot' ? 'Prepared a paper bot' : 'Opened in the Optimizer', data: { action: a.action, id: a.id } }),
     },
   ];
 }

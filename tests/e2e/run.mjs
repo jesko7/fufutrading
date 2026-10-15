@@ -713,6 +713,16 @@ const S = {
     console.log('    ' + rb.result.runs.map((r) => `${r.label}: ${r.error || `${r.returnPct}% (B&H ${r.buyHoldPct}%)`}`).join(' | '));
     const hist = await page.evaluate(() => window.fufu.invoke('backtests:list'));
     check(!hist.some((h) => h.label === 'robustness'), 'robustness runs stay out of the Strategy Tester history');
+    // Claude prepares a paper bot: the dialog opens prefilled, the bot is set up with the strategy
+    await call('show_in_app', { action: 'create_bot', id: 'builtin:strat_ma_cross', symbol: 'ETHUSDT', market: 'spot', tf: '4h', inputs: {} });
+    await page.waitForSelector('.modal:has-text("New paper account")', { timeout: 10000 });
+    const nameVal = await page.inputValue('.modal input[type=text], .modal input:not([type])').catch(() => '');
+    check(/MA Crossover Strategy bot/.test(nameVal), `bot dialog prefilled (${nameVal})`);
+    await page.click('.modal button:has-text("Create account")');
+    await page.waitForSelector('.bot-setup', { timeout: 15000 });
+    const setup = await page.textContent('.bot-setup');
+    check(/MA Crossover/.test(setup || '') && /ETH/.test(setup || ''), 'bot set up with the strategy and instrument from Claude');
+    await shot('28b-ai-bot');
   },
   async footprint() {
     console.log('scenario: footprint');

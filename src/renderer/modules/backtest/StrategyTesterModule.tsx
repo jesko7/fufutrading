@@ -24,6 +24,8 @@ import type { TradeStats } from '../../../engine/backtest/metrics';
 import { lastChartId } from '../scripts/focus';
 import { type TesterCfg, type RangePreset, type RunSummary, rangeOf, buildRequest, TesterSettings } from './common';
 import { RandomView, GreeksView } from './benchmarkViews';
+import { openCreateAccount } from '../trading/accounts';
+import { openModule } from '../../app/moduleOps';
 import './backtest.css';
 
 function pf(x: number): string {
@@ -321,6 +323,18 @@ function Results({ rec, tab, setTab, onAddToChart, onRerun }: { rec: BacktestRec
             align="end"
             items={[
               { label: 'Run again', icon: 'refresh', onClick: onRerun },
+              {
+                label: 'Run as paper bot…',
+                icon: 'bot',
+                disabled: !rec.script.id,
+                onClick: () =>
+                  openCreateAccount((id) => void openModule('bots', { botId: id }), {
+                    kind: 'bot',
+                    market: rec.request.market,
+                    name: `${rec.script.name} bot`,
+                    bot: { scriptId: rec.script.id!, scriptName: rec.script.name, language: rec.script.language, params: rec.request.inputs || {}, symbol: rec.request.symbol, market: rec.request.market, tf: rec.request.tf, chartType: rec.request.chartType === 'heikinashi' ? 'heikinashi' : 'candles' },
+                  }),
+              },
               { label: 'Open script', icon: 'code', onClick: () => void openScriptInEditor(rec.script.id) },
               { label: 'Export trades (CSV)', icon: 'download', onClick: () => exportCsv(rec) },
               {

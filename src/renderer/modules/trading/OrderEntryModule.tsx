@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
-import { useTicker } from '../../lib/hooks';
+import { useTicker, useTopicValue } from '../../lib/hooks';
+import { serverNow } from '../../lib/clock';
 import { bus } from '../../lib/bus';
 import { SymbolPicker, Segmented, NumberField, Toggle, Tabs, confirmDialog } from '../../components/ui';
 import { Icon } from '../../components/Icon';
@@ -104,14 +105,14 @@ export function OrderEntryModule({ module }: ModuleProps) {
   // reduce-only orders free margin instead of using it
   const margin = market === 'futures' ? (reduceOnly ? 0 : notional / lev) : notional + fee;
   const estLiq = useMemo(() => {
-    if (market !== 'futures' || !acct || !(qty > 0) || !(refPrice > 0)) return NaN;
+    if (market !== 'futures' || !acct || !(qty > 0) || !(refPrice > 0) || reduceOnly) return NaN;
     const dir = side === 'buy' ? 1 : -1;
     const signed = (pos ? pos.side * pos.qty : 0) + dir * qty;
     if (signed === 0) return NaN;
     const entry = pos && pos.side === dir ? (pos.entry * pos.qty + refPrice * qty) / (pos.qty + qty) : refPrice;
     const wallet = mode === 'isolated' ? (Math.abs(signed) * entry) / lev : acct.wallet;
     return liquidationPrice({ symbol, side: signed > 0 ? 1 : -1, qty: Math.abs(signed), entry, wallet });
-  }, [market, acct, qty, refPrice, side, pos, mode, lev, symbol]);
+  }, [market, acct, qty, refPrice, side, pos, mode, lev, symbol, reduceOnly]);
 
   const canSubmit = !!acct && qty >= spec.minQty && !busy && (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0));
 
@@ -199,6 +200,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
         {acct && statusBadge(acct)}
       </HeadControls>
       {acct?.rules && acct.status !== 'active' && <div className={clsx('callout', acct.status === 'breached' ? 'danger' : 'warn')}>{acct.statusReason}</div>}
+      {market === 'futures' && !replay && <FundingRow symbol={symbol} pd={pd} />}
       <div className="seg buy-sell" style={{ width: '100%', display: 'flex' }}>
         <button className={clsx('b', side === 'buy' && 'on')} style={{ flex: 1, height: 28 }} onClick={() => setSide('buy')}>
           {market === 'futures' ? 'Long' : 'Buy'}
@@ -339,6 +341,31 @@ export function OrderEntryModule({ module }: ModuleProps) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Binance-style mark price, funding rate and countdown to the next funding (futures). */
+function FundingRow({ symbol, pd }: { symbol: SymbolId; pd: number }) {
+  const mark = useTopicValue<{ mark: number; fundingRate: number; nextFundingTime: number }>('mark', { symbol });
+  const [now, setNow] = useState(serverNow());
+  useEffect(() => {
+    const t = setInterval(() => setNow(serverNow()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!mark) return null;
+  const left = Math.max(0, mark.nextFundingTime - now);
+  const hh = Math.floor(left / 3600000);
+  const mm = Math.floor((left % 3600000) / 60000);
+  const ss = Math.floor((left % 60000) / 1000);
+  const pad = (x: number) => String(x).padStart(2, '0');
+  return (
+    <div className="funding-row" data-tip="Mark price (used for liquidation and P&L), funding rate (longs pay shorts when positive) and time to the next funding">
+      <span className="faint">Mark</span> <b className="num">{fmtNum(mark.mark, pd)}</b>
+      <span className="faint">Funding</span> <b className={clsx('num', mark.fundingRate > 0 ? 'down' : mark.fundingRate < 0 ? 'up' : '')}>{(mark.fundingRate * 100).toFixed(4)}%</b>
+      <span className="num faint">
+        {pad(hh)}:{pad(mm)}:{pad(ss)}
+      </span>
     </div>
   );
 }
