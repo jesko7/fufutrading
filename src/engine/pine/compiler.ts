@@ -12,6 +12,7 @@ import { PineError } from './lexer';
 import type { Expr, Stmt, FuncDef, IfStmt, SwitchStmt, ForStmt, ForInStmt, WhileStmt, TypeRef, Program, Arg } from './ast';
 import { BUILTINS, SPECIAL, UNSUPPORTED, VARIABLES, CONSTANTS, type Ret, type Spec } from './builtins/registry';
 import { COLORS } from './builtins/lib';
+import { V4_FUNCTIONS, V4_VARIABLES, V3_COLORS, V3_PLOT_STYLES, V3_INPUT_TYPES, V3_VARIABLES, normalizeLegacyCall, v4Vwap } from './legacy';
 
 export interface InputDef {
   key: string;
@@ -881,6 +882,17 @@ class Compiler {
       if (e.name === 'timenow') this.warn(e, 'Repainting: timenow is the current clock time — logic based on it gives different results on historical bars than it did live.', 'repaint');
       return { js: bv.js, ret: bv.ret };
     }
+    if (this.version <= 4) {
+      if (e.name === 'vwap') return this.call(v4Vwap(e));
+      const alias = V4_VARIABLES[e.name];
+      if (alias && VARIABLES[alias]) return { js: VARIABLES[alias].js, ret: VARIABLES[alias].ret };
+    }
+    if (this.version <= 3) {
+      const c = this.legacyConst(e.name);
+      if (c !== undefined) return { js: JSON.stringify(c), ret: V3_COLORS.includes(e.name) ? 'color' : 'str' };
+      const alias = V3_VARIABLES[e.name];
+      if (alias && VARIABLES[alias]) return { js: VARIABLES[alias].js, ret: VARIABLES[alias].ret };
+    }
     if (this.udts.has(e.name)) return { js: `U_${e.name}`, ret: 'obj' };
     if (this.enums.has(e.name)) return { js: `E_${e.name}`, ret: 'obj' };
     if (e.name === 'strategy' || e.name === 'ta' || e.name === 'math') this.err(`'${e.name}' is a namespace`, e);
@@ -1109,6 +1121,7 @@ class Compiler {
       }
       case 'id':
         if (e.name === 'na') return NaN;
+        if (this.version <= 3 && !this.lookup(e.name)) return this.legacyConst(e.name);
         return undefined;
       case 'member': {
         const full = this.fullName(e);
@@ -1133,6 +1146,14 @@ class Compiler {
         return undefined;
       }
     }
+    return undefined;
+  }
+
+  /** v3 bare constants: colours, plot styles and input types. */
+  legacyConst(name: string): string | undefined {
+    if (V3_COLORS.includes(name)) return COLORS[name];
+    if (V3_PLOT_STYLES[name]) return JSON.parse(CONSTANTS[V3_PLOT_STYLES[name]]);
+    if (V3_INPUT_TYPES.includes(name)) return name;
     return undefined;
   }
 
@@ -1172,6 +1193,20 @@ class Compiler {
     // user function
     const uf = this.fns.get(name);
     if (uf && !uf.def.isMethod) return this.userCall(uf, e.args, e);
+    // Pine v4 and older: built-ins without namespaces, iff(), offset()
+    if (this.version <= 4) {
+      if (name === 'iff') {
+        const [c, a, b] = this.mapArgs(e.args, ['condition', 'then', 'else'], e);
+        if (!c || !a || !b) this.err('iff() needs a condition and two values', e);
+        return this.expr({ k: 'ternary', test: c, then: a, else: b, line: e.line, col: e.col } as Expr);
+      }
+      if (name === 'offset') {
+        const [src, off] = this.mapArgs(e.args, ['source', 'offset'], e);
+        if (!src || !off) this.err('offset() needs a source and an offset', e);
+        return this.expr({ k: 'index', obj: src, index: off, id: e.id, line: e.line, col: e.col } as Expr);
+      }
+      if (V4_FUNCTIONS[name]) name = V4_FUNCTIONS[name];
+    }
     // generics: array.new<float>(...) / map.new<k,v>()
     if (name === 'array.new' || name === 'map.new' || name === 'matrix.new') {
       if (name === 'matrix.new') this.err(`matrix.new: ${UNSUPPORTED['matrix.new']}`, e, 'unsupported');
@@ -1186,7 +1221,12 @@ class Compiler {
       const argJs = e.args.map((a) => this.expr(a.value).js);
       return { js: `B.strat.trade(R, ${JSON.stringify(kind)}, ${JSON.stringify(field)}, ${argJs.join(', ') || '0'})`, ret: 'num' };
     }
-    if (SPECIAL.has(name)) return this.special(name, e);
+    if (SPECIAL.has(name)) {
+      // v4 signatures (transp, positional when, resolution) and v5's when= become v5 calls
+      const { call: c2, when } = normalizeLegacyCall(name, e, this.version);
+      const r = this.special(name, c2);
+      return when ? { ...r, js: `(${this.cond(when)} ? ${r.js} : undefined)` } : r;
+    }
     const spec = BUILTINS[name];
     if (!spec) {
       if (name.startsWith('request.')) this.err(`${name} is not supported`, e, 'unsupported');
@@ -1556,11 +1596,14 @@ class Compiler {
         type = 'string';
         break;
       default: {
+        // v4 input(defval, title, type=input.integer|float|bool|string|source|resolution|session|symbol|time|color)
         const t = this.constEval(get('type'));
-        if (defE.k === 'id' || (defE.k === 'member' && !this.constEval(defE))) type = 'source';
+        const byType: Record<string, InputDef['type']> = { integer: 'int', float: 'float', bool: 'bool', string: 'string', source: 'source', resolution: 'timeframe', session: 'session', symbol: 'symbol', time: 'time', color: 'color', price: 'float' };
+        if (typeof t === 'string' && byType[t]) type = byType[t];
+        else if (defE.k === 'id' || (defE.k === 'member' && !this.constEval(defE))) type = 'source';
         else if (typeof defval === 'boolean') type = 'bool';
         else if (typeof defval === 'string') type = defval.startsWith('#') ? 'color' : 'string';
-        else type = t === 'integer' || (defE.k === 'num' && defE.isInt) ? 'int' : 'float';
+        else type = defE.k === 'num' && defE.isInt ? 'int' : 'float';
       }
     }
     if (type === 'source') {

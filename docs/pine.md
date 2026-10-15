@@ -12,7 +12,15 @@ the engine. Open it in the app (Script Editor → Help → Pine reference) or as
 
 Supported:
 
-- `//@version=4|5|6`; `indicator()` / `study()`, `strategy()`.
+- `//@version=3|4|5|6`; `indicator()` / `study()`, `strategy()`.
+- Older scripts run unchanged:
+  - **v4:** built-ins without namespaces (`sma`, `rsi`, `atr`, `max`, `security`, `tostring` …),
+    `iff()`, `offset()`, `study(resolution=…)` and `input(type=input.integer …)`.
+  - **v4 plots:** `transp` on plots, shapes, fills and backgrounds.
+  - **v4 strategies:** `when` conditions on strategy calls (also accepted in v5).
+  - **v4 variables:** `tr`, `obv`, `vwap` and the other bare variables.
+  - **v3:** bare colours (`lime`), plot styles (`style=histogram`), input types
+    (`type=integer`), and `tickerid`, `period`, `interval`, `n`.
 - Types `int float bool string color`, `na`, series/simple/const qualifiers (type annotations are
   accepted; values are checked at runtime).
 - Variables: `=`, `:=`, compound assignment, `var`, `varip`, tuples `[a, b] = f()`.

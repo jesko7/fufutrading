@@ -430,6 +430,8 @@ export const CONSTANTS: Record<string, string> = (() => {
   add('adjustment', 'none,splits,dividends');
   add('scale', 'right,left,none');
   add('earnings', 'actual,estimate,standardized');
+  // v4 input(type=...) constants
+  for (const t of 'integer,float,bool,string,source,resolution,session,symbol,time,color,price'.split(',')) c[`input.${t}`] = JSON.stringify(t);
   c['strategy.long'] = '1';
   c['strategy.short'] = '-1';
   c['strategy.fixed'] = '"fixed"';
