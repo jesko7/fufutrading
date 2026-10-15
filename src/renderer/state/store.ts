@@ -4,6 +4,7 @@ import type { Workspace, ModuleState, LayoutNode, DropPos } from '../../shared/w
 import type { AppSettings } from '../../shared/settings';
 import { mergeSettings } from '../../shared/settings';
 import { setTimezoneMode } from '../lib/format';
+import { autoPlacement } from '../app/placement';
 
 export interface Toast {
   id: number;
@@ -36,7 +37,8 @@ interface AppState {
   op(op: any): Promise<void>;
   setRootLocal(root: LayoutNode | null): void;
   setModuleConfig(moduleId: string, config: Record<string, any>): void;
-  addModule(m: ModuleState, targetStack: string | null, pos: DropPos): Promise<void>;
+  /** pos 'auto': beside, below or as a tab of `targetStack` (or the largest pane), whatever keeps panes usable. */
+  addModule(m: ModuleState, targetStack: string | null, pos: DropPos | 'auto'): Promise<void>;
   setFocused(id: string | null): void;
   setShowStart(v: boolean): void;
   setPalette(v: boolean): void;
@@ -92,7 +94,9 @@ export const useApp = create<AppState>((set, get) => ({
     void api.call('ws:op', { kind: 'setModuleConfig', moduleId, config });
   },
   async addModule(m, targetStack, pos) {
-    await api.call('ws:op', { kind: 'addModule', windowId: get().windowId, module: m, targetStack, pos });
+    let at = { stackId: targetStack, pos: pos as DropPos };
+    if (pos === 'auto') at = autoPlacement(get().workspace?.windows.find((w) => w.id === get().windowId)?.root || null, targetStack);
+    await api.call('ws:op', { kind: 'addModule', windowId: get().windowId, module: m, targetStack: at.stackId, pos: at.pos });
     set({ focusedModule: m.id, showStart: false });
   },
   setFocused(id) {

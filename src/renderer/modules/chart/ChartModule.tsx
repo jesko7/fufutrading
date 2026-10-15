@@ -19,6 +19,7 @@ import { usePersistentState } from '../../lib/hooks';
 import { DrawingToolbar, DrawingEditor } from './DrawingTools';
 import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, type PaneGeo } from './indicators';
 import { useChartTrading } from './trading';
+import { useAccounts } from '../trading/accounts';
 import { useFootprint } from './footprint';
 import { useReplayForChart, ReplayButton } from './replay';
 import { useAlertLines } from '../alerts/chartLines';
@@ -36,6 +37,26 @@ const CHART_TYPES: { value: ChartType; label: string; icon: string }[] = [
 ];
 
 const COMPARE_COLORS = ['#f59e0b', '#a855f7', '#10b981', '#ec4899'];
+
+/**
+ * A chart only shows positions of its own market. When the coin's position lives in the other
+ * market (e.g. a perpetual position on a spot chart) this pill says so and switches the chart.
+ */
+function OtherMarketPosition({ symbol, market, onSwitch }: { symbol: SymbolId; market: Market; onSwitch: (m: Market) => void }) {
+  const accounts = useAccounts();
+  const live = accounts.filter((a) => !a.config.archived && !a.config.replay);
+  if (live.some((a) => a.config.market === market && a.positions.some((p) => p.symbol === symbol))) return null;
+  const other: Market = market === 'spot' ? 'futures' : 'spot';
+  const acct = live.find((a) => a.config.market === other && a.positions.some((p) => p.symbol === symbol));
+  const pos = acct?.positions.find((p) => p.symbol === symbol);
+  if (!acct || !pos) return null;
+  const what = other === 'futures' ? `Perp ${pos.side === 1 ? 'long' : 'short'}` : 'Spot holding';
+  return (
+    <button className={clsx('btn tiny other-pos', pos.uPnl >= 0 ? 'up' : 'down')} onClick={() => onSwitch(other)} data-tip={`${acct.config.name}: ${what.toLowerCase()} of ${+pos.qty.toFixed(5)} ${SYMBOL_SPECS[symbol].base}. Positions show on the chart of their own market. Click to switch this chart to ${other === 'futures' ? 'the perpetual' : 'spot'}.`}>
+      {what} · {fmtNum(pos.uPnl, 2)} <Icon name="chevRight" size={11} />
+    </button>
+  );
+}
 let drawingClipboard: Drawing[] = [];
 
 function seriesChartType(ct: ChartType): ChartType {
@@ -356,7 +377,7 @@ export function ChartModule({ module }: ModuleProps) {
   const store = storeRef.current;
   const li = legend.index >= 0 && legend.index < store.length ? legend.index : store.length - 1;
   void liveTick;
-  const changeSymbol = (s: SymbolId, m: Market) => update({ symbol: s, market: m, drawings: s === cfg.symbol ? cfg.drawings : cfg.drawings });
+  const changeSymbol = (s: SymbolId, m: Market) => update({ symbol: s, market: m });
 
   const typeMenu = usePopover();
   const scaleBtn = (mode: 'linear' | 'log' | 'percent', label: string, tip: string) => (
@@ -428,6 +449,7 @@ export function ChartModule({ module }: ModuleProps) {
         <CompareButton cfg={cfg} update={update} />
         <OverlaysButton cfg={cfg} update={update} />
         <ReplayButton replay={replay} />
+        {!replay.active && <OtherMarketPosition symbol={cfg.symbol} market={cfg.market} onSwitch={(m) => changeSymbol(cfg.symbol, m)} />}
         <div className="spacer" />
         <StatusBadge status={replay.active ? 'replay' : status} info={info} />
       </HeadControls>

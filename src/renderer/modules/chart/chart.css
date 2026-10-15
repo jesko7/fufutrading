@@ -523,3 +523,15 @@
   white-space: normal;
   max-width: 80%;
 }
+
+.other-pos {
+  white-space: nowrap;
+  border: 1px dashed var(--border-strong, var(--border));
+  background: transparent;
+}
+.other-pos.up {
+  color: var(--up);
+}
+.other-pos.down {
+  color: var(--down);
+}

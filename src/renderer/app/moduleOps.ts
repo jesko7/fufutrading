@@ -65,6 +65,6 @@ export async function openModule(type: ModuleType, config: Record<string, unknow
   const focused = st.focusedModule;
   const stack = stacksOf(root).find((s) => focused && s.modules.includes(focused)) || null;
   const id = newId('m');
-  await st.addModule({ id, type, config: { ...defaultModuleConfig(type), ...config }, link: null }, stack?.id || null, 'right');
+  await st.addModule({ id, type, config: { ...defaultModuleConfig(type), ...config }, link: null }, stack?.id || null, 'auto');
   return id;
 }

@@ -97,6 +97,33 @@ const S = {
     await open('Trader');
     await page.waitForSelector('.trade-panel, .empty-title:has-text("No paper account")', { timeout: 30000 });
   },
+  async light() {
+    console.log('scenario: light theme');
+    await page.click('button[data-tip="Toggle light / dark"]');
+    await page.waitForFunction(() => document.documentElement.dataset.theme === 'light' || document.body.classList.contains('light') || getComputedStyle(document.body).backgroundColor !== 'rgb(10, 11, 14)', null, { timeout: 5000 });
+    for (const [name, file] of [
+      ['Trader', '40-light-trader'],
+      ['Order Flow', '41-light-orderflow'],
+      ['Strategy Lab', '42-light-lab'],
+      ['Automation', '43-light-automation'],
+      ['Prop Challenge', '44-light-prop'],
+    ]) {
+      if (!(await page.isVisible('.start'))) {
+        await page.keyboard.press('Control+k');
+        await page.waitForSelector('.palette input');
+        await page.fill('.palette input', 'Workspaces & presets');
+        await page.keyboard.press('Enter');
+        await page.waitForSelector('.start', { timeout: 10000 });
+      }
+      await page.click(`.preset:has(.p-name:text-is("${name}"))`);
+      await page.waitForSelector('.start', { state: 'detached', timeout: 15000 });
+      await page.waitForSelector('.chart-host canvas, .heatmap canvas', { timeout: 30000 });
+      await wait(4000);
+      await shot(file);
+    }
+    check(true, 'presets render in the light theme');
+    await page.click('button[data-tip="Toggle light / dark"]');
+  },
   async charts() {
     console.log('scenario: charts');
     // switch chart type & timeframe on the first chart
@@ -129,6 +156,9 @@ const S = {
     check(/Long/.test(posText || ''), `position shown in account module (${(posText || '').replace(/\s+/g, ' ').slice(0, 80)})`);
     await wait(1500);
     await shot('04-position');
+    // the Trader chart shows spot; it points at the perpetual position and switches over on click
+    await page.waitForSelector('.stack-head .other-pos', { timeout: 10000 });
+    check(/Perp long/.test((await page.textContent('.stack-head .other-pos')) || ''), 'spot chart points to the perp position');
     // Binance lets a cross position change its leverage: raise it by one step with the keyboard
     const levText = () => page.textContent('.trade-panel .row:has(input[type=range]) b.num');
     const lev0 = parseInt((await levText()) || '0');

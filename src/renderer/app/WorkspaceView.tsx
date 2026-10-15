@@ -163,7 +163,7 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
   ];
 
   return (
-    <div className={clsx('stack', isFocused && 'focused')} onMouseDownCapture={() => useApp.getState().setFocused(activeId)}>
+    <div className={clsx('stack', isFocused && 'focused')} data-stack-id={node.id} onMouseDownCapture={() => useApp.getState().setFocused(activeId)}>
       <div className="stack-head">
         <div className="stack-tabs">
           {node.modules.map((mid, i) => {
@@ -251,7 +251,7 @@ function zoneStyle(p: DropPos): React.CSSProperties {
 
 export function AddModuleMenu({ anchor, onClose, targetStack, near }: { anchor: { x: number; y: number; w?: number; h?: number }; onClose: () => void; targetStack: string | null; near?: ModuleState }) {
   const add = useCallback(
-    async (type: ModuleType, pos: DropPos) => {
+    async (type: ModuleType, pos: DropPos | 'auto') => {
       onClose();
       const sym = near && isSymbol(near.config.symbol) ? near.config.symbol : 'BTCUSDT';
       const market = near && (near.config.market === 'futures' || near.config.market === 'spot') ? near.config.market : 'spot';
@@ -264,14 +264,15 @@ export function AddModuleMenu({ anchor, onClose, targetStack, near }: { anchor: 
     },
     [targetStack, near, onClose],
   );
-  const [pos, setPos] = useState<DropPos>(targetStack ? 'right' : 'right');
+  const [pos, setPos] = useState<DropPos | 'auto'>('auto');
   return (
     <ModuleGridPopover anchor={anchor} onClose={onClose} onPick={(t) => add(t, pos)} header={targetStack ? <PosPicker pos={pos} setPos={setPos} /> : null} />
   );
 }
 
-function PosPicker({ pos, setPos }: { pos: DropPos; setPos: (p: DropPos) => void }) {
-  const opts: { v: DropPos; label: string }[] = [
+function PosPicker({ pos, setPos }: { pos: DropPos | 'auto'; setPos: (p: DropPos | 'auto') => void }) {
+  const opts: { v: DropPos | 'auto'; label: string }[] = [
+    { v: 'auto', label: 'Auto' },
     { v: 'right', label: 'Split right' },
     { v: 'bottom', label: 'Split below' },
     { v: 'center', label: 'As tab' },

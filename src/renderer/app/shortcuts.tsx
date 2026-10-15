@@ -82,7 +82,7 @@ async function addModule(type: ModuleType) {
   };
   find(win?.root);
   const sym = (near?.config.symbol as SymbolId) || 'BTCUSDT';
-  await st.addModule({ id: newId('m'), type, config: defaultModuleConfig(type, sym, near?.config.market || 'spot'), link: null }, stackId, 'right');
+  await st.addModule({ id: newId('m'), type, config: defaultModuleConfig(type, sym, near?.config.market || 'spot'), link: null }, stackId, 'auto');
 }
 
 export function buildActions(): Action[] {
