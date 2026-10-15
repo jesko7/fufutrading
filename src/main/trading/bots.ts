@@ -17,8 +17,8 @@ import type { BotStepResult } from '../../engine/host';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import { fromPacked } from '../../engine/data';
 import { planBot, BOT_TAG, type BotPlan } from '../../shared/trading/botPlan';
-import type { BotConfig, BotRunState, BotView, AccountEvent } from '../../shared/trading/types';
-import { SYMBOL_SPECS, isSymbol } from '../../shared/symbols';
+import type { BotConfig, BotGuards, BotRunState, BotView, AccountEvent, ClosedTrade } from '../../shared/trading/types';
+import { SYMBOL_SPECS, isSymbol, type SymbolId } from '../../shared/symbols';
 import { parseTimeframe, tfDurationMs, bucketStart, bucketEnd, type Timeframe } from '../../shared/timeframes';
 import type { SeriesSpec } from '../../shared/marketTypes';
 
@@ -412,6 +412,34 @@ class BotRunner {
   private reported = new Set<string>();
 }
 
+/**
+ * Risk guards of a running bot on its current equity: updates the peak and the day's starting
+ * equity in `st` and returns why the bot must stop, or null.
+ */
+export function evaluateGuards(g: BotGuards, st: BotRunState, eq: number, trades: ClosedTrade[], symbol: SymbolId, from: number, now: number): string | null {
+  if (!(eq > 0)) return null;
+  st.peakEquity = Math.max(st.peakEquity ?? st.capital, eq);
+  const day = new Date(now).toISOString().slice(0, 10);
+  if (st.dayKey !== day) {
+    st.dayKey = day;
+    st.dayStartEquity = eq;
+  }
+  const dd = ((st.peakEquity - eq) / st.peakEquity) * 100;
+  const dayLoss = st.dayStartEquity ? ((st.dayStartEquity - eq) / st.dayStartEquity) * 100 : 0;
+  let losses = 0;
+  for (let k = trades.length - 1; k >= 0; k--) {
+    const t = trades[k];
+    if (t.symbol !== symbol) continue;
+    if (t.closedAt < from) break;
+    if (t.pnl < 0) losses++;
+    else break;
+  }
+  if (g.maxDrawdownPct && dd >= g.maxDrawdownPct) return `drawdown of ${dd.toFixed(1)}% from the peak reached the limit of ${g.maxDrawdownPct}%`;
+  if (g.maxDailyLossPct && dayLoss >= g.maxDailyLossPct) return `today's loss of ${dayLoss.toFixed(1)}% reached the limit of ${g.maxDailyLossPct}%`;
+  if (g.maxConsecutiveLosses && losses >= g.maxConsecutiveLosses) return `${losses} losing trades in a row reached the limit of ${g.maxConsecutiveLosses}`;
+  return null;
+}
+
 export class BotService {
   private runners = new Map<string, BotRunner>();
   private restartTimers = new Map<string, NodeJS.Timeout>();
@@ -445,6 +473,7 @@ export class BotService {
       }
     }
     this.engine.eventListeners.add((id, e) => this.onAccountEvent(id, e));
+    setInterval(() => this.checkGuards(), 1000).unref?.();
     this.engine.beforeRemove.add((id) => this.halt(id));
     this.core.pauseAllBots = () => {
       for (const id of this.runners.keys()) this.pause(id, 'Paused from the tray');
@@ -458,6 +487,46 @@ export class BotService {
     if (!b || b.status !== 'running') return;
     if (e.kind === 'liquidation') this.fail(id, 'The position was liquidated — bot paused');
     else if (e.kind === 'rule' && /breach/i.test(e.message)) this.fail(id, `Prop rule breached — bot paused (${e.message})`);
+  }
+
+  /** Risk guards of running bots, checked every second on live equity. */
+  private checkGuards(): void {
+    const ctx = this.engine.ctx;
+    for (const id of this.runners.keys()) {
+      const rt = this.engine.accounts.get(id);
+      const b = rt?.config.bot;
+      const st = b?.state;
+      const g = b?.guards;
+      if (!rt || !b || !st || b.status !== 'running' || !g) continue;
+      const reason = evaluateGuards(g, st, rt.ledger.equity(rt.marks(ctx)), rt.trades, b.symbol, st.guardsFrom ?? b.startedAt ?? 0, ctx.now());
+      if (reason) this.trip(id, reason);
+    }
+  }
+
+  /** A risk guard tripped: cancel the bot's orders, close its position and pause it. */
+  private trip(id: string, reason: string): void {
+    const rt = this.engine.accounts.get(id);
+    const b = rt?.config.bot;
+    if (!rt || !b) return;
+    this.halt(id);
+    const ctx = this.engine.ctx;
+    const now = ctx.now();
+    for (const o of rt.orders.filter((x) => x.symbol === b.symbol)) rt.cancelOrder(o.id, now, 'risk guard');
+    if (rt.ledger.position(b.symbol)) {
+      try {
+        rt.closePosition(b.symbol, ctx, undefined, 'bot', 'risk guard');
+      } catch (e) {
+        rt.event('error', `Could not close the position: ${(e as Error).message}`, { bot: true }, now);
+      }
+    }
+    b.status = 'paused';
+    b.lastError = `Risk guard: ${reason}. Position closed, bot paused.`;
+    rt.event('rule', `Bot risk guard: ${reason} — position closed, bot paused`, { bot: true }, now);
+    this.core.notify(rt.config.name, `Bot paused by its risk guard: ${reason}`);
+    this.core.router.broadcast('toast', { title: `${rt.config.name}: risk guard`, body: `${reason}. Position closed, bot paused.`, kind: 'warn' });
+    this.engine.persist(id);
+    this.engine.recalc();
+    this.changed(id);
   }
 
   private updateWarm(): void {
@@ -530,6 +599,11 @@ export class BotService {
     const cur = rt.config.bot;
     const running = cur && (cur.status === 'running' || cur.status === 'paused');
     const structural: (keyof BotConfig)[] = ['scriptId', 'params', 'symbol', 'tf', 'chartType', 'sizing', 'startMode', 'warmupBars', 'language'];
+    if (patch.guards) {
+      const g = patch.guards;
+      const pos = (v: unknown) => (Number(v) > 0 ? Number(v) : undefined);
+      patch = { ...patch, guards: { maxDrawdownPct: pos(g.maxDrawdownPct), maxDailyLossPct: pos(g.maxDailyLossPct), maxConsecutiveLosses: pos(g.maxConsecutiveLosses) ? Math.round(Number(g.maxConsecutiveLosses)) : undefined } };
+    }
     if (patch.paramTitles) patch = { ...patch, paramTitles: Object.fromEntries(Object.entries(patch.paramTitles).map(([k, v]) => [String(k), String(v).slice(0, 80)])) };
     if (running && structural.some((k) => patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(cur![k]))) throw new Error('Validation: stop the bot before changing its strategy, instrument or sizing');
     const base: BotConfig = cur || { scriptId: '', language: 'pine', params: {}, symbol: 'BTCUSDT', market: rt.config.market, tf: '15m', chartType: 'candles', status: 'stopped', sizing: { mode: 'percentEquity', value: 10 }, autostart: true };
@@ -575,6 +649,9 @@ export class BotService {
       rt.event('bot', `Bot started: ${b.scriptName || doc.name} on ${b.symbol} ${b.tf}${b.chartType !== 'candles' ? ` (${b.chartType})` : ''} — ${mode === 'join' ? "joins the strategy's current position" : 'acts on signals after the start'}`, { bot: true });
     } else {
       b.state.failures = 0;
+      // a fresh start for the risk guards: the drawdown peak and the losing streak restart now
+      b.state.peakEquity = undefined;
+      b.state.guardsFrom = ctx.now();
       rt.event('bot', 'Bot resumed', { bot: true });
     }
     b.status = 'running';

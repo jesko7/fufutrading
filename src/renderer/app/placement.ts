@@ -24,7 +24,7 @@ function sizeOf(id: string): { w: number; h: number } {
  * MIN_W wide, else below it while both stay MIN_H tall, else the same in the largest pane, and
  * as a tab when nothing can be split. Explicit drops and menu choices are never changed.
  */
-export function autoPlacement(root: LayoutNode | null, prefer: string | null): { stackId: string | null; pos: DropPos } {
+export function autoPlacement(root: LayoutNode | null, prefer: string | null, isChart: (moduleId: string) => boolean = () => false): { stackId: string | null; pos: DropPos } {
   const all = stacksOf(root);
   if (!all.length) return { stackId: null, pos: 'right' };
   const fit = (s: Stack): DropPos | null => {
@@ -51,5 +51,17 @@ export function autoPlacement(root: LayoutNode | null, prefer: string | null): {
   }
   const p = fit(largest);
   if (p) return { stackId: largest.id, pos: p };
-  return { stackId: (pref || largest).id, pos: 'center' };
+  // no room to split: open as a tab where it doesn't cover a chart (the largest pane showing something else)
+  const shows = (s: Stack) => s.modules[s.active] ?? s.modules[0];
+  let tabTarget: Stack | null = null;
+  let tabArea = -1;
+  for (const s of all) {
+    if (isChart(shows(s))) continue;
+    const { w, h } = sizeOf(s.id);
+    if (w * h > tabArea) {
+      tabArea = w * h;
+      tabTarget = s;
+    }
+  }
+  return { stackId: (tabTarget || pref || largest).id, pos: 'center' };
 }

@@ -269,3 +269,29 @@ strategy.exit("XL", "L", profit=300, loss=200)
     expect(rt.trades.every((t) => t.qty * t.entry > 990)).toBe(true);
   });
 });
+
+describe('bot risk guards', () => {
+  it('trip on drawdown from the peak, daily loss and losing streaks', async () => {
+    const { evaluateGuards } = await import('../../src/main/trading/bots');
+    const day = Date.UTC(2026, 3, 6, 10);
+    const st = { simFrom: 0, capital: 10000, scale: null, hold: null, prevSimPos: null, prevTarget: null, lastBarTime: 0, steps: 0, failures: 0 } as any;
+    expect(evaluateGuards({ maxDrawdownPct: 10 }, st, 11000, [], 'BTCUSDT', 0, day)).toBeNull();
+    expect(st.peakEquity).toBe(11000);
+    expect(evaluateGuards({ maxDrawdownPct: 10 }, st, 10000, [], 'BTCUSDT', 0, day)).toBeNull();
+    expect(evaluateGuards({ maxDrawdownPct: 10 }, st, 9850, [], 'BTCUSDT', 0, day)).toMatch(/drawdown of 10\.5%/);
+    // daily loss counts from the day's first equity
+    const st2 = { ...st, peakEquity: undefined, dayKey: undefined };
+    expect(evaluateGuards({ maxDailyLossPct: 3 }, st2, 10000, [], 'BTCUSDT', 0, day)).toBeNull();
+    expect(evaluateGuards({ maxDailyLossPct: 3 }, st2, 9750, [], 'BTCUSDT', 0, day + 3600e3)).toBeNull();
+    expect(evaluateGuards({ maxDailyLossPct: 3 }, st2, 9690, [], 'BTCUSDT', 0, day + 7200e3)).toMatch(/today's loss of 3\.1%/);
+    // a new day resets the reference
+    expect(evaluateGuards({ maxDailyLossPct: 3 }, st2, 9690, [], 'BTCUSDT', 0, day + 86400e3)).toBeNull();
+    // losing streak since the start, other symbols ignored, a win breaks it
+    const tr = (pnl: number, closedAt: number, symbol = 'BTCUSDT') => ({ pnl, closedAt, symbol }) as any;
+    const trades = [tr(-5, 100), tr(10, 200), tr(-1, 300), tr(-2, 400, 'ETHUSDT'), tr(-3, 500), tr(-4, 600)];
+    expect(evaluateGuards({ maxConsecutiveLosses: 3 }, { ...st }, 10000, trades, 'BTCUSDT', 0, day)).toMatch(/3 losing trades/);
+    expect(evaluateGuards({ maxConsecutiveLosses: 4 }, { ...st }, 10000, trades, 'BTCUSDT', 0, day)).toBeNull();
+    // counting restarts when the bot resumes
+    expect(evaluateGuards({ maxConsecutiveLosses: 3 }, { ...st }, 10000, trades, 'BTCUSDT', 450, day)).toBeNull();
+  });
+});

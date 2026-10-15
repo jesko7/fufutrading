@@ -95,7 +95,11 @@ export const useApp = create<AppState>((set, get) => ({
   },
   async addModule(m, targetStack, pos) {
     let at = { stackId: targetStack, pos: pos as DropPos };
-    if (pos === 'auto') at = autoPlacement(get().workspace?.windows.find((w) => w.id === get().windowId)?.root || null, targetStack);
+    if (pos === 'auto') {
+      const ws = get().workspace;
+      const chartLike = new Set(['chart', 'heatmap']);
+      at = autoPlacement(ws?.windows.find((w) => w.id === get().windowId)?.root || null, targetStack, (id) => chartLike.has(ws?.modules[id]?.type || ''));
+    }
     await api.call('ws:op', { kind: 'addModule', windowId: get().windowId, module: m, targetStack: at.stackId, pos: at.pos });
     set({ focusedModule: m.id, showStart: false });
   },

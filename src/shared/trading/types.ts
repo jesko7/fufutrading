@@ -83,6 +83,17 @@ export interface BotConfig {
   warmupBars?: number;
   /** Run state that survives restarts (cleared when the bot stops). */
   state?: BotRunState;
+  /** Risk guards: close the position and pause the bot when one trips (0 / undefined = off). */
+  guards?: BotGuards;
+}
+
+export interface BotGuards {
+  /** Drawdown of account equity from its peak since the bot started (or resumed), %. */
+  maxDrawdownPct?: number;
+  /** Loss since the start of the UTC day, % of that day's starting equity. */
+  maxDailyLossPct?: number;
+  /** Losing trades in a row (since the start or resume). */
+  maxConsecutiveLosses?: number;
 }
 
 export interface BotRunState {
@@ -98,6 +109,11 @@ export interface BotRunState {
   lastBarTime: number;
   steps: number;
   failures: number;
+  /** Risk guards: peak equity, the UTC day and its starting equity, and when counting restarted. */
+  peakEquity?: number;
+  dayKey?: string;
+  dayStartEquity?: number;
+  guardsFrom?: number;
 }
 
 /** A bot as shown in the Bots module. */

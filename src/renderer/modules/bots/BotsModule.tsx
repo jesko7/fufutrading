@@ -346,6 +346,11 @@ function SetupSummary({ c, market }: { c: BotConfig; market: string }) {
       <span>{c.sizing.mode === 'percentEquity' ? `${c.sizing.value}% of equity` : c.sizing.mode === 'fixedUsd' ? `${c.sizing.value} USDT` : c.sizing.mode === 'fixedQty' ? `${c.sizing.value} ${SYMBOL_SPECS[c.symbol].base}` : `strategy size × ${c.sizing.value}`}</span>
       {params.length > 0 && <span className="faint ellipsis" style={{ minWidth: 0 }}>{params.map(([k, v]) => `${c.paramTitles?.[k] || k} ${typeof v === 'boolean' ? (v ? 'on' : 'off') : String(v)}`).join(' · ')}</span>}
       <span className="spacer" />
+      {(c.guards?.maxDrawdownPct || c.guards?.maxDailyLossPct || c.guards?.maxConsecutiveLosses) && (
+        <span className="faint" data-tip="Risk guards: the bot closes its position and pauses when one trips">
+          <Icon name="shield" size={11} /> {[c.guards.maxDrawdownPct && `DD ${c.guards.maxDrawdownPct}%`, c.guards.maxDailyLossPct && `day ${c.guards.maxDailyLossPct}%`, c.guards.maxConsecutiveLosses && `${c.guards.maxConsecutiveLosses} losses`].filter(Boolean).join(' · ')}
+        </span>
+      )}
       <span className="faint">{c.autostart ? 'resumes on app start' : 'manual resume after restart'}</span>
     </div>
   );
@@ -386,7 +391,7 @@ function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
     setSaving(true);
     try {
       const paramTitles = Object.fromEntries((analysis?.inputs || []).map((i) => [i.key, i.title]));
-      await api.call('bots:configure', v.accountId, { scriptId: d.scriptId, params: d.params, paramTitles, symbol: d.symbol, tf: d.tf, chartType: d.chartType, sizing: d.sizing, startMode: d.startMode, warmupBars: d.warmupBars, autostart: d.autostart });
+      await api.call('bots:configure', v.accountId, { scriptId: d.scriptId, params: d.params, paramTitles, symbol: d.symbol, tf: d.tf, chartType: d.chartType, sizing: d.sizing, startMode: d.startMode, warmupBars: d.warmupBars, autostart: d.autostart, guards: d.guards || {} });
       setDirty(false);
       return true;
     } catch (e) {
@@ -486,6 +491,21 @@ function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
           <label className="set-row">
             <span data-tip="Bars before the start that warm up the strategy's indicators">Warm-up bars</span>
             <NumberField value={d.warmupBars ?? 1000} onChange={(val) => patch({ warmupBars: Math.max(0, Math.min(20000, Math.round(val))) })} min={0} step={100} decimals={0} style={{ width: 110 }} />
+          </label>
+          <div className="bs-title" style={{ marginTop: 10 }} data-tip="When a guard trips, the bot cancels its orders, closes its position and pauses. Empty = off.">
+            Risk guards
+          </div>
+          <label className="set-row">
+            <span>Pause at a drawdown from the peak of</span>
+            <NumberField value={d.guards?.maxDrawdownPct ?? null} onChange={(val) => patch({ guards: { ...d.guards, maxDrawdownPct: val > 0 ? val : undefined } })} min={0} step={1} suffix="%" placeholder="off" style={{ width: 110 }} />
+          </label>
+          <label className="set-row">
+            <span>Pause at a daily loss of</span>
+            <NumberField value={d.guards?.maxDailyLossPct ?? null} onChange={(val) => patch({ guards: { ...d.guards, maxDailyLossPct: val > 0 ? val : undefined } })} min={0} step={0.5} suffix="%" placeholder="off" style={{ width: 110 }} />
+          </label>
+          <label className="set-row">
+            <span>Pause after losing trades in a row</span>
+            <NumberField value={d.guards?.maxConsecutiveLosses ?? null} onChange={(val) => patch({ guards: { ...d.guards, maxConsecutiveLosses: val > 0 ? Math.round(val) : undefined } })} min={0} step={1} decimals={0} placeholder="off" style={{ width: 110 }} />
           </label>
         </div>
       </div>

@@ -123,6 +123,10 @@ flatten), the bot does **not** re-enter. It waits for the strategy's next signal
 - Manual trading on a running bot's account is blocked. Pause the bot to intervene.
 - Script errors, repeated order rejections, liquidations and prop-rule breaches pause the bot
   with the reason shown. Other bots and the app are not affected.
+- **Risk guards** (optional) pause a bot when its account's drawdown from the peak, today's loss
+  or a run of losing trades reaches a limit. The guards are checked every second on live
+  equity. When one trips, the bot cancels its orders, closes the position, pauses and notifies
+  you. Resuming restarts the drawdown peak and the losing streak.
 - **Autostart** resumes bots when the app starts. With "Keep bots running in the background"
   (Settings), closing the window keeps the app in the tray while bots run. "Start at login"
   launches it silently.
