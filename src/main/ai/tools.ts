@@ -508,7 +508,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
             description: 'Inputs to optimize',
             items: { type: 'object', properties: { key: { type: 'string' }, min: { type: 'number' }, max: { type: 'number' }, step: { type: 'number' }, values: { type: 'array', items: {} } }, required: ['key'] },
           },
-          objective: { type: 'string', enum: ['sharpe', 'sortino', 'calmar', 'returnOverDd', 'netProfitPct', 'profitFactor'], description: 'default sharpe' },
+          objective: { type: 'string', enum: ['sharpe', 'sortino', 'calmar', 'returnOverDd', 'netProfitPct', 'profitFactor', 'alpha'], description: 'default sharpe; alpha favours return beyond market exposure' },
           budget: { type: 'number' },
           inputs: { type: 'object', description: 'Fixed values for the other inputs' },
           validation: { type: 'string', enum: ['holdout', 'walkforward'], description: 'holdout (default): the last 30% is out-of-sample. walkforward: rolling windows (optimize on three parts, test on the next), stitched out-of-sample results and walk-forward efficiency. Stricter, takes longer.' },
@@ -562,7 +562,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
         const best = trial(rec.bestKey);
         const ho = rec.validation.holdout;
         const rob = rec.robustness.find((x) => x.key === rec.bestKey);
-        const fmt = (m: any) => (m ? { netProfitPct: r2(m.netProfitPct), sharpe: r2(m.sharpe), maxDrawdownPct: r2(m.maxDrawdownPct), trades: m.trades, profitFactor: r2(m.profitFactor), winRatePct: r2(m.winRate * 100) } : null);
+        const fmt = (m: any) => (m ? { netProfitPct: r2(m.netProfitPct), sharpe: r2(m.sharpe), maxDrawdownPct: r2(m.maxDrawdownPct), trades: m.trades, profitFactor: r2(m.profitFactor), winRatePct: r2(m.winRate * 100), alphaPctPerYear: m.alpha !== undefined ? r2(m.alpha) : undefined, beta: m.beta !== undefined ? r2(m.beta) : undefined } : null);
         const scope = rec.scopes[0];
         const wfo = rec.validation.wfo;
         return {

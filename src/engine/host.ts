@@ -436,8 +436,8 @@ export interface TrialResult {
   need: string[];
   metrics: Omit<Metrics, 'curves'> | null;
   trades: CompactTrade[];
-  /** End-of-day equity from `from` on (for window/CSCV analytics). */
-  daily: { t: number[]; eq: number[]; bar: number[] };
+  /** End-of-day equity (and buy & hold) from `from` on (for window/CSCV analytics). */
+  daily: { t: number[]; eq: number[]; bar: number[]; bh?: number[] };
 }
 
 /** Run a strategy and reduce the result to what optimizers need (metrics, trades, daily equity). */
@@ -448,7 +448,7 @@ export async function runTrial(host: ScriptHost, spec: TrialSpec): Promise<Trial
   const data = spec.data as BarSeries;
   const m = computeMetrics(result.strategy, data, { from: spec.from, riskFree: spec.riskFree });
   const { curves, ...metrics } = m;
-  const daily = { t: [] as number[], eq: [] as number[], bar: [] as number[] };
+  const daily = { t: [] as number[], eq: [] as number[], bar: [] as number[], bh: [] as number[] };
   const ct = curves.t;
   for (let k = 0; k < ct.length; k++) {
     const day = Math.floor(ct[k] / 86400000);
@@ -457,6 +457,7 @@ export async function runTrial(host: ScriptHost, spec: TrialSpec): Promise<Trial
       daily.t.push(ct[k]);
       daily.eq.push(curves.equity[k]);
       daily.bar.push(spec.from + k);
+      daily.bh.push(curves.buyHold[k]);
     }
   }
   const trades = result.strategy.trades.filter((t) => t.exitBar >= spec.from).map((t) => ({ entryBar: t.entryBar, exitBar: t.exitBar, returnPct: t.returnPct, profit: t.profit, dir: t.dir }));

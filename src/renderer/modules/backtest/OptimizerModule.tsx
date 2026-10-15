@@ -577,6 +577,12 @@ function ResultsTable({ rec, titles, sel, setSel, scope }: { rec: OptimizationRe
             <th className="num">PF</th>
             <th className="num">Trades</th>
             <th className="num">Win %</th>
+            <th className="num" data-tip="Annualised alpha against buy & hold (return the market exposure doesn't explain)">
+              Alpha
+            </th>
+            <th className="num" data-tip="Beta against buy & hold">
+              Beta
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -602,6 +608,8 @@ function ResultsTable({ rec, titles, sel, setSel, scope }: { rec: OptimizationRe
                 <td className="num">{m ? pf(m.profitFactor) : '—'}</td>
                 <td className="num">{m ? m.trades : '—'}</td>
                 <td className="num">{m ? fmtPct(m.winRate * 100, 0, false) : '—'}</td>
+                <td className={clsx('num', m?.alpha !== undefined && (m.alpha >= 0 ? 'up' : 'down'))}>{m?.alpha !== undefined && Number.isFinite(m.alpha) ? fmtPct(m.alpha, 1) : '—'}</td>
+                <td className="num">{m?.beta !== undefined && Number.isFinite(m.beta) ? m.beta.toFixed(2) : '—'}</td>
               </tr>
             );
           })}

@@ -9,6 +9,7 @@
  */
 import type { ParamDef, Point } from './space';
 import { neighbours, pointKey, rng } from './space';
+import { computeGreeks } from '../backtest/benchmarks';
 
 /** Trade summary used by window analytics: bars are indices into the shared bar data. */
 export interface CompactTrade {
@@ -32,9 +33,12 @@ export interface TrialMetrics {
   trades: number;
   expectancy: number;
   exposure: number;
+  /** Annualised alpha (%) and beta against buy & hold of the same instrument. */
+  alpha?: number;
+  beta?: number;
 }
 
-export type ObjectiveId = 'netProfitPct' | 'sharpe' | 'sortino' | 'calmar' | 'profitFactor' | 'returnOverDd' | 'expectancy' | 'winRate' | 'cagr';
+export type ObjectiveId = 'netProfitPct' | 'sharpe' | 'sortino' | 'calmar' | 'profitFactor' | 'returnOverDd' | 'expectancy' | 'winRate' | 'cagr' | 'alpha';
 
 export const OBJECTIVES: { id: ObjectiveId; label: string; risk: boolean }[] = [
   { id: 'sharpe', label: 'Sharpe ratio', risk: true },
@@ -46,6 +50,7 @@ export const OBJECTIVES: { id: ObjectiveId; label: string; risk: boolean }[] = [
   { id: 'expectancy', label: 'Expectancy per trade', risk: false },
   { id: 'winRate', label: 'Win rate', risk: false },
   { id: 'cagr', label: 'CAGR', risk: false },
+  { id: 'alpha', label: 'Alpha (return beyond market exposure)', risk: true },
 ];
 
 export interface Constraints {
@@ -449,16 +454,18 @@ export interface DailyEquity {
   eq: number[];
   /** bar index of each end-of-day sample */
   bar: number[];
+  /** buy & hold value at the same samples (for alpha/beta) */
+  bh?: number[];
 }
 
 /** Daily returns whose end-of-day sample lies in one of the segments (bar ranges). */
-export function sliceReturns(d: DailyEquity, segs: [number, number][]): number[] {
+export function sliceReturns(d: DailyEquity, segs: [number, number][], values: number[] = d.eq): number[] {
   const out: number[] = [];
-  for (let k = 1; k < d.eq.length; k++) {
+  for (let k = 1; k < values.length; k++) {
     const b = d.bar[k];
     if (!segs.some(([a, z]) => b >= a && b < z)) continue;
-    const prev = d.eq[k - 1];
-    if (prev > 0) out.push(d.eq[k] / prev - 1);
+    const prev = values[k - 1];
+    if (prev > 0 && d.eq[k - 1] > 0) out.push(values[k] / prev - 1);
   }
   return out;
 }
@@ -507,7 +514,15 @@ export function sliceMetrics(d: DailyEquity, trades: CompactTrade[], segs: [numb
     trades: inside.length,
     expectancy: inside.length ? inside.reduce((a, t) => a + t.returnPct, 0) / inside.length : 0,
     exposure: NaN,
+    ...sliceGreeks(d, segs, rets),
   };
+}
+
+/** Alpha and beta of the daily returns inside the segments against buy & hold over the same days. */
+function sliceGreeks(d: DailyEquity, segs: [number, number][], rets: number[]): { alpha?: number; beta?: number } {
+  if (!d.bh) return {};
+  const g = computeGreeks(rets, sliceReturns(d, segs, d.bh));
+  return g ? { alpha: g.alpha, beta: g.beta } : {};
 }
 
 /** Per-bar regime labels (trend: close vs SMA and slope; volatility: rolling realised vol vs median). */

@@ -113,7 +113,7 @@ type Progress = (p: { phase: string; done?: number; total?: number; best?: { key
 function metricsOf(r: TrialResult): TrialMetrics | null {
   const m = r.metrics;
   if (!r.ok || !m) return null;
-  return { netProfitPct: m.netProfitPct, maxDrawdownPct: m.maxDrawdownPct, sharpe: m.sharpe, sortino: m.sortino, calmar: m.calmar, cagr: m.cagr, profitFactor: m.all.profitFactor, winRate: m.all.winRate, trades: m.all.trades, expectancy: m.all.avgTradePct, exposure: m.exposure };
+  return { netProfitPct: m.netProfitPct, maxDrawdownPct: m.maxDrawdownPct, sharpe: m.sharpe, sortino: m.sortino, calmar: m.calmar, cagr: m.cagr, profitFactor: m.all.profitFactor, winRate: m.all.winRate, trades: m.all.trades, expectancy: m.all.avgTradePct, exposure: m.exposure, alpha: m.greeks?.alpha, beta: m.greeks?.beta };
 }
 
 export class OptimizerService {

@@ -197,3 +197,25 @@ describe('optimizer: statistics', () => {
     expect(pbo(good).pbo).toBeLessThan(0.05);
   });
 });
+
+describe('segment alpha and beta', () => {
+  it('measures beta and alpha inside segments against buy & hold', async () => {
+    const { sliceMetrics, objectiveValue } = await import('../../src/engine/optimize/analysis');
+    const n = 200;
+    const bh: number[] = [100];
+    const eq: number[] = [100];
+    for (let k = 1; k < n; k++) {
+      const r = Math.sin(k / 3) * 0.02;
+      bh.push(bh[k - 1] * (1 + r));
+      eq.push(eq[k - 1] * (1 + 2 * r + 0.0005));
+    }
+    const d = { t: bh.map((_, k) => k * 86400000), eq, bar: bh.map((_, k) => k * 24), bh };
+    const m = sliceMetrics(d, [], [[0, n * 24]]);
+    expect(m.beta).toBeCloseTo(2, 6);
+    expect(m.alpha).toBeCloseTo(0.0005 * 365 * 100, 4);
+    expect(objectiveValue('alpha', m)).toBeCloseTo(m.alpha!, 9);
+    // without buy & hold data there is no alpha (and the objective is not finite)
+    const m2 = sliceMetrics({ t: d.t, eq, bar: d.bar }, [], [[0, n * 24]]);
+    expect(m2.alpha).toBeUndefined();
+  });
+});
