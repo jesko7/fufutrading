@@ -182,6 +182,36 @@ export interface BoxObj {
   bar: number;
 }
 
+/** chart.point: a time/bar index and a price. */
+export interface PointObj {
+  time: number;
+  index: number;
+  price: number;
+}
+
+/** linefill: the area between two lines. */
+export interface LinefillObj {
+  id: number;
+  l1: LineObj | null;
+  l2: LineObj | null;
+  color: string | null;
+  deleted: boolean;
+}
+
+/** polyline: a path through chart points. */
+export interface PolylineObj {
+  id: number;
+  points: PointObj[];
+  curved: boolean;
+  closed: boolean;
+  xloc: string;
+  lineColor: string | null;
+  fillColor: string | null;
+  lineStyle: string;
+  lineWidth: number;
+  deleted: boolean;
+}
+
 export interface TableObj {
   id: number;
   position: string;
@@ -252,7 +282,10 @@ export class Runtime {
   lines: LineObj[] = [];
   boxes: BoxObj[] = [];
   tables: TableObj[] = [];
+  linefills: LinefillObj[] = [];
+  polylines: PolylineObj[] = [];
   objSeq = 1;
+  maxPolylines = 50;
   maxLabels = 50;
   maxLines = 50;
   maxBoxes = 50;

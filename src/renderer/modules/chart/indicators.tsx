@@ -222,6 +222,7 @@ function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStor
     lines: r.lines.map((l) => ({ ...l, x1: l.x1 + off, x2: l.x2 + off, style: l.style as never, extend: l.extend as never })),
     boxes: r.boxes.map((b) => ({ ...b, left: b.left + off, right: b.right + off, extend: b.extend as never })),
     tables: r.tables,
+    polys: r.polys,
     scaleMin: r.meta.scaleMin,
     scaleMax: r.meta.scaleMax,
     precision: r.meta.precision,

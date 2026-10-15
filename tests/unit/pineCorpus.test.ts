@@ -33,6 +33,102 @@ function bars(n: number): BarSeries {
 const ctx: RunContext = { symbol: 'BTCUSDT', market: 'spot', tf: '15', chartType: 'candles', mintick: 0.01, base: 'BTC', quote: 'USDT' };
 
 export const CORPUS: Record<string, string> = {
+  'Fair value gaps with boxes (v5)': `//@version=5
+indicator("FVG", overlay=true, max_boxes_count=500, max_labels_count=100)
+thresh = input.float(0.0, "Threshold %", minval=0, step=0.1) / 100
+extendBars = input.int(20, "Extend")
+showMit = input.bool(true, "Remove mitigated")
+bullCol = input.color(color.new(color.teal, 70), "Bullish")
+bearCol = input.color(color.new(color.red, 70), "Bearish")
+type FVG
+    float top
+    float btm
+    bool bull
+    box bx
+var fvgs = array.new<FVG>()
+bullGap = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > thresh
+bearGap = high < low[2] and close[1] < low[2] and (low[2] - high) / high > thresh
+if bullGap
+    fvgs.unshift(FVG.new(low, high[2], true, box.new(bar_index - 2, low, bar_index + extendBars, high[2], border_color=na, bgcolor=bullCol)))
+if bearGap
+    fvgs.unshift(FVG.new(low[2], high, false, box.new(bar_index - 2, low[2], bar_index + extendBars, high, border_color=na, bgcolor=bearCol)))
+if fvgs.size() > 0
+    for i = fvgs.size() - 1 to 0
+        f = fvgs.get(i)
+        f.bx.set_right(bar_index + extendBars)
+        mitigated = f.bull ? close < f.btm : close > f.top
+        if mitigated and showMit
+            f.bx.delete()
+            fvgs.remove(i)
+while fvgs.size() > 50
+    fvgs.pop().bx.delete()
+plot(fvgs.size(), "open gaps", display=display.data_window)`,
+
+  'Pivot liquidity lines (v5)': `//@version=5
+indicator("Liquidity swings", overlay=true, max_lines_count=500, max_labels_count=500)
+len = input.int(14, "Pivot lookback", minval=1)
+area = input.string("Wick Extremity", "Swing area", options=["Wick Extremity", "Full Range"])
+ph = ta.pivothigh(len, len)
+pl = ta.pivotlow(len, len)
+var line phLine = na
+var label phLbl = na
+var float phTop = na
+var int phCount = 0
+if not na(ph)
+    phTop := high[len]
+    phCount := 0
+    phLine := line.new(bar_index - len, phTop, bar_index, phTop, color=color.red, width=1)
+    phLbl := label.new(bar_index - len, phTop, "", style=label.style_label_down, color=color.new(color.red, 100), textcolor=color.red, size=size.small)
+else if not na(phLine)
+    line.set_x2(phLine, bar_index)
+    if high > phTop
+        phCount += 1
+        label.set_text(phLbl, str.tostring(phCount))
+var float plBtm = na
+if not na(pl)
+    plBtm := area == "Wick Extremity" ? low[len] : math.min(close[len], open[len])
+    line.new(bar_index - len, plBtm, bar_index + 1, plBtm, color=color.teal, style=line.style_dashed, extend=extend.right)
+plot(phTop, "swing high", color.red, style=plot.style_stepline)
+plot(plBtm, "swing low", color.teal, style=plot.style_stepline)
+alertcondition(ta.crossover(high, phTop), "Swing high swept", "High swept")`,
+
+  'Session levels and anchored VWAP (v5)': `//@version=5
+indicator("Sessions", overlay=true)
+sess = input.session("0800-1600", "London")
+tz = input.string("UTC", "Timezone")
+inSess = not na(time(timeframe.period, sess, tz))
+newDay = ta.change(time("D")) != 0
+var float sHigh = na
+var float sLow = na
+if inSess and not inSess[1]
+    sHigh := high
+    sLow := low
+else if inSess
+    sHigh := math.max(sHigh, high)
+    sLow := math.min(sLow, low)
+plot(sHigh, "session high", color.orange, style=plot.style_linebr)
+plot(sLow, "session low", color.orange, style=plot.style_linebr)
+[vw, upper, lower] = ta.vwap(hlc3, newDay, 2)
+plot(vw, "vwap", color.purple)
+p1 = plot(upper, "upper", color.new(color.purple, 50))
+p2 = plot(lower, "lower", color.new(color.purple, 50))
+fill(p1, p2, color.new(color.purple, 92), "band")
+t0 = timestamp("UTC", year, month, dayofmonth, 0, 0)
+plot((time - t0) / 60000, "minutes into day", display=display.data_window)
+ltfCloses = request.security_lower_tf(syminfo.tickerid, "1", close)
+plot(array.size(ltfCloses) > 0 ? array.avg(ltfCloses) : na, "ltf avg", display=display.none)
+rows = 24
+var prof = array.new_float(rows, 0)
+hi = ta.highest(high, 100)
+lo = ta.lowest(low, 100)
+if barstate.islast and hi > lo
+    for k = 0 to 99
+        idx = math.min(rows - 1, math.floor((close[k] - lo) / (hi - lo) * rows))
+        array.set(prof, idx, array.get(prof, idx) + volume[k])
+plot(array.max(prof), "profile max", display=display.data_window)
+bgcolor(inSess ? color.new(color.blue, 94) : na)
+barcolor(newDay ? color.yellow : na)`,
+
   'CM Williams Vix Fix (v3)': `//@version=3
 study("CM_Williams_Vix_Fix Finds Market Bottoms", overlay=false, shorttitle="CM_WVF")
 pd = input(22, title="LookBack Period Standard Deviation High")
@@ -516,5 +612,60 @@ describe('Pine v4 semantics match v5', () => {
     expect(r.error).toBeUndefined();
     const p = r.plots.find((x) => x.title === 'p')!;
     expect(String(p.color)).toMatch(/,\s*0\.2\)$/);
+  });
+});
+
+describe('Pine drawings: points, linefills, polylines, setters', () => {
+  const data = bars(400);
+  it('draws with chart.point overloads, linefill and polyline', () => {
+    const code = `//@version=5
+indicator("draw", overlay=true, max_lines_count=100)
+var points = array.new<chart.point>()
+if bar_index % 20 == 0
+    points.push(chart.point.from_index(bar_index, close))
+if points.size() > 8
+    points.shift()
+var line up = line.new(chart.point.from_index(0, 0), chart.point.from_index(1, 0), color=color.green)
+var line dn = line.new(0, 0, 1, 0, color=color.red)
+var linefill lf = linefill.new(up, dn, color.new(color.blue, 80))
+line.set_first_point(up, chart.point.from_index(bar_index - 10, high))
+line.set_second_point(up, chart.point.now(high))
+line.set_xy1(dn, bar_index - 10, low)
+line.set_xy2(dn, bar_index, low)
+var box bx = box.new(chart.point.from_index(0, 1), chart.point.from_index(1, 0), border_color=color.orange, border_style=line.style_dashed)
+box.set_top_left_point(bx, chart.point.from_index(bar_index - 5, high))
+box.set_bottom_right_point(bx, chart.point.from_index(bar_index, low))
+box.set_border_width(bx, 2)
+var label lb = label.new(chart.point.now(close), "hi", style=label.style_label_up)
+label.set_point(lb, chart.point.now(close))
+var table t = table.new(position.top_right, 2, 2)
+table.set_bgcolor(t, color.black)
+table.cell(t, 0, 0, "x")
+table.merge_cells(t, 0, 0, 1, 0)
+if barstate.islast
+    polyline.new(points, curved=true, closed=false, line_color=color.purple)
+sorted = array.from(1.0, 2.0, 2.0, 4.0)
+plot(array.binary_search_leftmost(sorted, 2.0) + array.binary_search_rightmost(sorted, 2.0) * 10 + array.binary_search_leftmost(sorted, 3.0) * 100 + array.binary_search_rightmost(sorted, 3.0) * 1000, "bs")
+plot(line.get_y1(dn), "y1")`;
+    const r = runPine(code, { data, ctx, inputs: {} });
+    if (r.error) throw new Error(`${r.error.message} (line ${r.error.line})`);
+    // leftmost(2)=1, rightmost(2)=2, leftmost(3)=2 (next smaller), rightmost(3)=3 (next larger)
+    expect(r.plots.find((p) => p.title === 'bs')!.values[10]).toBe(1 + 20 + 200 + 3000);
+    expect(r.lines.length).toBe(2);
+    // line.set_first_point moved the line to 10 bars back
+    expect(r.lines.some((l) => l.x1 === data.length - 11)).toBe(true);
+    expect(r.polys?.length).toBe(2);
+    expect(r.polys!.some((p) => p.closed && p.fill)).toBe(true);
+    expect(r.polys!.some((p) => p.curved && p.stroke && p.pts.length >= 8)).toBe(true);
+    expect(r.boxes[0].style).toBe('dashed');
+    expect(r.boxes[0].left).toBe(data.length - 1 - 5);
+    expect(r.labels[0].x).toBe(data.length - 1);
+  });
+
+  it('strategy.default_entry_qty follows the default size', () => {
+    const r = runPine(`//@version=5\nstrategy("q", initial_capital=10000, default_qty_type=strategy.cash, default_qty_value=1000)\nplot(strategy.default_entry_qty(close), "q")`, { data, ctx, inputs: {} });
+    if (r.error) throw new Error(r.error.message);
+    const q = r.plots[0].values;
+    expect(q[100]).toBeCloseTo(1000 / data.c[100], 4);
   });
 });

@@ -65,6 +65,7 @@ export function drawIndicatorBase(rc: RenderCtx, ind: IndicatorOutput): void {
   }
   for (const p of ind.plots) if (p.visible !== false) drawPlot(rc, p);
   for (const s of ind.shapes) drawShapes(rc, s);
+  if (ind.polys) for (const p of ind.polys) drawPoly(rc, p);
   if (ind.boxes) for (const b of ind.boxes) drawBox(rc, b);
   if (ind.lines) for (const l of ind.lines) drawScriptLine(rc, l);
   if (ind.labels) for (const l of ind.labels) drawLabel(rc, l);
@@ -481,6 +482,35 @@ function drawScriptLine(rc: RenderCtx, l: NonNullable<IndicatorOutput['lines']>[
   ctx.setLineDash([]);
 }
 
+function drawPoly(rc: RenderCtx, p: NonNullable<IndicatorOutput['polys']>[number]): void {
+  const { ctx, pane } = rc;
+  const pts = p.pts.map(([x, y]) => [rc.x(x), pane.scale.toY(y)] as [number, number]);
+  if (pts.length < 2) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  if (p.curved && pts.length > 2) {
+    // smooth curve through the points (midpoint quadratic segments)
+    for (let k = 1; k < pts.length - 1; k++) {
+      const mx = (pts[k][0] + pts[k + 1][0]) / 2;
+      const my = (pts[k][1] + pts[k + 1][1]) / 2;
+      ctx.quadraticCurveTo(pts[k][0], pts[k][1], mx, my);
+    }
+    ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+  } else for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k][0], pts[k][1]);
+  if (p.closed) ctx.closePath();
+  if (p.fill) {
+    ctx.fillStyle = p.fill;
+    ctx.fill();
+  }
+  if (p.stroke) {
+    ctx.strokeStyle = p.stroke;
+    ctx.lineWidth = p.width || 1;
+    dash(ctx, p.style || 'solid');
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
 function drawBox(rc: RenderCtx, bx: NonNullable<IndicatorOutput['boxes']>[number]): void {
   const { ctx, pane, theme } = rc;
   let x1 = rc.x(bx.left);
@@ -494,7 +524,9 @@ function drawBox(rc: RenderCtx, bx: NonNullable<IndicatorOutput['boxes']>[number
   if (bx.width > 0) {
     ctx.strokeStyle = bx.border;
     ctx.lineWidth = bx.width;
+    dash(ctx, bx.style || 'solid');
     ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    ctx.setLineDash([]);
   }
   if (bx.text) {
     ctx.fillStyle = bx.textColor || theme.textStrong;

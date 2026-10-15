@@ -461,7 +461,22 @@ export class PineInstance {
     const xToBar = (x: number, xloc: string) => (xloc === 'bar_time' ? timeToBar(R.d.t, n, x) : x);
     res.labels = R.labels.filter((l) => !l.deleted).map((l) => ({ x: xToBar(l.x, l.xloc), y: l.y, yloc: l.yloc, text: l.text, color: cssColor(l.color) || 'rgba(0,0,0,0)', textColor: cssColor(l.textcolor) || '#fff', style: l.style, size: l.size, tooltip: l.tooltip }));
     res.lines = R.lines.filter((l) => !l.deleted).map((l) => ({ x1: xToBar(l.x1, l.xloc), y1: l.y1, x2: xToBar(l.x2, l.xloc), y2: l.y2, color: cssColor(l.color) || '#2196F3', width: l.width, style: l.style.replace('style_', ''), extend: l.extend }));
-    res.boxes = R.boxes.filter((b) => !b.deleted).map((b) => ({ left: xToBar(b.left, b.xloc), top: b.top, right: xToBar(b.right, b.xloc), bottom: b.bottom, border: cssColor(b.border) || 'rgba(0,0,0,0)', bg: cssColor(b.bg) || 'rgba(0,0,0,0)', width: b.borderWidth, text: b.text, textColor: cssColor(b.textColor) || undefined, extend: b.extend }));
+    res.boxes = R.boxes.filter((b) => !b.deleted).map((b) => ({ left: xToBar(b.left, b.xloc), top: b.top, right: xToBar(b.right, b.xloc), bottom: b.bottom, border: cssColor(b.border) || 'rgba(0,0,0,0)', bg: cssColor(b.bg) || 'rgba(0,0,0,0)', width: b.borderWidth, text: b.text, textColor: cssColor(b.textColor) || undefined, extend: b.extend, style: b.borderStyle.replace('style_', '') }));
+    // linefills (area between two lines) and polylines become generic paths
+    const polys: NonNullable<ScriptResult['polys']> = [];
+    for (const f of R.linefills) {
+      if (f.deleted || !f.l1 || !f.l2 || f.l1.deleted || f.l2.deleted) continue;
+      const a = f.l1;
+      const b = f.l2;
+      const fill = cssColor(f.color);
+      if (fill) polys.push({ pts: [[xToBar(a.x1, a.xloc), a.y1], [xToBar(a.x2, a.xloc), a.y2], [xToBar(b.x2, b.xloc), b.y2], [xToBar(b.x1, b.xloc), b.y1]], fill, closed: true });
+    }
+    for (const p of R.polylines) {
+      if (p.deleted || p.points.length < 2) continue;
+      const pts = p.points.map((q) => [p.xloc === 'bar_time' ? (Number.isFinite(q.time) ? timeToBar(R.d.t, n, q.time) : q.index) : Number.isFinite(q.index) ? q.index : timeToBar(R.d.t, n, q.time), q.price] as [number, number]).filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      if (pts.length >= 2) polys.push({ pts, fill: cssColor(p.fillColor) || undefined, stroke: cssColor(p.lineColor) || undefined, width: p.lineWidth, style: p.lineStyle.replace('style_', ''), closed: p.closed, curved: p.curved });
+    }
+    if (polys.length) res.polys = polys;
     res.tables = R.tables.filter((t) => !t.deleted).map((t) => ({ position: t.position, bg: cssColor(t.bg) || undefined, border: cssColor(t.border) || undefined, cells: [...t.cells.entries()].map(([k, v]) => ({ col: +k.split(',')[0], row: +k.split(',')[1], text: v.text, bg: cssColor(v.bg) || undefined, color: cssColor(v.color) || undefined })) }));
     res.alerts = R.alerts.map((a) => ({ title: a.title, message: a.message, values: a.values.slice(0, n) }));
     res.alertEvents = R.alertEvents.slice(-500);

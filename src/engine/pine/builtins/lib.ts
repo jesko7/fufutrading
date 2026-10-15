@@ -1,5 +1,5 @@
 /** Pine standard library (non-TA): math, str, color, array, map, time, plotting, drawings, alerts, logs. */
-import type { Runtime, LabelObj, LineObj, BoxObj, TableObj } from '../runtime';
+import type { Runtime, LabelObj, LineObj, BoxObj, TableObj, PointObj, LinefillObj, PolylineObj } from '../runtime';
 
 const NA = NaN;
 const isNa = (x: unknown) => x === null || x === undefined || (typeof x === 'number' && x !== x);
@@ -372,6 +372,29 @@ export const array = {
     const sd = Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / a.length);
     return a.map((x) => (sd ? (x - m) / sd : 0));
   },
+  /** Sorted arrays: index of the first occurrence of v. */
+  binary_search_leftmost: (a: number[], v: number) => {
+    let lo = 0;
+    let hi = a.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (a[m] < v) lo = m + 1;
+      else hi = m;
+    }
+    // not found: the next smaller element to the left (TradingView), -1 when v is below all
+    return lo < a.length && a[lo] === v ? lo : lo - 1;
+  },
+  /** Sorted arrays: index of the last occurrence of v; not found: the next larger element to the right. */
+  binary_search_rightmost: (a: number[], v: number) => {
+    let lo = 0;
+    let hi = a.length;
+    while (lo < hi) {
+      const m = (lo + hi) >> 1;
+      if (a[m] <= v) lo = m + 1;
+      else hi = m;
+    }
+    return lo - 1 >= 0 && a[lo - 1] === v ? lo - 1 : lo;
+  },
   binary_search: (a: number[], v: number) => {
     let lo = 0;
     let hi = a.length - 1;
@@ -475,8 +498,66 @@ function gc<T extends { deleted: boolean }>(list: T[], max: number): void {
   }
 }
 
+// ---- chart.point and the point overloads of line.new / label.new / box.new
+
+const isPoint = (v: unknown): v is PointObj => !!v && typeof v === 'object' && 'price' in (v as object) && 'index' in (v as object);
+/** x coordinate of a point for an xloc (time-based points without a time use their bar index). */
+function px(rt: Runtime, p: PointObj, xloc: string): number {
+  if (xloc === 'bar_time') return Number.isFinite(p.time) ? p.time : Number.isFinite(p.index) ? rt.d.t[Math.max(0, Math.min(rt.d.t.length - 1, p.index))] : NaN;
+  return Number.isFinite(p.index) ? p.index : NaN;
+}
+const XLOC = new Set(['bar_index', 'bar_time']);
+const YLOC = new Set(['price', 'abovebar', 'belowbar']);
+const EXTEND = new Set(['none', 'left', 'right', 'both']);
+const SIZES = new Set(['auto', 'tiny', 'small', 'normal', 'large', 'huge']);
+const ALIGN = new Set(['left', 'center', 'right', 'top', 'bottom', 'align_left', 'align_center', 'align_right']);
+const isColor = (v: unknown) => v === null || (typeof v === 'string' && (v.startsWith('#') || v.startsWith('rgb')));
+const isStyle = (v: unknown) => typeof v === 'string' && (v.startsWith('style_') || ['solid', 'dashed', 'dotted', 'arrow_left', 'arrow_right', 'arrow_both'].includes(v));
+
+/** Sort the trailing arguments of a point overload by what they are (positional or named, any order). */
+function classify(rest: unknown[]) {
+  const out: { xloc?: string; yloc?: string; extend?: string; colors: (string | null)[]; styles: string[]; numbers: number[]; strings: string[]; size?: string; align?: string } = { colors: [], styles: [], numbers: [], strings: [] };
+  for (const v of rest) {
+    if (v === undefined) continue;
+    if (typeof v === 'number') out.numbers.push(v);
+    else if (typeof v === 'string' && XLOC.has(v) && !out.xloc) out.xloc = v;
+    else if (typeof v === 'string' && YLOC.has(v) && !out.yloc) out.yloc = v;
+    else if (typeof v === 'string' && EXTEND.has(v) && !out.extend) out.extend = v;
+    else if (typeof v === 'string' && SIZES.has(v) && !out.size) out.size = v;
+    else if (typeof v === 'string' && ALIGN.has(v) && !out.align) out.align = v;
+    else if (isStyle(v)) out.styles.push(v as string);
+    else if (isColor(v)) out.colors.push(v as string | null);
+    else out.strings.push(String(v));
+  }
+  return out;
+}
+
+export const chartPoint = {
+  new: (time: number, index: number, price: number): PointObj => ({ time, index, price }),
+  from_index: (index: number, price: number): PointObj => ({ time: NaN, index, price }),
+  from_time: (time: number, price: number): PointObj => ({ time, index: NaN, price }),
+  now: (rt: Runtime, price?: number): PointObj => ({ time: rt.d.t[rt.i], index: rt.i, price: price === undefined || price !== price ? rt.d.c[rt.i] : price }),
+  copy: (p: PointObj | null): PointObj | null => (p ? { ...p } : null),
+};
+
 export const label = {
   new: (rt: Runtime, x: number, y: number, text = '', xloc = 'bar_index', yloc = 'price', clr: string | null = '#2196F3ff', style = 'label_down', textcolor: string | null = '#FFFFFFff', size = 'normal', _textalign?: string, tooltip = '') => {
+    if (isPoint(x)) {
+      // label.new(point, text, xloc, yloc, color, style, textcolor, size, textalign, tooltip)
+      const c = classify([y, text, xloc, yloc, clr, style, textcolor, size, _textalign, tooltip]);
+      const xl = c.xloc || 'bar_index';
+      const pt = x;
+      x = px(rt, pt, xl);
+      y = pt.price;
+      text = c.strings[0] ?? '';
+      tooltip = c.strings[1] ?? '';
+      xloc = xl;
+      yloc = c.yloc || 'price';
+      clr = c.colors[0] !== undefined ? c.colors[0] : '#2196F3ff';
+      textcolor = c.colors[1] !== undefined ? c.colors[1] : '#FFFFFFff';
+      style = c.styles[0] || 'style_label_down';
+      size = c.size || 'normal';
+    }
     const l: LabelObj = { id: rt.objSeq++, x, y, xloc, yloc, text: String(text ?? ''), color: clr, textcolor, style, size, tooltip, deleted: false, bar: rt.i };
     rt.labels.push(l);
     gc(rt.labels, rt.maxLabels);
@@ -504,6 +585,14 @@ export const label = {
   set_xloc: (l: LabelObj | null, x: number, xloc: string) => l && ((l.x = x), (l.xloc = xloc)),
   set_tooltip: (l: LabelObj | null, v: string) => l && (l.tooltip = v),
   set_textalign: () => {},
+  set_text_font_family: () => {},
+  set_text_formatting: () => {},
+  set_point: (rt: Runtime, l: LabelObj | null, p: PointObj | null) => {
+    if (l && p) {
+      l.x = px(rt, p, l.xloc);
+      l.y = p.price;
+    }
+  },
   get_x: (l: LabelObj | null) => (l ? l.x : NA),
   get_y: (l: LabelObj | null) => (l ? l.y : NA),
   get_text: (l: LabelObj | null) => (l ? l.text : null),
@@ -511,6 +600,21 @@ export const label = {
 
 export const line = {
   new: (rt: Runtime, x1: number, y1: number, x2: number, y2: number, xloc = 'bar_index', extend = 'none', clr: string | null = '#2196F3ff', style = 'solid', width = 1) => {
+    if (isPoint(x1) && isPoint(y1)) {
+      // line.new(first_point, second_point, xloc, extend, color, style, width)
+      const c = classify([x2, y2, xloc, extend, clr, style, width]);
+      const a = x1;
+      const b = y1;
+      xloc = c.xloc || 'bar_index';
+      x1 = px(rt, a, xloc);
+      y1 = a.price;
+      x2 = px(rt, b, xloc);
+      y2 = b.price;
+      extend = c.extend || 'none';
+      clr = c.colors[0] !== undefined ? c.colors[0] : '#2196F3ff';
+      style = c.styles[0] || 'solid';
+      width = c.numbers[0] ?? 1;
+    }
     const l: LineObj = { id: rt.objSeq++, x1, y1, x2, y2, xloc, extend, color: clr, style, width, deleted: false, bar: rt.i };
     rt.lines.push(l);
     gc(rt.lines, rt.maxLines);
@@ -536,6 +640,19 @@ export const line = {
   set_style: (l: LineObj | null, v: string) => l && (l.style = v),
   set_width: (l: LineObj | null, v: number) => l && (l.width = v),
   set_extend: (l: LineObj | null, v: string) => l && (l.extend = v),
+  set_xloc: (l: LineObj | null, x1: number, x2: number, xloc: string) => l && ((l.x1 = x1), (l.x2 = x2), (l.xloc = xloc)),
+  set_first_point: (rt: Runtime, l: LineObj | null, p: PointObj | null) => {
+    if (l && p) {
+      l.x1 = px(rt, p, l.xloc);
+      l.y1 = p.price;
+    }
+  },
+  set_second_point: (rt: Runtime, l: LineObj | null, p: PointObj | null) => {
+    if (l && p) {
+      l.x2 = px(rt, p, l.xloc);
+      l.y2 = p.price;
+    }
+  },
   get_x1: (l: LineObj | null) => (l ? l.x1 : NA),
   get_x2: (l: LineObj | null) => (l ? l.x2 : NA),
   get_y1: (l: LineObj | null) => (l ? l.y1 : NA),
@@ -545,6 +662,24 @@ export const line = {
 
 export const box = {
   new: (rt: Runtime, left: number, top: number, right: number, bottom: number, border: string | null = '#2196F3ff', borderWidth = 1, borderStyle = 'solid', extend = 'none', xloc = 'bar_index', bg: string | null = '#2196F333', text = '', _textSize?: string, textColor: string | null = '#000000ff') => {
+    if (isPoint(left) && isPoint(top)) {
+      // box.new(top_left, bottom_right, border_color, border_width, border_style, extend, xloc, bgcolor, text, text_size, text_color)
+      const c = classify([right, bottom, border, borderWidth, borderStyle, extend, xloc, bg, text, _textSize, textColor]);
+      const tl = left;
+      const br = top;
+      xloc = c.xloc || 'bar_index';
+      left = px(rt, tl, xloc);
+      top = tl.price;
+      right = px(rt, br, xloc);
+      bottom = br.price;
+      border = c.colors[0] !== undefined ? c.colors[0] : '#2196F3ff';
+      bg = c.colors[1] !== undefined ? c.colors[1] : '#2196F333';
+      textColor = c.colors[2] !== undefined ? c.colors[2] : '#000000ff';
+      borderWidth = c.numbers[0] ?? 1;
+      borderStyle = c.styles[0] || 'solid';
+      extend = c.extend || 'none';
+      text = c.strings[0] ?? '';
+    }
     const b: BoxObj = { id: rt.objSeq++, left, top, right, bottom, xloc, border, bg, borderWidth, borderStyle, extend, text: String(text ?? ''), textColor, deleted: false, bar: rt.i };
     rt.boxes.push(b);
     gc(rt.boxes, rt.maxBoxes);
@@ -563,6 +698,35 @@ export const box = {
   set_bgcolor: (b: BoxObj | null, v: string) => b && (b.bg = v),
   set_text: (b: BoxObj | null, v: string) => b && (b.text = String(v)),
   set_extend: (b: BoxObj | null, v: string) => b && (b.extend = v),
+  set_border_width: (b: BoxObj | null, v: number) => b && (b.borderWidth = v),
+  set_border_style: (b: BoxObj | null, v: string) => b && (b.borderStyle = v),
+  set_text_color: (b: BoxObj | null, v: string) => b && (b.textColor = v),
+  set_text_size: () => {},
+  set_text_halign: () => {},
+  set_text_valign: () => {},
+  set_text_wrap: () => {},
+  set_text_font_family: () => {},
+  set_text_formatting: () => {},
+  set_xloc: (b: BoxObj | null, left: number, right: number, xloc: string) => b && ((b.left = left), (b.right = right), (b.xloc = xloc)),
+  set_top_left_point: (rt: Runtime, b: BoxObj | null, p: PointObj | null) => {
+    if (b && p) {
+      b.left = px(rt, p, b.xloc);
+      b.top = p.price;
+    }
+  },
+  set_bottom_right_point: (rt: Runtime, b: BoxObj | null, p: PointObj | null) => {
+    if (b && p) {
+      b.right = px(rt, p, b.xloc);
+      b.bottom = p.price;
+    }
+  },
+  copy: (rt: Runtime, b: BoxObj | null) => {
+    if (!b) return null;
+    const c = { ...b, id: rt.objSeq++, bar: rt.i };
+    rt.boxes.push(c);
+    gc(rt.boxes, rt.maxBoxes);
+    return c;
+  },
   get_left: (b: BoxObj | null) => (b ? b.left : NA),
   get_right: (b: BoxObj | null) => (b ? b.right : NA),
   get_top: (b: BoxObj | null) => (b ? b.top : NA),
@@ -596,9 +760,51 @@ export const table = {
     c.color = clr;
     t.cells.set(`${col},${row}`, c);
   },
+  set_bgcolor: (t: TableObj | null, v: string) => t && (t.bg = v),
+  set_border_color: (t: TableObj | null, v: string) => t && (t.border = v),
+  set_frame_color: (t: TableObj | null, v: string) => t && (t.frame = v),
+  set_border_width: () => {},
+  set_frame_width: () => {},
+  set_position: (t: TableObj | null, v: string) => t && (t.position = v),
+  merge_cells: () => {},
+  cell_set_width: () => {},
+  cell_set_height: () => {},
+  cell_set_text_halign: () => {},
+  cell_set_text_valign: () => {},
+  cell_set_text_size: () => {},
+  cell_set_text_font_family: () => {},
+  cell_set_text_formatting: () => {},
+  cell_set_tooltip: () => {},
   clear: (t: TableObj | null) => t?.cells.clear(),
   delete: (t: TableObj | null) => {
     if (t) t.deleted = true;
+  },
+};
+
+export const linefill = {
+  new: (rt: Runtime, l1: LineObj | null, l2: LineObj | null, clr: string | null = '#2196F333') => {
+    const f: LinefillObj = { id: rt.objSeq++, l1, l2, color: clr, deleted: false };
+    rt.linefills.push(f);
+    gc(rt.linefills, rt.maxLines);
+    return f;
+  },
+  delete: (f: LinefillObj | null) => {
+    if (f) f.deleted = true;
+  },
+  get_line1: (f: LinefillObj | null) => (f ? f.l1 : null),
+  get_line2: (f: LinefillObj | null) => (f ? f.l2 : null),
+  set_color: (f: LinefillObj | null, v: string) => f && (f.color = v),
+};
+
+export const polyline = {
+  new: (rt: Runtime, points: PointObj[] | null, curved = false, closed = false, xloc = 'bar_index', lineColor: string | null = '#2196F3ff', fillColor: string | null = null, lineStyle = 'style_solid', lineWidth = 1) => {
+    const p: PolylineObj = { id: rt.objSeq++, points: (points || []).filter(Boolean).map((q) => ({ ...q })), curved: !!curved, closed: !!closed, xloc, lineColor, fillColor, lineStyle, lineWidth, deleted: false };
+    rt.polylines.push(p);
+    gc(rt.polylines, rt.maxPolylines);
+    return p;
+  },
+  delete: (p: PolylineObj | null) => {
+    if (p) p.deleted = true;
   },
 };
 

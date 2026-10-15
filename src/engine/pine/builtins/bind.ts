@@ -1,6 +1,6 @@
 /** Assemble the `B` object used by generated Pine code. */
 import * as ta from './ta';
-import { math, nz, str, color, array, map, time, label, line, box, table, log, alert } from './lib';
+import { math, nz, str, color, array, map, time, label, line, box, table, linefill, polyline, chartPoint, log, alert } from './lib';
 import type { Runtime } from '../runtime';
 import { parseTimeframe, tfDurationMs, bucketStart, normalize, tfToString } from '../../../shared/timeframes';
 import type { StrategyBroker } from '../../backtest/broker';
@@ -75,6 +75,10 @@ export const B = {
   line,
   box,
   table,
+  linefill,
+  polyline,
+  chartPoint,
+  tickerInherit: (_from: string, symbol: string) => symbol,
   log,
   alert,
   toInt: (x: unknown) => (isNa(x) ? NaN : Math.trunc(Number(x))),
@@ -169,6 +173,12 @@ export const B = {
 
   // ---------------------------------------------------------------- strategy
   strat: {
+    /** The quantity a strategy.entry without qty would use at `price`. */
+    defaultEntryQty: (R: Runtime, price: number) => {
+      const br = R.broker as StrategyBroker | null;
+      if (!br || !(price > 0)) return NaN;
+      return br.resolveQty({ qty: NaN } as never, price);
+    },
     entry: (R: Runtime, kind: 'entry' | 'order', id: string, dir: number, qty?: number, limit?: number, stop?: number, oca?: string, ocaType?: string, comment?: string) => {
       const br = R.broker as StrategyBroker | null;
       if (!br || R.secMode) return;
@@ -291,10 +301,14 @@ export const B = {
       else if ('x1' in o) ns = line;
       else if ('bottom' in o && 'left' in o) ns = box;
       else if ('cells' in o) ns = table;
+      else if ('l1' in o && 'l2' in o) ns = linefill;
+      else if ('points' in o && 'curved' in o) ns = polyline;
+      else if ('price' in o && 'index' in o) ns = chartPoint;
       if (ns) {
         const f = ns[name];
         if (!f) R.error(`Method ${name} is not supported`);
-        return name === 'copy' ? f(R, obj, ...args) : f(obj, ...args);
+        const needsRt = (name === 'copy' && ns !== chartPoint) || name.endsWith('_point') || name === 'set_point';
+        return needsRt ? f(R, obj, ...args) : f(obj, ...args);
       }
       if (name === 'copy') return { ...o };
     }

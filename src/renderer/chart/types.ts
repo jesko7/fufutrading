@@ -122,6 +122,8 @@ export interface ScriptBox {
   text?: string;
   textColor?: string;
   extend?: 'none' | 'left' | 'right' | 'both';
+  /** Border style: solid, dashed or dotted. */
+  style?: string;
 }
 
 export interface ScriptTableCell {
@@ -154,6 +156,8 @@ export interface IndicatorOutput {
   lines?: ScriptLine[];
   boxes?: ScriptBox[];
   tables?: ScriptTable[];
+  /** linefills and polylines (bar index / price paths). */
+  polys?: { pts: [number, number][]; fill?: string; stroke?: string; width?: number; style?: string; closed?: boolean; curved?: boolean }[];
   /** Fixed scale bounds for separate panes (e.g. RSI 0..100), optional. */
   scaleMin?: number;
   scaleMax?: number;

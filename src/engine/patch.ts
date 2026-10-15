@@ -27,6 +27,7 @@ export interface ResultPatch {
   lines: ScriptResult['lines'];
   boxes: ScriptResult['boxes'];
   tables: ScriptResult['tables'];
+  polys?: ScriptResult['polys'];
   alertEvents: ScriptResult['alertEvents'];
   logs: ScriptResult['logs'];
   warnings: ScriptResult['warnings'];
@@ -51,6 +52,7 @@ export function makePatch(r: ScriptResult, from: number, t0: number): ResultPatc
     lines: r.lines,
     boxes: r.boxes,
     tables: r.tables,
+    polys: r.polys,
     alertEvents: r.alertEvents,
     logs: r.logs.slice(-300),
     warnings: r.warnings,
@@ -94,6 +96,7 @@ export function applyPatch(r: ScriptResult, p: ResultPatch): ScriptResult {
     lines: p.lines,
     boxes: p.boxes,
     tables: p.tables,
+    polys: p.polys,
     alertEvents: p.alertEvents,
     logs: p.logs,
     warnings: p.warnings,

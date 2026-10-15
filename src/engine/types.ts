@@ -110,8 +110,10 @@ export interface ScriptResult {
   barcolors: (string | null)[] | null;
   labels: { x: number; y: number; yloc: string; text: string; color: string; textColor: string; style: string; size: string; tooltip?: string }[];
   lines: { x1: number; y1: number; x2: number; y2: number; color: string; width: number; style: string; extend: string }[];
-  boxes: { left: number; top: number; right: number; bottom: number; border: string; bg: string; width: number; text?: string; textColor?: string; extend?: string }[];
+  boxes: { left: number; top: number; right: number; bottom: number; border: string; bg: string; width: number; text?: string; textColor?: string; extend?: string; style?: string }[];
   tables: { position: string; cells: { row: number; col: number; text: string; bg?: string; color?: string }[]; bg?: string; border?: string }[];
+  /** linefills and polylines: paths in bar index / price, filled and/or stroked. */
+  polys?: { pts: [number, number][]; fill?: string; stroke?: string; width?: number; style?: string; closed?: boolean; curved?: boolean }[];
   alerts: { title: string; message: string; values: Uint8Array }[];
   alertEvents: { bar: number; time: number; message: string }[];
   logs: { bar: number; time: number; level: 'info' | 'warning' | 'error'; msg: string }[];
