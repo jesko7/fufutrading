@@ -30,7 +30,7 @@ const exe = process.env.FUFU_E2E_EXE;
 const app = await electron.launch({
   executablePath: exe || require('electron'),
   args: exe ? [] : [root],
-  env: Object.fromEntries(Object.entries({ ...process.env, FUFU_USER_DATA: userData, FUFU_QUIET: '1' }).filter(([k]) => k !== 'ELECTRON_RUN_AS_NODE')),
+  env: Object.fromEntries(Object.entries({ ...process.env, FUFU_USER_DATA: userData, FUFU_QUIET: '1', FUFU_TEST_TOOLS: '1' }).filter(([k]) => k !== 'ELECTRON_RUN_AS_NODE')),
   timeout: 60000,
 });
 const page = await app.firstWindow();
@@ -291,6 +291,18 @@ const S = {
     const regimes = await page.$$eval('.analysis table:nth-of-type(2) tbody tr', (r) => r.length);
     check(regimes >= 2, `regime breakdown rows (${regimes})`);
     await shot('12-backtest-analysis');
+    // the strategy against 1,000 random twins, and its Greeks
+    await page.click('.results .tabs .tab:has-text("vs Random")');
+    await page.waitForSelector('.random-view .callout', { timeout: 10000 });
+    const verdict = await page.textContent('.random-view .callout');
+    const rbRows = await page.$$eval('.random-view .rb-table tbody tr', (r) => r.length);
+    check(/random twins/.test(verdict || '') && rbRows >= 5, `random counterparts: ${(verdict || '').replace(/\s+/g, ' ').slice(0, 110)}`);
+    await shot('12b-backtest-random');
+    await page.click('.results .tabs .tab:has-text("Greeks")');
+    await page.waitForSelector('.greek-card', { timeout: 10000 });
+    const greeks = await page.$$eval('.greek-card', (c) => c.map((x) => x.querySelector('.greek-sym')?.textContent).join(' '));
+    check(/α β ρ R² σ Ω/.test(greeks), `Greeks shown (${greeks})`);
+    await shot('12c-backtest-greeks');
     // futures with leverage: funding + mark prices
     await page.click('.tester-bar button[data-tip^="Backtest settings"]');
     await page.waitForSelector('.tester-settings');
@@ -643,6 +655,23 @@ const S = {
     const runs = await page.evaluate(() => window.fufu.invoke('backtests:list'));
     check(runs.some((r) => r.request.symbol === 'ETHUSDT' && r.request.tf === '4h'), 'backtest recorded in the Strategy Tester history');
     await shot('27-ai-backtest');
+  },
+  async aitools() {
+    console.log('scenario: AI tools (called directly, without Claude)');
+    const call = (name, args) => page.evaluate(([n, a]) => window.fufu.invoke('ai:testTool', n, a), [name, args]);
+    const bt = await call('backtest', { id: 'builtin:strat_ma_cross', symbol: 'BTCUSDT', tf: '4h', days: 365 });
+    const m = bt.result.metrics;
+    check(bt.result.ok && m.exposurePct >= 0 && m.exposurePct <= 100 && Math.abs(m.cagrPct) < 1000, `backtest units (exposure ${m.exposurePct}%, CAGR ${m.cagrPct}%)`);
+    check(!!m.greeks && typeof m.greeks.beta === 'number', `Greeks for the AI (alpha ${m.greeks?.alphaPctPerYear}%/yr, beta ${m.greeks?.beta})`);
+    check(!!m.vsRandom && m.vsRandom.twins >= 200, `random twins for the AI: ${m.vsRandom?.verdict} (beats ${m.vsRandom?.timing.beatsReturnPct}%, p ${m.vsRandom?.timing.pReturn})`);
+    const run = await call('run_script', { id: 'builtin:rsi', symbol: 'BTCUSDT', tf: '1h', bars: 2000 });
+    check(run.result.ok && run.result.plots.some((p) => typeof p.icNext5Bars === 'number'), `information coefficient (${run.result.plots.map((p) => `${p.title}: ${p.icNext5Bars}`).join(', ')})`);
+    const rb = await call('robustness_test', { id: 'builtin:strat_ma_cross', symbol: 'BTCUSDT', tf: '4h', days: 365 });
+    const s = rb.result.summary;
+    check(rb.result.runs.length === 8 && s.runs >= 6, `robustness: ${s.verdict}, ${s.runs} runs, profitable ${s.profitablePct}%, beat random ${s.beatRandomPct}%, median Sharpe ${s.medianSharpe}`);
+    console.log('    ' + rb.result.runs.map((r) => `${r.label}: ${r.error || `${r.returnPct}% (B&H ${r.buyHoldPct}%)`}`).join(' | '));
+    const hist = await page.evaluate(() => window.fufu.invoke('backtests:list'));
+    check(!hist.some((h) => h.label === 'robustness'), 'robustness runs stay out of the Strategy Tester history');
   },
   async footprint() {
     console.log('scenario: footprint');

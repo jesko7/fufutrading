@@ -5,6 +5,7 @@
  * Pure functions over the broker's raw output.
  */
 import type { BarSeries, StrategyRaw, TradeRec } from '../types';
+import { alignedDailyReturns, computeGreeks, type Greeks } from './benchmarks';
 
 const DAY = 86400000;
 
@@ -66,6 +67,8 @@ export interface Metrics {
   monthly: { year: number; month: number; returnPct: number }[];
   yearly: { year: number; returnPct: number; buyHoldPct: number }[];
   regimes: RegimeStat[];
+  /** Alpha, beta and other risk figures against buy & hold of the same instrument (null: too few days). */
+  greeks: Greeks | null;
   /** Per-bar curves aligned to the analysed range. */
   curves: { t: Float64Array; equity: Float64Array; drawdownPct: Float64Array; buyHold: Float64Array };
 }
@@ -360,6 +363,8 @@ export function computeMetrics(raw: StrategyRaw, data: BarSeries, opts: MetricsO
   }
   const rf = opts.riskFree ?? 0;
   const cashFinal = init * Math.pow(1 + rf, years);
+  const aligned = m ? alignedDailyReturns(ct, equity, bh) : { ra: [], rb: [] };
+  const greeks = computeGreeks(aligned.ra, aligned.rb, rf);
   const all = tradeStats(trades);
   return {
     initialCapital: init,
@@ -394,6 +399,7 @@ export function computeMetrics(raw: StrategyRaw, data: BarSeries, opts: MetricsO
     monthly,
     yearly,
     regimes,
+    greeks,
     curves: { t: Float64Array.from(ct), equity, drawdownPct: ddPct, buyHold: bh },
   };
 }

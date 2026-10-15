@@ -23,6 +23,7 @@ import type { BacktestRecord, BacktestRequest } from '../../../main/backtest/ser
 import type { TradeStats } from '../../../engine/backtest/metrics';
 import { lastChartId } from '../scripts/focus';
 import { type TesterCfg, type RangePreset, type RunSummary, rangeOf, buildRequest, TesterSettings } from './common';
+import { RandomView, GreeksView } from './benchmarkViews';
 import './backtest.css';
 
 function pf(x: number): string {
@@ -273,9 +274,9 @@ export function StrategyTesterModule({ module }: ModuleProps) {
 
 // ------------------------------------------------------------------ results
 
-function Kpi({ label, value, sub, cls, tip }: { label: string; value: string; sub?: string; cls?: string; tip?: string }) {
+function Kpi({ label, value, sub, cls, tip, onClick }: { label: string; value: string; sub?: string; cls?: string; tip?: string; onClick?: () => void }) {
   return (
-    <div className="kpi" data-tip={tip}>
+    <div className={clsx('kpi', onClick && 'clickable')} data-tip={tip} onClick={onClick}>
       <div className="kpi-label">{label}</div>
       <div className={clsx('kpi-value', cls)}>{value}</div>
       {sub && <div className="kpi-sub">{sub}</div>}
@@ -355,23 +356,29 @@ function Results({ rec, tab, setTab, onAddToChart, onRerun }: { rec: BacktestRec
           { value: 'trades', label: 'Trades', badge: <span className="badge">{m.all.trades}</span> },
           { value: 'monthly', label: 'Returns' },
           { value: 'analysis', label: 'Analysis' },
+          { value: 'random', label: 'vs Random' },
+          { value: 'greeks', label: 'Greeks' },
           { value: 'info', label: 'Assumptions' },
         ]}
       />
       <div className="results-body">
-        {tab === 'overview' && <Overview rec={rec} />}
+        {tab === 'overview' && <Overview rec={rec} setTab={setTab} />}
         {tab === 'performance' && <Performance rec={rec} />}
         {tab === 'trades' && <Trades rec={rec} />}
         {tab === 'monthly' && <Monthly rec={rec} />}
         {tab === 'analysis' && <Analysis rec={rec} />}
+        {tab === 'random' && <RandomView rec={rec} onRerun={onRerun} />}
+        {tab === 'greeks' && <GreeksView rec={rec} />}
         {tab === 'info' && <Info rec={rec} />}
       </div>
     </div>
   );
 }
 
-function Overview({ rec }: { rec: BacktestRecord }) {
+function Overview({ rec, setTab }: { rec: BacktestRecord; setTab: (t: string) => void }) {
   const m = rec.metrics!;
+  const rnd = rec.random;
+  const g = m.greeks;
   const c = rec.curves!;
   const vsBh = m.netProfitPct - m.buyHold.returnPct;
   const [mode, setMode] = useState<'equity' | 'pct'>('equity');
@@ -388,6 +395,26 @@ function Overview({ rec }: { rec: BacktestRecord }) {
         <Kpi label="vs Buy & hold" value={fmtPct(vsBh)} sub={`B&H ${fmtPct(m.buyHold.returnPct)}`} cls={signCls(vsBh)} tip={`Buy & hold max drawdown ${fmtPct(-m.buyHold.maxDrawdownPct)}`} />
         <Kpi label="CAGR" value={fmtPct(m.cagr)} sub={`Calmar ${m.calmar.toFixed(2)}`} cls={signCls(m.cagr)} tip={m.days < 365 ? `Annualised from ${Math.round(m.days)} days — short tests extrapolate strongly` : 'Compound annual growth rate'} />
         <Kpi label="Exposure" value={fmtPct(m.exposure, 1, false)} sub={`Avg ${fmtNum(m.all.avgBarsInTrade, 1)} bars/trade`} />
+        {rnd && (
+          <Kpi
+            label="vs Random"
+            value={`beats ${rnd.timing.beats.returnPct.toFixed(0)}%`}
+            sub={`p = ${rnd.timing.pReturn.toFixed(3)} · ${rnd.iterations.toLocaleString('en-US')} twins`}
+            cls={rnd.verdict.level === 'strong' || rnd.verdict.level === 'likely' ? 'up' : rnd.verdict.level === 'worse' ? 'down' : ''}
+            tip={`${rnd.verdict.title}: share of random strategies with the same trades at random times that the strategy beats`}
+            onClick={() => setTab('random')}
+          />
+        )}
+        {g && (
+          <Kpi
+            label="Alpha · Beta"
+            value={`${fmtPct(g.alpha, 1)}/yr`}
+            sub={`β ${g.beta.toFixed(2)} · ρ ${g.correlation.toFixed(2)}`}
+            cls={signCls(g.alpha)}
+            tip="Annualised alpha and beta against buy & hold of the same coin (see Greeks)"
+            onClick={() => setTab('greeks')}
+          />
+        )}
       </div>
       {rec.warnings.length > 0 && (
         <div className="callout warn">

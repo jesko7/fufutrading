@@ -12,6 +12,18 @@ export interface LineSeries {
   area?: boolean;
   dashed?: boolean;
   width?: number;
+  /** Line opacity (0–1). */
+  alpha?: number;
+  /** Leave out of the hover tooltip (e.g. many faint sample paths). */
+  tip?: boolean;
+}
+
+/** A filled range between two value arrays (e.g. a 5–95% percentile band). */
+export interface LineBand {
+  lo: ArrayLike<number>;
+  hi: ArrayLike<number>;
+  color: string;
+  label?: string;
 }
 
 function css(name: string, fallback: string): string {
@@ -26,7 +38,7 @@ function niceStep(range: number, ticks: number): number {
   return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p;
 }
 
-export function LineChart({ t, series, height = 220, format = (v) => v.toFixed(2), zeroLine, minY, maxY, onPick }: { t: ArrayLike<number>; series: LineSeries[]; height?: number; format?: (v: number) => string; zeroLine?: boolean; minY?: number; maxY?: number; onPick?: (time: number) => void }) {
+export function LineChart({ t, series, bands = [], height = 220, format = (v) => v.toFixed(2), zeroLine, minY, maxY, onPick }: { t: ArrayLike<number>; series: LineSeries[]; bands?: LineBand[]; height?: number; format?: (v: number) => string; zeroLine?: boolean; minY?: number; maxY?: number; onPick?: (time: number) => void }) {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [w, setW] = useState(0);
@@ -46,9 +58,9 @@ export function LineChart({ t, series, height = 220, format = (v) => v.toFixed(2
   // y range
   let lo = Infinity;
   let hi = -Infinity;
-  for (const s of series)
-    for (let i = 0; i < s.values.length; i++) {
-      const v = s.values[i];
+  for (const vals of [...series.map((s) => s.values), ...bands.flatMap((b) => [b.lo, b.hi])])
+    for (let i = 0; i < vals.length; i++) {
+      const v = vals[i];
       if (!Number.isFinite(v)) continue;
       if (v < lo) lo = v;
       if (v > hi) hi = v;
@@ -125,8 +137,31 @@ export function LineChart({ t, series, height = 220, format = (v) => v.toFixed(2
       }
       ctx.textAlign = 'left';
     }
+    // bands
+    for (const b of bands) {
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < n; i++) {
+        const v = b.hi[i];
+        if (!Number.isFinite(v)) continue;
+        if (!started) {
+          ctx.moveTo(x(i), y(v));
+          started = true;
+        } else ctx.lineTo(x(i), y(v));
+      }
+      for (let i = n - 1; i >= 0; i--) {
+        const v = b.lo[i];
+        if (Number.isFinite(v)) ctx.lineTo(x(i), y(v));
+      }
+      if (started) {
+        ctx.closePath();
+        ctx.fillStyle = b.color;
+        ctx.fill();
+      }
+    }
     // series
     for (const s of series) {
+      ctx.globalAlpha = s.alpha ?? 1;
       ctx.strokeStyle = s.color;
       ctx.lineWidth = s.width ?? 1.6;
       ctx.setLineDash(s.dashed ? [5, 4] : []);
@@ -153,6 +188,7 @@ export function LineChart({ t, series, height = 220, format = (v) => v.toFixed(2
       }
       ctx.stroke();
       ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
       if (s.area && started) {
         const base = y(Math.max(lo, Math.min(hi, zeroLine ? 0 : lo)));
         ctx.lineTo(lastX, base);
@@ -179,7 +215,7 @@ export function LineChart({ t, series, height = 220, format = (v) => v.toFixed(2
       ctx.setLineDash([]);
       for (const s of series) {
         const v = s.values[hover];
-        if (!Number.isFinite(v)) continue;
+        if (!Number.isFinite(v) || s.tip === false) continue;
         ctx.fillStyle = s.color;
         ctx.beginPath();
         ctx.arc(px, y(v), 3, 0, Math.PI * 2);
@@ -202,13 +238,26 @@ export function LineChart({ t, series, height = 220, format = (v) => v.toFixed(2
       {hover !== null && n > 0 && (
         <div className="lc-tip" style={{ left: Math.min(Math.max(0, tipLeft + 12), Math.max(0, w - 190)), top: 8 }}>
           <div className="muted">{fmtDateTime(t[hover])}</div>
-          {series.map((s) => (
-            <div key={s.label} className="lc-row">
-              <span className="lc-dot" style={{ background: s.color }} />
-              {s.label}
-              <b>{Number.isFinite(s.values[hover]) ? format(s.values[hover]) : '—'}</b>
-            </div>
-          ))}
+          {series
+            .filter((s) => s.tip !== false)
+            .map((s) => (
+              <div key={s.label} className="lc-row">
+                <span className="lc-dot" style={{ background: s.color }} />
+                {s.label}
+                <b>{Number.isFinite(s.values[hover]) ? format(s.values[hover]) : '—'}</b>
+              </div>
+            ))}
+          {bands
+            .filter((b) => b.label)
+            .map((b) => (
+              <div key={b.label} className="lc-row">
+                <span className="lc-dot" style={{ background: b.color }} />
+                {b.label}
+                <b>
+                  {Number.isFinite(b.lo[hover]) ? format(b.lo[hover]) : '—'} … {Number.isFinite(b.hi[hover]) ? format(b.hi[hover]) : '—'}
+                </b>
+              </div>
+            ))}
         </div>
       )}
     </div>

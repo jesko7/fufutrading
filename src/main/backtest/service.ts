@@ -15,6 +15,7 @@ import type { ScriptService } from '../scripts/service';
 import { runContext } from '../scripts/service';
 import { DocStore, uid, readJson, writeJsonAtomic } from '../storage/jsonStore';
 import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
+import { randomBenchmark, type RandomBenchmark } from '../../engine/backtest/benchmarks';
 import { keyParts } from '../../engine/host';
 import { fromCandles } from '../../engine/data';
 import type { BrokerConfig } from '../../engine/backtest/broker';
@@ -50,6 +51,8 @@ export interface BacktestRequest {
   label?: string;
   /** Intrabar precision: fill along lower-timeframe klines ('auto' picks the finest practical interval). */
   intrabar?: 'auto' | 'off' | '1s' | '1m' | '5m' | '15m' | '1h';
+  /** Don't keep the run in the Strategy Tester history (e.g. robustness sweeps). */
+  ephemeral?: boolean;
 }
 
 export interface FeeSensitivityRow {
@@ -74,12 +77,31 @@ export interface BacktestRecord {
   trades: TradeRec[];
   openTrades: StrategyRaw['openTrades'];
   feeSensitivity: FeeSensitivityRow[] | null;
+  /** The strategy against random counterparts (same trades at random times / directions). */
+  random?: RandomBenchmark | null;
   warnings: string[];
   info: { bars: number; warmup: number; source: string; fills: string; funding: number; mark: boolean; ms: number; config: Record<string, unknown> };
   logs: { bar: number; time: number; level: string; msg: string }[];
 }
 
 export type Progress = (p: { phase: string; done?: number; total?: number; message?: string }) => void;
+
+/** Random counterparts of a backtest: same trades, sizes and costs at random times or directions. */
+export function randomCounterparts(raw: StrategyRaw, bars: BarSeries, from: number, equity: ArrayLike<number>, fill?: BarSeries | null, opts: { iterations?: number; seed?: number } = {}): RandomBenchmark | null {
+  const to = bars.length - 1;
+  if (to - from < 2) return null;
+  const px = fill && fill.length === bars.length ? fill : bars;
+  const cfg = raw.config as Record<string, unknown>;
+  const last = px.c[to] || 1;
+  const cost = (Number(cfg.takerFee) || 0) + (Number(cfg.slippageBps) || 0) / 1e4 + ((Number(cfg.slippageTicks) || 0) * (Number(cfg.tick) || 0)) / last;
+  const closed = raw.trades.filter((x) => x.entryBar >= from).map((x) => ({ entryBar: x.entryBar, exitBar: x.exitBar, dir: x.dir, qty: x.qty, entryPrice: x.entryPrice, exitPrice: x.exitPrice, profit: x.profit }));
+  const open = raw.openTrades.filter((x) => x.entryBar >= from).map((x) => ({ entryBar: x.entryBar, exitBar: to, dir: x.dir, qty: x.qty, entryPrice: x.entryPrice, exitPrice: px.c[to], profit: (px.c[to] - x.entryPrice) * x.qty * x.dir }));
+  try {
+    return randomBenchmark({ t: bars.t, o: px.o, c: px.c, from, to, trades: [...closed, ...open], openCount: open.length, equity, initialCapital: raw.initialCapital, costPerSide: cost, iterations: opts.iterations, seed: opts.seed });
+  } catch {
+    return null;
+  }
+}
 
 export interface Prepared {
   code: string;
@@ -404,6 +426,8 @@ export class BacktestService {
       rec.curves = downsample(curves);
       rec.trades = result.strategy.trades.slice(-20000);
       rec.openTrades = result.strategy.openTrades;
+      progress({ phase: 'Random counterparts' });
+      rec.random = randomCounterparts(result.strategy, bars, tradeFrom, curves.equity, brokerCfg.fillData as BarSeries | undefined);
       if (req.feeSensitivity) {
         progress({ phase: 'Fee sensitivity' });
         const fees = [0, 0.0002, 0.0005, 0.001, 0.002];
@@ -419,8 +443,10 @@ export class BacktestService {
       }
     }
     rec.info.ms = Date.now() - t0;
-    this.store.put(rec, true);
-    this.core.router.broadcast('backtests:changed', { id: rec.id });
+    if (!req.ephemeral) {
+      this.store.put(rec, true);
+      this.core.router.broadcast('backtests:changed', { id: rec.id });
+    }
     return rec;
   }
 

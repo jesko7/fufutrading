@@ -31,7 +31,7 @@ export interface AiToolDeps {
 
 /** Structured result shown to the user as a card next to the model's text. */
 export interface AiCard {
-  kind: 'script' | 'check' | 'run' | 'backtest' | 'optimization' | 'market' | 'docs' | 'list' | 'ui';
+  kind: 'script' | 'check' | 'run' | 'backtest' | 'robustness' | 'optimization' | 'market' | 'docs' | 'list' | 'ui';
   title: string;
   data: Record<string, unknown>;
 }
@@ -77,6 +77,24 @@ function readDoc(dir: string, file: string): string {
   return `(${file} not found)`;
 }
 
+const DAY = 86400000;
+const TF_LADDER = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1D'];
+
+/** The timeframes just below and above `tf` on the usual ladder. */
+function neighbourTfs(tf: string): string[] {
+  const ms = tfDurationMs(parseTimeframe(tf)!);
+  let i = TF_LADDER.findIndex((x) => tfDurationMs(parseTimeframe(x)!) === ms);
+  if (i < 0) {
+    // custom timeframe: the nearest ladder steps on both sides
+    const lower = TF_LADDER.filter((x) => tfDurationMs(parseTimeframe(x)!) < ms);
+    const upper = TF_LADDER.filter((x) => tfDurationMs(parseTimeframe(x)!) > ms);
+    return [lower[lower.length - 1], upper[0]].filter(Boolean) as string[];
+  }
+  return [TF_LADDER[i - 1], TF_LADDER[i + 1]].filter(Boolean) as string[];
+}
+
+const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+
 const INSTRUMENT_SCHEMA = {
   symbol: { type: 'string', enum: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], description: 'Instrument (default BTCUSDT)' },
   market: { type: 'string', enum: ['spot', 'futures'], description: 'spot or USDⓈ-M perpetual futures (default spot)' },
@@ -95,7 +113,7 @@ function summarizeMetrics(rec: BacktestRecord) {
   return {
     period: `${new Date(m.start).toISOString().slice(0, 10)} → ${new Date(m.end).toISOString().slice(0, 10)} (${Math.round(m.days)} days)`,
     netProfitPct: r2(m.netProfitPct),
-    cagrPct: r2(m.cagr * 100),
+    cagrPct: r2(m.cagr),
     maxDrawdownPct: r2(m.maxDrawdownPct),
     sharpe: r2(m.sharpe),
     sortino: r2(m.sortino),
@@ -105,7 +123,7 @@ function summarizeMetrics(rec: BacktestRecord) {
     profitFactor: r2(m.all.profitFactor),
     avgTradePct: r2(m.all.avgTradePct),
     expectancy: r2(m.all.expectancy),
-    exposurePct: r2(m.exposure * 100),
+    exposurePct: r2(m.exposure),
     feesPaid: r2(m.feesPaid),
     fundingPaid: r2(m.fundingPaid),
     liquidations: m.liquidations,
@@ -115,7 +133,92 @@ function summarizeMetrics(rec: BacktestRecord) {
     cashReturnPct: r2(m.cash.returnPct),
     yearly: m.yearly.map((y) => ({ year: y.year, strategyPct: r2(y.returnPct), buyHoldPct: r2(y.buyHoldPct) })),
     regimes: m.regimes.map((g) => ({ regime: `${g.group}: ${g.name}`, sharePct: r2(g.share * 100), strategyPct: r2(g.strategyReturnPct), buyHoldPct: r2(g.buyHoldReturnPct), trades: g.trades })),
+    greeks: m.greeks
+      ? {
+          alphaPctPerYear: r2(m.greeks.alpha),
+          beta: r2(m.greeks.beta),
+          correlation: r2(m.greeks.correlation),
+          volatilityPct: r2(m.greeks.sigma),
+          omega: r2(m.greeks.omega),
+          upCapturePct: r2(m.greeks.upCapture),
+          downCapturePct: r2(m.greeks.downCapture),
+          downsideBeta: r2(m.greeks.downsideBeta),
+          var95DailyPct: r2(m.greeks.var95),
+          days: m.greeks.days,
+        }
+      : null,
+    vsRandom: randomSummary(rec),
   };
+}
+
+/** The strategy against random twins (same trades at random times / coin-flip directions). */
+function randomSummary(rec: BacktestRecord) {
+  const r = rec.random;
+  if (!r) return null;
+  const t = r.timing;
+  return {
+    verdict: r.verdict.title,
+    twins: r.iterations,
+    timing: { beatsReturnPct: r2(t.beats.returnPct), beatsSharpePct: r2(t.beats.sharpe), pReturn: r4(t.pReturn), pSharpe: r4(t.pSharpe), randomMedianReturnPct: r2(t.random.returnPct.p50), random95thReturnPct: r2(t.random.returnPct.p95) },
+    direction: r.direction ? { beatsReturnPct: r2(r.direction.beats.returnPct), pReturn: r4(r.direction.pReturn) } : null,
+    notes: r.notes.filter((n) => !/bar opens/.test(n)),
+  };
+}
+
+/** Average forward returns after the bars in `idx` (entry at the signal bar's close). */
+function forward(c: ArrayLike<number>, idx: number[], h: number) {
+  let s = 0;
+  let k = 0;
+  let pos = 0;
+  for (const i of idx) {
+    if (i + h >= c.length || !(c[i] > 0)) continue;
+    const r = c[i + h] / c[i] - 1;
+    s += r;
+    k++;
+    if (r > 0) pos++;
+  }
+  return k ? { n: k, avgPct: r4((s / k) * 100), upPct: r2((pos / k) * 100) } : null;
+}
+
+/** Pearson correlation of an indicator's values with the forward return over `h` bars (information coefficient). */
+function infoCoefficient(c: ArrayLike<number>, v: ArrayLike<number>, h: number): number | null {
+  let n = 0;
+  let sx = 0;
+  let sy = 0;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  for (let i = 0; i + h < c.length; i++) {
+    const x = v[i];
+    if (x !== x || !(c[i] > 0)) continue;
+    const y = c[i + h] / c[i] - 1;
+    n++;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    syy += y * y;
+    sxy += x * y;
+  }
+  if (n < 30) return null;
+  const cov = sxy / n - (sx / n) * (sy / n);
+  const vx = sxx / n - (sx / n) ** 2;
+  const vy = syy / n - (sy / n) ** 2;
+  return vx > 0 && vy > 0 ? r4(cov / Math.sqrt(vx * vy)) : null;
+}
+
+const HORIZONS = [1, 5, 20];
+
+function signalQuality(c: ArrayLike<number>, series: { title: string; values: ArrayLike<number> }[]) {
+  const all = Array.from({ length: c.length }, (_, i) => i);
+  const baseline = Object.fromEntries(HORIZONS.map((h) => [`${h}bars`, forward(c, all, h)]));
+  const signals = series
+    .map((s) => {
+      const idx: number[] = [];
+      for (let i = 0; i < s.values.length; i++) if (s.values[i] && s.values[i] === s.values[i]) idx.push(i);
+      return { title: s.title, signals: idx.length, after: Object.fromEntries(HORIZONS.map((h) => [`${h}bars`, forward(c, idx, h)])) };
+    })
+    .filter((s) => s.signals > 0);
+  return signals.length ? { baseline, signals } : null;
 }
 
 async function loadSecurityFor(deps: AiToolDeps, keys: string[], spanMs: number): Promise<Record<string, Float64Array>> {
@@ -261,7 +364,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'run_script',
       readOnly: true,
       description:
-        'Run an indicator or strategy once on real recent Binance data (closed bars) and report errors, the last values and statistics of every plot, alert signals, log output and (for strategies) a short trade summary. Use it to verify an indicator behaves as intended.',
+        "Run an indicator or strategy once on real recent Binance data (closed bars) and report errors, the last values and statistics of every plot, alert signals, log output and (for strategies) a short trade summary. Use it to verify an indicator behaves as intended. It also measures predictive value: each plot's information coefficient (correlation of its value with the return over the next 5 and 20 bars) and, for signals (plotshape/plotchar/alertcondition), the average return and share of up-moves 1, 5 and 20 bars after a signal against the baseline of all bars.",
       inputSchema: { type: 'object', properties: { ...CODE_SCHEMA, ...INSTRUMENT_SCHEMA, bars: { type: 'number', description: 'Bars of history (default 1000, max 20000)' }, inputs: { type: 'object', description: 'Input values by key' } } },
       async run(args) {
         const src = codeOf(deps, args);
@@ -299,7 +402,9 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
               }
             }
             const last = Array.from(v.slice(-8)).map((x) => r4(x));
-            return p.kind === 'plot' ? { title: p.title, last, min: r4(min), max: r4(max), naBars: nan } : { title: p.title, kind: p.kind, signals, lastSignalBarsAgo: (() => { for (let i = v.length - 1; i >= 0; i--) if (v[i] && v[i] === v[i]) return v.length - 1 - i; return null; })() };
+            return p.kind === 'plot'
+              ? { title: p.title, last, min: r4(min), max: r4(max), naBars: nan, icNext5Bars: infoCoefficient(bars.c, v, 5), icNext20Bars: infoCoefficient(bars.c, v, 20) }
+              : { title: p.title, kind: p.kind, signals, lastSignalBarsAgo: (() => { for (let i = v.length - 1; i >= 0; i--) if (v[i] && v[i] === v[i]) return v.length - 1 - i; return null; })() };
           });
         const alerts = r.alerts.map((a) => {
           let c = 0;
@@ -318,6 +423,10 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           ms: Math.round(r.stats?.ms || 0),
           plots,
           alertconditions: alerts,
+          signalQuality: signalQuality(bars.c, [
+            ...r.plots.filter((p) => p.kind === 'shape' || p.kind === 'char').map((p) => ({ title: p.title, values: p.values })),
+            ...r.alerts.map((a) => ({ title: `alertcondition: ${a.title}`, values: a.values })),
+          ]),
           alertCalls: r.alertEvents.length,
           logs: r.logs.slice(-15).map((l) => `[${l.level}] bar ${l.bar}: ${l.msg}`),
           warnings: r.warnings.map((w) => `${w.line ? `line ${w.line}: ` : ''}${w.message}`).slice(0, 10),
@@ -330,7 +439,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'backtest',
       readOnly: true,
       description:
-        'Backtest a strategy on Binance history with realistic costs (Binance fees + slippage by default, funding on futures) and report performance against buy & hold and cash: return, CAGR, max drawdown, Sharpe/Sortino/Calmar, trades, win rate, profit factor, long/short split, yearly returns and market regimes. The run is saved in the Strategy Tester history. Use several periods and instruments before drawing conclusions.',
+        'Backtest a strategy on Binance history with realistic costs (Binance fees + slippage by default, funding on futures) and report performance against buy & hold and cash: return, CAGR, max drawdown, Sharpe/Sortino/Calmar, trades, win rate, profit factor, long/short split, yearly returns and market regimes; the Greeks against buy & hold (alpha, beta, correlation, volatility, omega, capture ratios, VaR); and vsRandom: how many of 1,000 random twins (same trades, holding times, sizes and costs at random times; and coin-flip directions at the same times) the strategy beats, with p-values. The run is saved in the Strategy Tester history. Use robustness_test before calling a strategy robust.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -402,6 +511,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           objective: { type: 'string', enum: ['sharpe', 'sortino', 'calmar', 'returnOverDd', 'netProfitPct', 'profitFactor'], description: 'default sharpe' },
           budget: { type: 'number' },
           inputs: { type: 'object', description: 'Fixed values for the other inputs' },
+          validation: { type: 'string', enum: ['holdout', 'walkforward'], description: 'holdout (default): the last 30% is out-of-sample. walkforward: rolling windows (optimize on three parts, test on the next), stitched out-of-sample results and walk-forward efficiency. Stricter, takes longer.' },
         },
         required: ['params'],
       },
@@ -443,7 +553,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           budget: Math.max(8, Math.min(150, Math.round(Number(args.budget) || 40))),
           objective: (args.objective as OptimizeRequest['objective']) || 'sharpe',
           constraints: { minTrades: 10 },
-          validation: { mode: 'holdout', oosPct: 30 },
+          validation: args.validation === 'walkforward' ? { mode: 'walkforward', windows: 4, isRatio: 3 } : { mode: 'holdout', oosPct: 30 },
           extras: { pbo: false },
           label: `AI · ${src.name}`,
         };
@@ -454,18 +564,113 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
         const rob = rec.robustness.find((x) => x.key === rec.bestKey);
         const fmt = (m: any) => (m ? { netProfitPct: r2(m.netProfitPct), sharpe: r2(m.sharpe), maxDrawdownPct: r2(m.maxDrawdownPct), trades: m.trades, profitFactor: r2(m.profitFactor), winRatePct: r2(m.winRate * 100) } : null);
         const scope = rec.scopes[0];
+        const wfo = rec.validation.wfo;
         return {
           recordId: rec.id,
           trials: rec.info.trials,
+          validation: rec.validation.mode,
           bestParams: rec.bestPoint,
           inSample: fmt(ho?.isMetrics || best?.metrics),
-          outOfSample: fmt(ho?.oosMetrics),
+          outOfSample: fmt(ho?.oosMetrics || wfo?.oosMetrics),
+          walkForward: wfo ? { efficiency: r2(wfo.wfe), windows: wfo.windows.map((w) => ({ params: w.point, inSample: fmt(w.isMetrics), outOfSample: fmt(w.oosMetrics) })) } : undefined,
+          randomEntryTest: rec.stats.randomEntry ? { pValue: r4(rec.stats.randomEntry.pValue), strategyReturnPct: r2(rec.stats.randomEntry.strategyReturnPct), randomMedianPct: r2(rec.stats.randomEntry.randomMedianPct) } : undefined,
+          deflatedSharpe: rec.stats.dsr ? r4(rec.stats.dsr.dsr) : undefined,
           robustness: rob ? { neighbourMeanScore: r2(rob.mean), neighbourMinScore: r2(rob.min), plateauPct: r2(rob.plateau * 100), narrowPeak: rob.narrowPeak } : null,
           top: (scope?.ranking || []).slice(0, 5).map((x) => ({ params: trial(x.key)?.point, score: r2(x.score), metrics: fmt(trial(x.key)?.metrics) })),
           warnings: rec.warnings.slice(0, 6),
         };
       },
       card: (_a, r) => ({ kind: 'optimization', title: `Optimized ${r?.trials ?? ''} trials`, data: r || {} }),
+    },
+    {
+      name: 'robustness_test',
+      readOnly: true,
+      description:
+        'Check whether a strategy holds up beyond the data it was built on. Runs the same code and inputs on all three coins (BTC, ETH, SOL), on the neighbouring timeframes and in three separate sub-periods, each with realistic costs, Greeks and the random-twin comparison. Reports every run and a summary: share of runs that are profitable, beat buy & hold and beat random (p < 0.1), median Sharpe and the worst drawdown. Runs are not added to the Strategy Tester history. Takes a while; use it once a strategy looks promising and before calling it robust.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...CODE_SCHEMA,
+          ...INSTRUMENT_SCHEMA,
+          days: { type: 'number', description: 'Period in days (default 730); shortened for very small timeframes' },
+          inputs: { type: 'object', description: 'Input values by key' },
+          costs: { type: 'string', enum: [...COST_PRESETS.map((c) => c.id), 'script'], description: 'Cost preset (default binance-spot / binance-futures)' },
+        },
+      },
+      async run(args) {
+        const src = codeOf(deps, args);
+        const ins = instrument(args);
+        const now = Date.now();
+        const days = Math.max(60, Math.min(1825, Number(args.days) || 730));
+        // at most ~250k bars per run
+        const fromFor = (tf: string, to: number, span: number) => Math.max(to - span, to - 250000 * tfDurationMs(parseTimeframe(tf)!));
+        const costs = typeof args.costs === 'string' ? args.costs : ins.market === 'futures' ? 'binance-futures' : 'binance-spot';
+        const cells: { axis: 'coin' | 'timeframe' | 'period'; label: string; symbol: SymbolId; tf: string; from: number; to: number }[] = [];
+        for (const s of ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'] as SymbolId[]) cells.push({ axis: 'coin', label: `${s.replace('USDT', '')} ${ins.tf}`, symbol: s, tf: ins.tf, from: fromFor(ins.tf, now, days * DAY), to: now });
+        for (const tf of neighbourTfs(ins.tf)) cells.push({ axis: 'timeframe', label: `${ins.symbol.replace('USDT', '')} ${tf}`, symbol: ins.symbol, tf, from: fromFor(tf, now, days * DAY), to: now });
+        const start = fromFor(ins.tf, now, days * DAY);
+        const third = (now - start) / 3;
+        for (let k = 0; k < 3; k++) {
+          const a = Math.round(start + k * third);
+          const b = Math.round(start + (k + 1) * third);
+          cells.push({ axis: 'period', label: `${iso(a)} → ${iso(b)}`, symbol: ins.symbol, tf: ins.tf, from: a, to: b });
+        }
+        const runs: Record<string, unknown>[] = [];
+        for (const c of cells) {
+          try {
+            const rec = await deps.backtests.run(
+              { scriptId: src.id || undefined, code: src.id ? undefined : src.code, language: src.language, name: src.id ? undefined : `${src.name} (AI)`, inputs: (args.inputs as Record<string, unknown>) || {}, symbol: c.symbol, market: ins.market, tf: c.tf, from: c.from, to: c.to, costs, ephemeral: true, label: 'robustness' },
+              () => {},
+              { cancelled: false },
+            );
+            const m = rec.metrics;
+            if (!rec.ok || !m) {
+              runs.push({ axis: c.axis, label: c.label, error: rec.error || 'failed' });
+              continue;
+            }
+            runs.push({
+              axis: c.axis,
+              label: c.label,
+              returnPct: r2(m.netProfitPct),
+              buyHoldPct: r2(m.buyHold.returnPct),
+              sharpe: r2(m.sharpe),
+              maxDrawdownPct: r2(m.maxDrawdownPct),
+              trades: m.all.trades,
+              profitFactor: r2(m.all.profitFactor),
+              alphaPctPerYear: m.greeks ? r2(m.greeks.alpha) : null,
+              beta: m.greeks ? r2(m.greeks.beta) : null,
+              beatsRandomPct: rec.random ? r2(rec.random.timing.beats.returnPct) : null,
+              pRandom: rec.random ? r4(rec.random.timing.pReturn) : null,
+            });
+          } catch (e) {
+            runs.push({ axis: c.axis, label: c.label, error: (e as Error).message });
+          }
+        }
+        const ok = runs.filter((r) => r.error === undefined) as { returnPct: number; buyHoldPct: number; sharpe: number; maxDrawdownPct: number; trades: number; pRandom: number | null }[];
+        const share = (f: (r: (typeof ok)[number]) => boolean) => (ok.length ? r2((ok.filter(f).length / ok.length) * 100) : null);
+        const sharpes = ok.map((r) => r.sharpe).sort((a, b) => a - b);
+        const median = sharpes.length ? sharpes[Math.floor(sharpes.length / 2)] : null;
+        const profitable = share((r) => r.returnPct > 0) ?? 0;
+        const beatRandom = share((r) => r.pRandom !== null && r.pRandom < 0.1) ?? 0;
+        const verdict = !ok.length ? 'no successful runs' : profitable >= 75 && beatRandom >= 50 && (median ?? 0) > 0.5 ? 'robust' : profitable >= 50 ? 'mixed' : 'fragile';
+        return {
+          strategy: src.name,
+          market: ins.market,
+          runs,
+          summary: {
+            runs: ok.length,
+            failed: runs.length - ok.length,
+            profitablePct: profitable,
+            beatBuyHoldPct: share((r) => r.returnPct > r.buyHoldPct),
+            beatRandomPct: beatRandom,
+            medianSharpe: median,
+            worstDrawdownPct: ok.length ? r2(Math.max(...ok.map((r) => r.maxDrawdownPct))) : null,
+            runsWithUnder20Trades: ok.filter((r) => r.trades < 20).length,
+            verdict,
+          },
+        };
+      },
+      card: (_a, r) => ({ kind: 'robustness', title: `Robustness: ${r?.summary?.verdict ?? 'tested'} · ${r?.summary?.runs ?? 0} runs`, data: r || {} }),
     },
     {
       name: 'market_snapshot',

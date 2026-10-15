@@ -656,8 +656,16 @@ html[data-theme='dark'] .popover {
   display: flex;
   gap: 2px;
   align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 .tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   height: 26px;
   padding: 0 10px;
   border: none;

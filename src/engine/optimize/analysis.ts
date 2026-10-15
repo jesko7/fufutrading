@@ -373,8 +373,12 @@ export function randomEntryTest(close: Float64Array, from: number, to: number, t
   if (totalHold >= span) return { pValue: 1, strategyReturnPct: stratPct, randomMedianPct: stratPct, random95Pct: stratPct };
   const res: number[] = [];
   for (let it = 0; it < iterations; it++) {
-    // random non-overlapping placement: shuffle trades, distribute free bars randomly between them
-    const order = holds.map((_, i) => i).sort(() => rand() - 0.5);
+    // random non-overlapping placement: shuffle trades (Fisher–Yates), distribute free bars randomly between them
+    const order = holds.map((_, i) => i);
+    for (let k = order.length - 1; k > 0; k--) {
+      const r = Math.floor(rand() * (k + 1));
+      [order[k], order[r]] = [order[r], order[k]];
+    }
     const free = span - totalHold;
     const cuts = Array.from({ length: order.length }, () => Math.floor(rand() * (free + 1))).sort((a, b) => a - b);
     let eq = 1;

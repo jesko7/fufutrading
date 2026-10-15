@@ -71,13 +71,17 @@ from claude.com/claude-code and run `claude` once in a terminal to sign in.
   - the docs (including a Pine reference generated from the engine) and the script library
   - compile checks with lookahead and repainting warnings
   - runs on real Binance data
-  - backtests with realistic costs against buy & hold
-  - optimization with an out-of-sample holdout
+  - backtests with realistic costs against buy & hold, the Greeks and 1,000 random twins
+  - robustness tests on the other coins, neighbouring timeframes and separate periods
+  - signal quality of indicators: forward returns after signals and the information
+    coefficient of plots
+  - optimization with an out-of-sample holdout or walk-forward
   - market statistics
   - "show in app" (open in the editor, add to a chart, open a backtest)
 
-  So a typical turn is write → check → run → backtest → refine. Results appear as cards in
-  the conversation and in the Strategy Tester / Optimizer history.
+  So a typical turn is hypothesis → write → check → run → backtest → robustness → refine, and
+  ends with a report card and an honest verdict. Results appear as cards in the conversation
+  and in the Strategy Tester / Optimizer history.
 - Claude has no shell or file access on your computer. It only uses the app's tools.
 - From the Script Editor, the **AI** menu can fix a compile error, explain a script, assess a
   strategy, check an indicator on real data or improve it. The Strategy Builder can hand its

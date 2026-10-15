@@ -435,11 +435,12 @@ const TOOL_LABEL: Record<string, string> = {
   run_script: 'Running on market data',
   backtest: 'Backtesting',
   optimize: 'Optimizing parameters',
+  robustness_test: 'Testing robustness',
   market_snapshot: 'Looking at the market',
   show_in_app: 'Showing it in the app',
 };
 
-const TOOL_ICON: Record<string, string> = { get_docs: 'notebook', list_scripts: 'folder', read_script: 'code', check_script: 'check', save_script: 'save', run_script: 'play', backtest: 'flask', optimize: 'target', market_snapshot: 'chart', show_in_app: 'external' };
+const TOOL_ICON: Record<string, string> = { get_docs: 'notebook', list_scripts: 'folder', read_script: 'code', check_script: 'check', save_script: 'save', run_script: 'play', backtest: 'flask', optimize: 'target', robustness_test: 'layers', market_snapshot: 'chart', show_in_app: 'external' };
 
 function AssistantMsg({ m, running }: { m: Message; running: boolean }) {
   const parts = m.parts || [];
@@ -586,7 +587,10 @@ function CardBody({ card }: { card: Card }) {
             <Kpi k="Trades" v={m.trades} />
             <Kpi k="Win rate" v={m.winRatePct !== null ? `${m.winRatePct}%` : '—'} />
             <Kpi k="Profit factor" v={m.profitFactor ?? '—'} />
+            {m.vsRandom && <Kpi k="Beats random" v={`${Math.round(m.vsRandom.timing.beatsReturnPct)}%`} tone={m.vsRandom.timing.pReturn < 0.05 ? 'up' : m.vsRandom.timing.beatsReturnPct < 50 ? 'down' : ''} />}
+            {m.greeks && <Kpi k="Alpha · β" v={`${m.greeks.alphaPctPerYear > 0 ? '+' : ''}${m.greeks.alphaPctPerYear}% · ${m.greeks.beta}`} tone={tone(m.greeks.alphaPctPerYear)} />}
           </div>
+          {m.vsRandom && <div className="faint small">{m.vsRandom.verdict} (p = {m.vsRandom.timing.pReturn})</div>}
           <div className="row" style={{ gap: 6 }}>
             <span className="faint small ellipsis grow">
               {m.period} · {d.costs}
@@ -611,6 +615,7 @@ function CardBody({ card }: { card: Card }) {
             <Kpi k="IS Sharpe" v={d.inSample?.sharpe ?? '—'} />
             <Kpi k="OOS Sharpe" v={d.outOfSample?.sharpe ?? '—'} />
             {d.robustness && <Kpi k="Neighbourhood" v={d.robustness.narrowPeak ? 'narrow peak' : 'stable'} tone={d.robustness.narrowPeak ? 'down' : 'up'} />}
+            {d.walkForward && <Kpi k="WF efficiency" v={d.walkForward.efficiency ?? '—'} tone={d.walkForward.efficiency >= 0.5 ? 'up' : 'down'} />}
           </div>
           <div className="row">
             <span className="spacer" />
@@ -641,8 +646,55 @@ function CardBody({ card }: { card: Card }) {
               {d.strategy.trades} trades · net {d.strategy.netProfit}
             </div>
           )}
+          {(d.signalQuality?.signals || []).slice(0, 3).map((s: any) => (
+            <div key={s.title} className="row" style={{ gap: 8 }}>
+              <span className="faint grow ellipsis">{s.title}</span>
+              <span className="faint">{s.signals}×</span>
+              <span className="num" data-tip="Average return 5 bars after the signal, vs all bars">
+                {s.after?.['5bars'] ? `${s.after['5bars'].avgPct}%` : '—'} <span className="faint">vs {d.signalQuality.baseline?.['5bars']?.avgPct ?? '—'}%</span>
+              </span>
+            </div>
+          ))}
         </div>
       );
+    case 'robustness': {
+      const s = d.summary;
+      if (!s) return null;
+      return (
+        <div className="ai-card">
+          <div className="ai-kpis">
+            <Kpi k="Verdict" v={s.verdict} tone={s.verdict === 'robust' ? 'up' : s.verdict === 'fragile' ? 'down' : ''} />
+            <Kpi k="Profitable" v={`${Math.round(s.profitablePct ?? 0)}%`} tone={(s.profitablePct ?? 0) >= 50 ? 'up' : 'down'} />
+            <Kpi k="Beat B&H" v={`${Math.round(s.beatBuyHoldPct ?? 0)}%`} />
+            <Kpi k="Beat random" v={`${Math.round(s.beatRandomPct ?? 0)}%`} />
+            <Kpi k="Median Sharpe" v={s.medianSharpe ?? '—'} />
+            <Kpi k="Worst DD" v={pct(-(s.worstDrawdownPct ?? 0))} tone="down" />
+          </div>
+          <table className="ai-table">
+            <tbody>
+              {(d.runs || []).map((r: any) => (
+                <tr key={`${r.axis}:${r.label}`}>
+                  <td className="faint">{r.axis}</td>
+                  <td>{r.label}</td>
+                  {r.error ? (
+                    <td colSpan={4} className="danger-text">
+                      {r.error}
+                    </td>
+                  ) : (
+                    <>
+                      <td className={clsx('num', tone(r.returnPct))}>{pct(r.returnPct)}</td>
+                      <td className="num faint">B&H {pct(r.buyHoldPct)}</td>
+                      <td className="num">S {r.sharpe}</td>
+                      <td className="num faint">{r.trades} tr</td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
     case 'market':
       return (
         <div className="ai-card small">

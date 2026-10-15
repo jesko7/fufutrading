@@ -325,8 +325,25 @@ export function NumberField({ value, onChange, step = 1, min, max, decimals, sty
 }
 
 export function Tabs<T extends string>({ value, tabs, onChange }: { value: T; tabs: { value: T; label: ReactNode; badge?: ReactNode }[]; onChange: (v: T) => void }) {
+  // narrow modules: the row scrolls sideways (wheel too) and keeps the active tab in view
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    const on = el?.querySelector<HTMLElement>('.tab.on');
+    if (el && on && el.scrollWidth > el.clientWidth) {
+      if (on.offsetLeft < el.scrollLeft) el.scrollLeft = on.offsetLeft - 8;
+      else if (on.offsetLeft + on.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollLeft = on.offsetLeft + on.offsetWidth - el.clientWidth + 8;
+    }
+  }, [value]);
   return (
-    <div className="tabs">
+    <div
+      className="tabs"
+      ref={ref}
+      onWheel={(e) => {
+        const el = ref.current;
+        if (el && el.scrollWidth > el.clientWidth && Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY;
+      }}
+    >
       {tabs.map((t) => (
         <button key={t.value} className={clsx('tab', t.value === value && 'on')} onClick={() => onChange(t.value)}>
           {t.label}

@@ -542,3 +542,136 @@ tr.clickable:hover td {
     width: 210px;
   }
 }
+
+/* ---- random counterparts & Greeks */
+.callout.ok {
+  background: color-mix(in srgb, var(--up) 9%, transparent);
+  border-color: color-mix(in srgb, var(--up) 25%, transparent);
+}
+.random-view .rb-table td,
+.random-view .rb-table th {
+  white-space: nowrap;
+}
+.beats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 110px;
+}
+.beats-bar {
+  position: relative;
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--panel-3, var(--border));
+  overflow: hidden;
+}
+.beats-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--text-3);
+  border-radius: 3px;
+}
+.beats-fill.up {
+  background: var(--up);
+}
+.beats-fill.down {
+  background: var(--down);
+}
+.beats b {
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
+.rb-hist {
+  width: 100%;
+  height: 138px;
+  display: block;
+}
+.rb-bin {
+  fill: color-mix(in srgb, var(--text-3) 45%, transparent);
+}
+.rb-bin.better {
+  fill: color-mix(in srgb, var(--down) 55%, transparent);
+}
+.rb-marker {
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.rb-zero {
+  stroke: var(--text-3);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.rb-label {
+  fill: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+.rb-tick {
+  fill: var(--text-3);
+  font-size: 10px;
+}
+.rb-notes {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+.greek-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.greek-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.greek-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.greek-sym {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: 'Times New Roman', Georgia, serif;
+  font-style: italic;
+  line-height: 1;
+}
+.greek-name {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.greek-value {
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.greek-value.up {
+  color: var(--up);
+}
+.greek-value.down {
+  color: var(--down);
+}
+.greek-text {
+  font-size: 11.5px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.kpi.clickable {
+  cursor: pointer;
+}
+.kpi.clickable:hover {
+  border-color: var(--accent);
+}

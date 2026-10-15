@@ -63,6 +63,39 @@ TradingView-style €1 per fill, FTMO crypto commission, no costs, or the script
 - **Assumptions:** data source, fill model and coverage, costs, funding and mark-price use,
   and every warning (lookahead, repainting, size reductions, Renko/HA caveats).
 
+## Random counterparts
+
+Is the result skill or luck? Every backtest is compared with 1,000 random twins (tab **vs
+Random**):
+
+- **Random timing:** the same number of trades with the same holding times, position sizes,
+  long/short mix and costs, placed at random times. The p-value is the share of twins that
+  did at least as well. Below 0.05 suggests the entries have real timing skill. Above 0.2 the
+  result can't be told apart from luck.
+- **Random direction:** the strategy's own entry and exit times and prices, with a coin flip
+  for long or short. Tests whether it picks the right side. Only for strategies that trade
+  both directions.
+
+The tab shows the strategy's equity inside the band of random equity curves, the distribution
+of random returns, and how many twins the strategy beats on return, Sharpe, drawdown, profit
+factor and win rate. Random twins enter and exit at bar opens. The strategy keeps its real
+limit and stop fills.
+
+## Greeks
+
+The **Greeks** tab measures the strategy against buy & hold of the same coin, from daily
+returns:
+
+- **α alpha:** annual return that beta doesn't explain.
+- **β beta:** how much it moves with the coin.
+- **ρ correlation, R²:** how closely it follows the coin.
+- **σ volatility, Ω omega:** volatility, and daily gains over daily losses.
+- **Relative to the coin:** tracking error, information ratio, Treynor ratio, up/down capture,
+  upside and downside beta.
+- **Tail risk:** one-day VaR and CVaR at 95%, skewness, excess kurtosis, tail ratio.
+
+A strategy that only re-creates buy & hold with leverage shows a high R² and no alpha.
+
 ## Optimization
 
 Grid, random, Bayesian (TPE) and genetic (NSGA-II, multi-objective) search over integer, float,
