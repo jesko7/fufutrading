@@ -13,7 +13,7 @@ import type { AccountConfig, AccountEvent, AccountSnapshot, PlaceOrderRequest } 
 import { ACCOUNT_PRESETS, COST_PRESETS, newAccountConfig } from '../../shared/trading/presets';
 import { setBrackets, parseBracketResponse, bracketsInfo, DEFAULT_BRACKETS } from '../../shared/trading/brackets';
 import { PROFILES, profileById } from '../../shared/propfirm/profiles';
-import { SYMBOL_SPECS, isSymbol, type Market, type SymbolId } from '../../shared/symbols';
+import { SYMBOL_SPECS, SYMBOLS, isSymbol, parseExchangeInfo, applyFilterTable, type FilterTable, type Market, type SymbolId } from '../../shared/symbols';
 import type { MarkInfo } from '../market/hub';
 
 const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#6366f1'];
@@ -50,6 +50,8 @@ export class TradingEngine {
   beforeRemove = new Set<(id: string) => void>();
   /** Market context of a replay account while its replay runs (set by the replay service). */
   replayCtx: ((id: string) => MarketCtx | null) | null = null;
+  /** Exchange filters in use (from the cache or Binance); null = bundled snapshot. */
+  filters: FilterTable | null = null;
 
   constructor(private core: AppCore) {
     this.store = new DocStore(path.join(core.paths.userData, 'accounts'));
@@ -58,10 +60,10 @@ export class TradingEngine {
       now: () => hub.clock.now(),
       last: (market, symbol) => hub.lastPrice(market, symbol),
       mark: (symbol) => hub.marks.get(symbol)?.mark || 0,
-      sweep: (market, symbol, side, qty) => {
+      sweep: (market, symbol, side, qty, limit) => {
         const b = hub.bookFor(market, symbol);
         if (!b || b.status !== 'live') return null;
-        return b.book.sweep(side, qty);
+        return b.book.sweep(side, qty, limit);
       },
       bestBidAsk: (market, symbol) => {
         const b = hub.bookFor(market, symbol);
@@ -83,6 +85,7 @@ export class TradingEngine {
     }
     this.core.log('info', `trading: ${this.accounts.size} accounts loaded`);
     this.loadBrackets();
+    this.loadExchangeFilters();
     this.timer = setInterval(() => this.tick(), 1000);
     this.recalcSubscriptions();
   }
@@ -104,6 +107,40 @@ export class TradingEngine {
       })
       .catch((e) => this.core.log('warn', `trading: bracket refresh failed (${e.message}); using ${cached ? 'cached' : 'bundled'} table`));
     void DEFAULT_BRACKETS;
+  }
+
+  /** Tick and lot sizes, minimum notional and futures order limits: the cached copy first, then Binance. */
+  private loadExchangeFilters(): void {
+    const file = path.join(this.core.paths.userData, 'exchange-filters.json');
+    const cached = readJson<{ verifiedAt: string; table: FilterTable } | null>(file, null);
+    if (cached?.table) {
+      applyFilterTable(cached.table);
+      this.filters = cached.table;
+    }
+    const rest = this.core.hub.rest;
+    void Promise.all([rest.exchangeInfo('spot').catch(() => null), rest.exchangeInfo('futures').catch(() => null)]).then(([spot, fut]) => {
+      const table: FilterTable = JSON.parse(JSON.stringify(cached?.table || {}));
+      let fresh = 0;
+      for (const [m, json] of [['spot', spot], ['futures', fut]] as const) {
+        if (!json) continue;
+        const t = parseExchangeInfo(m, json);
+        for (const s of SYMBOLS) {
+          const part = t[s]?.[m];
+          if (!part) continue;
+          table[s] = { ...table[s], [m]: part };
+          fresh++;
+        }
+      }
+      if (!fresh) {
+        this.core.log('warn', `trading: exchange filters not refreshed; using ${cached ? 'cached' : 'bundled'} values`);
+        return;
+      }
+      applyFilterTable(table);
+      this.filters = table;
+      writeJsonAtomic(file, { verifiedAt: new Date().toISOString().slice(0, 10), table });
+      this.core.router.broadcast('market:filters', table);
+      this.core.log('info', 'trading: exchange filters refreshed from Binance');
+    });
   }
 
   private attach(rt: AccountRuntime): void {
@@ -409,6 +446,7 @@ export function registerTrading(core: AppCore): TradingEngine {
     brackets: bracketsInfo(),
   }));
   r.handle('trading:create', ([req]) => eng.create(req));
+  r.handle('market:filters', () => eng.filters);
   r.handle('trading:list', () => eng.list());
   r.handle('trading:snapshot', ([id]) => eng.snapshot(id));
   r.handle('trading:update', ([id, patch]) => wrap(() => eng.update(id, patch)));

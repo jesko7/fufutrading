@@ -49,6 +49,8 @@ export interface BotPlanInput {
   filters: MarketFilters;
   /** Current market price. */
   price: number;
+  /** Futures: limit prices must stay within these multiples of the mark price (Binance PERCENT_PRICE). */
+  priceBand?: { up: number; down: number };
   /** Real account equity and the leverage used for the symbol (1 on spot). */
   equity: number;
   leverage: number;
@@ -70,6 +72,8 @@ export interface BotPlanInput {
 export interface PlannedOrder extends PlaceOrderRequest {
   key: string;
   why: string;
+  /** Keep an identical open order but don't place a new one (limit outside the exchange's price band). */
+  keepOnly?: boolean;
 }
 
 export interface BotPlan {
@@ -218,6 +222,13 @@ export function planBot(inp: BotPlanInput): BotPlan {
         continue;
       }
     }
+    // Binance rejects futures limit prices too far from the mark price: wait until the price comes closer
+    const band = inp.priceBand;
+    if (band && d.price !== undefined && (d.type === 'limit' || d.type === 'stopLimit') && (d.price > price * band.up || d.price < price * band.down)) {
+      notes.push(`${d.why}: limit ${d.price} is more than ${Math.round((band.up - 1) * 100)}% from the price; placed once the price comes within Binance's band.`);
+      place.push({ ...d, keepOnly: true });
+      continue;
+    }
     place.push(d);
   }
 
@@ -240,7 +251,7 @@ export function planBot(inp: BotPlanInput): BotPlan {
     if (same) keep.add(o.tag!);
     else cancel.push({ id: o.id, why: d ? 'updated' : 'no longer wanted by the strategy' });
   }
-  const toPlace = place.filter((d) => d.type === 'market' || !keep.has(BOT_TAG + d.key)).map((d) => ({ ...d, tag: BOT_TAG + d.key }));
+  const toPlace = place.filter((d) => d.type === 'market' || (!keep.has(BOT_TAG + d.key) && !d.keepOnly)).map(({ keepOnly: _k, ...d }) => ({ ...d, tag: BOT_TAG + d.key }));
   return { scale, hold, target, cancel, market, place: toPlace, notes };
 }
 

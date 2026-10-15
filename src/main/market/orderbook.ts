@@ -116,13 +116,15 @@ export class LocalBook {
   }
 
   /** Walk the book to estimate the average fill price for a market order (null if too deep). */
-  sweep(side: 'buy' | 'sell', qty: number): { avgPrice: number; filled: number; worstPrice: number } {
+  /** Walk the opposite side for `qty`, optionally only through levels at or better than `limit`. */
+  sweep(side: 'buy' | 'sell', qty: number, limit?: number): { avgPrice: number; filled: number; worstPrice: number } {
     const prices = side === 'buy' ? this.askPrices() : this.bidPrices();
     const map = side === 'buy' ? this.asks : this.bids;
     let rem = qty;
     let cost = 0;
     let worst = NaN;
     for (const p of prices) {
+      if (limit !== undefined && (side === 'buy' ? p > limit : p < limit)) break;
       const q = map.get(p)!;
       const take = Math.min(q, rem);
       cost += take * p;

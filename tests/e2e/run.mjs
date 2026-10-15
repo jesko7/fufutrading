@@ -178,6 +178,13 @@ const S = {
     await wait(1500);
     const orders = await page.textContent('.acct .tabs');
     check(/Orders\s*2/.test(orders || ''), `TP and SL orders created (${(orders || '').replace(/\s+/g, ' ')})`);
+    // a reduce-only trailing stop from the trade panel
+    await page.click('.trade-panel .tabs .tab:has-text("Trailing")');
+    await page.click('.trade-panel .buy-sell button:has-text("Short")');
+    await page.locator('.trade-panel label:has-text("Reduce-only") .toggle, .trade-panel label:has-text("Reduce-only") [role=switch]').first().click();
+    await page.click('.trade-panel button:has-text("Reduce long BTC (trailing)")');
+    await page.waitForFunction(() => /Orders\s*3/.test(document.querySelector('.acct .tabs')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'reduce-only trailing stop placed from the trade panel');
     await shot('05-brackets');
     await page.click('.acct td button:has-text("Close")');
     await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 0, null, { timeout: 10000 });

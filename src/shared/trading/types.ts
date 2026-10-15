@@ -4,7 +4,7 @@ import type { Market, SymbolId } from '../symbols';
 export type AccountKind = 'manual' | 'bot';
 export type MarginMode = 'cross' | 'isolated';
 export type OrderSide = 'buy' | 'sell';
-export type OrderType = 'market' | 'limit' | 'stop' | 'stopLimit' | 'takeProfit';
+export type OrderType = 'market' | 'limit' | 'stop' | 'stopLimit' | 'takeProfit' | 'trailingStop';
 export type TriggerSource = 'last' | 'mark';
 export type TimeInForce = 'GTC' | 'IOC' | 'FOK';
 export type OrderStatus = 'new' | 'partiallyFilled' | 'filled' | 'canceled' | 'rejected' | 'expired';
@@ -212,6 +212,10 @@ export interface Order {
   reason?: string;
   rejectReason?: string;
   tag?: string;
+  /** Trailing stop: callback rate (fraction), activation price, and the best price since activation. */
+  callbackRate?: number;
+  activationPrice?: number;
+  trailExtreme?: number;
 }
 
 export interface Fill {
@@ -278,6 +282,10 @@ export interface PlaceOrderRequest {
   /** Attach brackets to the resulting position. */
   sl?: number;
   tp?: number;
+  /** Trailing stop: distance from the best price since activation, as a fraction (0.01 = 1%). */
+  callbackRate?: number;
+  /** Trailing stop: start trailing once the price reaches this level (default: right away). */
+  activationPrice?: number;
 }
 
 /** Snapshot of an account for the UI. */

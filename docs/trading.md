@@ -9,17 +9,34 @@ Create as many accounts as you like (Account module → New paper account), from
 custom:
 
 - **Market:** spot (long only, cash + holdings) or USDⓈ-M perpetual futures (one-way mode).
-- **Costs:** Binance spot or futures fees, TradingView-style €1 per fill (converted to USDT when
-  the account is created), FTMO crypto commission, or none. Slippage comes from walking the
+- **Costs:** Binance spot or futures fees (optionally paid in BNB: 25% / 10% off),
+  TradingView-style €1 per fill (converted to USDT when the account is created), FTMO crypto
+  commission, or none. Slippage comes from walking the
   live order book, or from a fixed basis-point amount.
 - **Execution:** limit orders fill when the market trades through (default) or touches the
   price. Optional partial fills limited by traded volume. Stops trigger on last or mark price.
 - **Risk limits:** max leverage, max position value, max open positions, daily loss limit.
 - **Kind:** manual, or bot (a strategy trades it; see below).
 
-Orders: market, limit, stop, stop-limit and take-profit, reduce-only and post-only, with
-attached stop-loss / take-profit brackets. On charts you can place orders from the right-click
-menu, and drag orders, SL/TP and position brackets.
+Orders: market, limit, stop, stop-limit, take-profit and trailing stop, reduce-only and
+post-only, with attached stop-loss / take-profit brackets. On charts you can place orders from
+the right-click menu, and drag orders, SL/TP and position brackets.
+
+- **Limit orders** that can fill right away take liquidity from the live order book up to the
+  limit price. The rest waits in the book (GTC), is canceled (IOC), or the whole order is
+  canceled unless it fills completely (FOK). Post-only orders that would fill right away are
+  rejected.
+- **Trailing stops** follow the best price (the high for a sell, the low for a buy) by a
+  callback rate of 0.1–10% on futures and 0.1–20% on spot. They can wait for an activation
+  price and trigger a market order.
+- **Binance's order rules** apply:
+  - Tick and lot sizes and minimum order values come from Binance at start-up, with a cached
+    copy for offline use.
+  - Futures limit prices must be within ±5% of the mark price.
+  - A futures market order is capped at Binance's maximum quantity.
+  - At most 200 orders can be open per symbol.
+  - Reduce-only orders of a position that closes or reverses are canceled.
+  - Bots wait with limit orders outside the price band until the price comes closer.
 
 ## Futures margin, leverage and liquidation
 

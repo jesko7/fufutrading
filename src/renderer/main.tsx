@@ -8,9 +8,17 @@ import './styles/base.css';
 import './styles/app.css';
 import './features';
 import { startClockSync } from './lib/clock';
+import { applyFilterTable, type FilterTable } from '../shared/symbols';
 
 async function boot(): Promise<void> {
-  const [settings, wsInfo] = await Promise.all([api.call<AppSettings>('settings:get'), api.call<{ workspace: Workspace; rev: number; hasSession: boolean }>('ws:get')]);
+  const [settings, wsInfo, filters] = await Promise.all([
+    api.call<AppSettings>('settings:get'),
+    api.call<{ workspace: Workspace; rev: number; hasSession: boolean }>('ws:get'),
+    api.call<FilterTable | null>('market:filters').catch(() => null),
+  ]);
+  // Binance's current tick/lot sizes and order limits (the bundled snapshot is the fallback)
+  applyFilterTable(filters);
+  api.on<FilterTable>('market:filters', (t) => applyFilterTable(t));
   const st = useApp.getState();
   st.setSettings(settings);
   st.setWorkspace(wsInfo.workspace, wsInfo.rev);

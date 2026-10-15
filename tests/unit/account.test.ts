@@ -38,7 +38,7 @@ describe('AccountRuntime reduce-only orders', () => {
   it('cancels plain reduce-only orders when the position closes, but keeps them after a partial close', () => {
     const { rt, ctx } = setup();
     rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 2 }, ctx);
-    rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'limit', qty: 1, price: 53000, reduceOnly: true }, ctx);
+    rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'limit', qty: 1, price: 52000, reduceOnly: true }, ctx);
     rt.setBrackets('BTCUSDT', { sl: 48000 }, ctx);
     rt.closePosition('BTCUSDT', ctx, 1);
     expect(rt.ledger.signedQty('BTCUSDT')).toBe(1);
@@ -149,5 +149,87 @@ describe('AccountRuntime leverage and isolated margin (Binance rules)', () => {
     rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 1 }, ctx); // 10,000 IM
     m.px = 60000; // +10,000 uPnL, IM at mark 12,000
     expect(rt.snapshot(ctx).available).toBeCloseTo(100000 + 10000 - 12000, 6);
+  });
+});
+
+describe('AccountRuntime Binance order rules', () => {
+  it('rejects futures limit prices outside 5% of the mark price', () => {
+    const { rt, ctx } = setup();
+    expect(() => rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'limit', qty: 0.01, price: 53000 }, ctx)).toThrow(/higher than 52500/);
+    expect(() => rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 0.01, price: 47000 }, ctx)).toThrow(/lower than 47500/);
+    expect(rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 0.01, price: 48000 }, ctx).status).toBe('new');
+  });
+
+  it('caps the size of one futures market order', () => {
+    const { rt, ctx } = setup();
+    rt.config.risk.maxLeverage = 125;
+    rt.ledger.wallet = 1e9;
+    expect(() => rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 121 }, ctx)).toThrow(/at most 120 BTC/);
+  });
+
+  it('fills marketable limits from the book: GTC rests the rest, IOC cancels it, FOK fills all or nothing', () => {
+    const { rt, ctx } = setup();
+    // 0.5 BTC available up to the limit price
+    const book: MarketCtx = { ...ctx, bestBidAsk: () => ({ bid: 49999, ask: 50000 }), sweep: (_m, _s, _side, qty, limit) => (limit !== undefined && limit >= 50000 ? { avgPrice: 50001, filled: Math.min(qty, 0.5), worstPrice: 50002 } : null) };
+    const gtc = rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 1, price: 50010 }, book);
+    expect(gtc.filledQty).toBe(0.5);
+    expect(gtc.avgFillPrice).toBe(50001);
+    expect(rt.orders.includes(gtc)).toBe(true);
+    const ioc = rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 1, price: 50010, tif: 'IOC' }, book);
+    expect(ioc.filledQty).toBe(0.5);
+    expect(ioc.status).toBe('expired');
+    expect(rt.orders.includes(ioc)).toBe(false);
+    const pos = rt.ledger.signedQty('BTCUSDT');
+    const fok = rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 1, price: 50010, tif: 'FOK' }, book);
+    expect(fok.status).toBe('expired');
+    expect(fok.filledQty).toBe(0);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBe(pos);
+    // non-marketable IOC expires right away
+    const idle = rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 0.1, price: 49000, tif: 'IOC' }, book);
+    expect(idle.status).toBe('expired');
+  });
+
+  it('trails a sell stop behind the high and triggers on the pullback', () => {
+    const { rt, ctx, tick } = setup();
+    rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 1 }, ctx);
+    const o = rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'trailingStop', qty: 1, callbackRate: 0.02, reduceOnly: true }, ctx);
+    expect(o.stopPrice).toBe(49000);
+    tick(52000);
+    expect(o.stopPrice).toBe(50960);
+    tick(51500);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBe(1);
+    tick(50900);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBe(0);
+    expect(o.status).toBe('filled');
+  });
+
+  it('waits for the activation price before trailing (buy side)', () => {
+    const { rt, ctx, tick } = setup();
+    const o = rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'trailingStop', qty: 0.1, callbackRate: 0.01, activationPrice: 48000 }, ctx);
+    expect(o.stopPrice).toBeUndefined();
+    tick(49000);
+    tick(48500);
+    expect(o.trailExtreme).toBeUndefined();
+    tick(47500); // activates at 48,000 and follows the low
+    expect(o.trailExtreme).toBe(47500);
+    expect(o.stopPrice).toBe(47975);
+    tick(47900);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBe(0);
+    tick(48000);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBeCloseTo(0.1, 9);
+    expect(() => rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'trailingStop', qty: 0.1, callbackRate: 0.2 }, ctx)).toThrow(/between 0.1% and 10%/);
+  });
+
+  it('triggers a trailing stop exactly on a bar path (replay)', () => {
+    const { rt, ctx, m } = setup();
+    rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 1 }, ctx);
+    const o = rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'trailingStop', qty: 1, callbackRate: 0.01, reduceOnly: true }, ctx);
+    // one bar: open 50,000 → high 51,000 → low 49,000: the stop sits at 50,490 after the high
+    for (const [from, to] of [[50000, 51000], [51000, 49000]]) {
+      m.px = to;
+      rt.onPrice('BTCUSDT', { from, to, volume: 1, t: m.t }, ctx, 'path');
+    }
+    expect(o.status).toBe('filled');
+    expect(o.avgFillPrice).toBeCloseTo(50490, 6);
   });
 });

@@ -6,7 +6,7 @@
 import type { Market, SymbolId } from '../symbols';
 import { SYMBOL_SPECS, floorToStep, roundToTick } from '../symbols';
 import { Ledger, type Marks } from './ledger';
-import { evaluateOrder, slip, type Segment } from './matching';
+import { evaluateOrder, slip, type MatchDecision, type Segment } from './matching';
 import { maxLeverageFor } from './brackets';
 import type { AccountConfig, AccountEvent, AccountSnapshot, ClosedTrade, Fill, Order, OrderSide, PlaceOrderRequest, Position } from './types';
 import { PropRules, type RuleInput } from '../propfirm/engine';
@@ -17,8 +17,8 @@ export interface MarketCtx {
   now(): number;
   last(market: Market, symbol: SymbolId): number;
   mark(symbol: SymbolId): number;
-  /** Order-book sweep for market fills (null when no synced book is available). */
-  sweep?(market: Market, symbol: SymbolId, side: OrderSide, qty: number): { avgPrice: number; filled: number; worstPrice: number } | null;
+  /** Order-book sweep for market fills, optionally capped at a limit price (null when no synced book is available). */
+  sweep?(market: Market, symbol: SymbolId, side: OrderSide, qty: number, limit?: number): { avgPrice: number; filled: number; worstPrice: number } | null;
   bestBidAsk?(market: Market, symbol: SymbolId): { bid: number; ask: number } | null;
 }
 
@@ -257,7 +257,32 @@ export class AccountRuntime {
     const stopPrice = req.stopPrice !== undefined ? roundToTick(req.stopPrice, spec.tickSize) : undefined;
     if ((req.type === 'limit' || req.type === 'stopLimit') && !(price! > 0)) throw new OrderError('Limit price required');
     if ((req.type === 'stop' || req.type === 'stopLimit' || req.type === 'takeProfit') && !(stopPrice! > 0)) throw new OrderError('Trigger price required');
-    const refPrice = price || stopPrice || last;
+    let callbackRate: number | undefined;
+    let activationPrice: number | undefined;
+    if (req.type === 'trailingStop') {
+      // Binance: futures callback rate 0.1–10%; spot trailing delta 10–2000 BIPS (0.1–20%)
+      const maxCb = market === 'spot' ? 0.2 : 0.1;
+      callbackRate = Number(req.callbackRate);
+      if (!(callbackRate >= 0.001 - 1e-12 && callbackRate <= maxCb + 1e-12)) throw new OrderError(`Callback rate must be between 0.1% and ${maxCb * 100}%`);
+      if (req.activationPrice !== undefined && req.activationPrice !== null) {
+        activationPrice = roundToTick(req.activationPrice, spec.tickSize);
+        if (!(activationPrice > 0)) throw new OrderError('Invalid activation price');
+      }
+    }
+    if (market === 'futures') {
+      // Binance futures order limits (PERCENT_PRICE, MARKET_LOT_SIZE, MAX_NUM_ORDERS)
+      const fs = SYMBOL_SPECS[req.symbol].futures;
+      const mark = ctx.mark(req.symbol) || last;
+      if (price !== undefined && (req.type === 'limit' || req.type === 'stopLimit')) {
+        const hi = roundToTick(mark * fs.priceBandUp, spec.tickSize);
+        const lo = roundToTick(mark * fs.priceBandDown, spec.tickSize);
+        if (price > hi) throw new OrderError(`Limit price can't be higher than ${hi} (${Math.round((fs.priceBandUp - 1) * 100)}% above the mark price)`);
+        if (price < lo) throw new OrderError(`Limit price can't be lower than ${lo} (${Math.round((1 - fs.priceBandDown) * 100)}% below the mark price)`);
+      }
+      if (req.type === 'market' && !req.closePosition && qty > fs.maxMarketQty) throw new OrderError(`A market order can be at most ${fs.maxMarketQty} ${SYMBOL_SPECS[req.symbol].base}; split it or use a limit order`);
+      if (req.type !== 'market' && this.orders.filter((x) => x.symbol === req.symbol).length >= fs.maxOrders) throw new OrderError(`At most ${fs.maxOrders} open orders per symbol`);
+    }
+    const refPrice = price || stopPrice || activationPrice || last;
     const notional = qty * refPrice;
     if (!reduce && notional < spec.minNotional) throw new OrderError(`Order value below minimum (${spec.minNotional} USDT)`);
     // trigger direction sanity
@@ -314,7 +339,14 @@ export class AccountRuntime {
       bracket: req.bracket,
       reason: req.reason,
       tag: req.tag,
+      callbackRate,
+      activationPrice,
     };
+    if (o.type === 'trailingStop' && (activationPrice === undefined || (o.side === 'sell' ? last >= activationPrice : last <= activationPrice))) {
+      // no activation price (or already reached): trail from the current price
+      o.trailExtreme = last;
+      o.stopPrice = roundToTick(o.side === 'sell' ? last * (1 - callbackRate!) : last * (1 + callbackRate!), spec.tickSize);
+    }
     if (req.sl || req.tp) this.pendingBrackets[o.id] = { sl: req.sl, tp: req.tp };
     // immediate execution
     if (o.type === 'market') {
@@ -333,8 +365,11 @@ export class AccountRuntime {
           this.event('reject', `${o.side.toUpperCase()} ${o.symbol} post-only rejected`, { orderId: o.id }, t);
           return o;
         }
-        const fillPx = o.side === 'buy' ? Math.min(price!, ask) : Math.max(price!, bid);
-        this.fill(o, qty, fillPx, 'taker', t, req.reason);
+        if (!this.takeLiquidity(o, ctx, req.reason)) return o;
+      } else if (o.tif === 'IOC' || o.tif === 'FOK') {
+        o.status = 'expired';
+        o.rejectReason = `${o.tif}: nothing to fill at the limit price`;
+        this.event('cancel', `${describeOrder(o)} expired (${o.tif}, nothing to fill)`, { orderId: o.id }, t);
         return o;
       }
     }
@@ -342,6 +377,40 @@ export class AccountRuntime {
     this.event('order', `${describeOrder(o)} placed`, { orderId: o.id }, t);
     this.onChange();
     return o;
+  }
+
+  /**
+   * A marketable limit order takes liquidity up to its limit price (walking the live book when
+   * there is one). The rest rests (GTC) or is canceled (IOC); fill-or-kill orders that can't fill
+   * completely are canceled without a fill. Returns true when a remainder should rest.
+   */
+  private takeLiquidity(o: Order, ctx: MarketCtx, reason?: string): boolean {
+    const t = ctx.now();
+    const rem = o.qty - o.filledQty;
+    const sw = ctx.sweep?.(o.market, o.symbol, o.side, rem, o.price) ?? null;
+    let qty = rem;
+    let px: number;
+    if (sw && sw.filled > 0) {
+      qty = Math.min(rem, floorToStep(sw.filled + 1e-12, this.spec(o.symbol).stepSize));
+      px = sw.avgPrice;
+    } else {
+      const bba = ctx.bestBidAsk?.(o.market, o.symbol);
+      const last = ctx.last(o.market, o.symbol);
+      px = o.side === 'buy' ? Math.min(o.price!, bba ? bba.ask : last) : Math.max(o.price!, bba ? bba.bid : last);
+    }
+    if (o.tif === 'FOK' && qty < rem - 1e-12) {
+      this.finish(o, 'expired', t, 'Fill-or-kill: not enough liquidity at the limit price');
+      this.event('cancel', `${describeOrder(o)} expired (fill-or-kill: not enough liquidity at the limit price)`, { orderId: o.id }, t);
+      return false;
+    }
+    if (qty > 0) this.fill(o, qty, px, 'taker', t, reason);
+    if (o.status === 'filled') return false;
+    if (o.tif === 'IOC') {
+      this.finish(o, 'expired', t, 'IOC: unfilled rest canceled');
+      this.event('cancel', `${describeOrder(o)}: unfilled rest canceled (IOC)`, { orderId: o.id }, t);
+      return false;
+    }
+    return true;
   }
 
   private checkFuturesRisk(symbol: SymbolId, dir: 1 | -1, qty: number, price: number, ctx: MarketCtx): void {
@@ -495,7 +564,7 @@ export class AccountRuntime {
     for (const o of this.orders.filter((x) => x.symbol === symbol && (x.reduceOnly || x.closePosition || x.bracket))) this.cancelOrder(o.id, t, reason);
   }
 
-  modifyOrder(id: string, patch: { price?: number; stopPrice?: number; qty?: number }, ctx: MarketCtx): Order {
+  modifyOrder(id: string, patch: { price?: number; stopPrice?: number; qty?: number; callbackRate?: number }, ctx: MarketCtx): Order {
     const o = this.orders.find((x) => x.id === id);
     if (!o) throw new OrderError('Order not found');
     const spec = this.spec(o.symbol);
@@ -510,13 +579,22 @@ export class AccountRuntime {
       o.stopPrice = sp;
     }
     if (patch.qty !== undefined) o.qty = Math.max(o.filledQty + spec.minQty, floorToStep(patch.qty, spec.stepSize));
+    if (patch.callbackRate !== undefined && o.type === 'trailingStop') {
+      const maxCb = this.config.market === 'spot' ? 0.2 : 0.1;
+      if (!(patch.callbackRate >= 0.001 - 1e-12 && patch.callbackRate <= maxCb + 1e-12)) throw new OrderError(`Callback rate must be between 0.1% and ${maxCb * 100}%`);
+      o.callbackRate = patch.callbackRate;
+      if (o.trailExtreme !== undefined) o.stopPrice = roundToTick(o.side === 'sell' ? o.trailExtreme * (1 - o.callbackRate) : o.trailExtreme * (1 + o.callbackRate), spec.tickSize);
+    }
     o.updatedAt = ctx.now();
     // a modified limit that became marketable fills now
     if (o.type === 'limit' && o.price) {
       const bba = ctx.bestBidAsk?.(this.config.market, o.symbol);
       const ask = bba ? bba.ask : last;
       const bid = bba ? bba.bid : last;
-      if ((o.side === 'buy' && o.price >= ask) || (o.side === 'sell' && o.price <= bid)) this.fill(o, o.qty - o.filledQty, o.side === 'buy' ? Math.min(o.price, ask) : Math.max(o.price, bid), 'taker', ctx.now());
+      if ((o.side === 'buy' && o.price >= ask) || (o.side === 'sell' && o.price <= bid)) {
+        if (o.postOnly) throw new OrderError('Post-only order would take liquidity');
+        this.takeLiquidity(o, ctx, o.reason);
+      }
     }
     this.event('order', `${describeOrder(o)} modified`, { orderId: o.id }, ctx.now());
     this.onChange();
@@ -610,7 +688,7 @@ export class AccountRuntime {
     };
     const cands = this.orders
       .filter((o) => o.symbol === symbol)
-      .map((o) => ({ o, d: evaluateOrder(o, markSeg(o), this.config.execution, tick, mode) }))
+      .map((o) => ({ o, d: o.type === 'trailingStop' ? this.trail(o, markSeg(o), tick, mode) : evaluateOrder(o, markSeg(o), this.config.execution, tick, mode) }))
       .filter((x) => x.d)
       .sort((a, b) => a.d!.at - b.d!.at);
     for (const { o, d } of cands) {
@@ -639,6 +717,43 @@ export class AccountRuntime {
       if (qty > 0) this.fill(o, qty, d!.price, d!.liquidity, seg.t, o.reason);
       else this.finish(o, 'canceled', seg.t, 'Nothing to reduce');
     }
+  }
+
+  /**
+   * Trailing stop on one monotonic price segment: activates when the price reaches the
+   * activation price, follows the best price since then and triggers when the price comes back
+   * by the callback rate (sell: from the high, buy: from the low).
+   */
+  private trail(o: Order, seg: Segment, tick: number, mode: 'tick' | 'path'): MatchDecision | null {
+    const cb = o.callbackRate || 0.01;
+    const sell = o.side === 'sell';
+    let from = seg.from;
+    if (o.trailExtreme === undefined) {
+      const act = o.activationPrice;
+      const hit = act === undefined || (sell ? Math.max(seg.from, seg.to) >= act : Math.min(seg.from, seg.to) <= act);
+      if (!hit) return null;
+      o.trailExtreme = act ?? seg.from;
+      // the rest of this leg starts at the activation price
+      if (act !== undefined) from = act;
+    }
+    const up = seg.to >= from;
+    const before = o.trailExtreme;
+    const level = (ext: number) => (sell ? ext * (1 - cb) : ext * (1 + cb));
+    const hits = (ext: number, p: number) => (sell ? p <= level(ext) : p >= level(ext));
+    let decision: MatchDecision | null = null;
+    if (hits(before, from)) decision = { price: mode === 'path' ? from : seg.to, qty: o.qty - o.filledQty, liquidity: 'taker', market: true, at: 0 };
+    else if ((sell && !up) || (!sell && up)) {
+      // moving against the order: the extreme stays, check the trigger along the leg
+      if (hits(before, seg.to)) {
+        const L = level(before);
+        const d = seg.to - seg.from;
+        decision = { price: mode === 'path' ? L : seg.to, qty: o.qty - o.filledQty, liquidity: 'taker', market: true, at: d ? Math.max(0, Math.min(1, (L - seg.from) / d)) : 0 };
+      }
+    }
+    // a favourable leg moves the extreme (a leg can't retrace within itself: segments are monotonic)
+    if (!decision) o.trailExtreme = sell ? Math.max(before, seg.to, from) : Math.min(before, seg.to, from);
+    o.stopPrice = roundToTick(level(o.trailExtreme), tick);
+    return decision;
   }
 
   /** Futures risk checks on a mark-price update: liquidation and margin call. */
@@ -769,7 +884,18 @@ function fmtQ(q: number): string {
 }
 
 export function describeOrder(o: Order): string {
-  const t = o.type === 'market' ? 'Market' : o.type === 'limit' ? `Limit ${o.price}` : o.type === 'stop' ? `Stop ${o.stopPrice}` : o.type === 'stopLimit' ? `Stop ${o.stopPrice} → limit ${o.price}` : `Take-profit ${o.stopPrice}`;
+  const t =
+    o.type === 'market'
+      ? 'Market'
+      : o.type === 'limit'
+        ? `Limit ${o.price}${o.tif !== 'GTC' ? ` ${o.tif}` : ''}`
+        : o.type === 'stop'
+          ? `Stop ${o.stopPrice}`
+          : o.type === 'stopLimit'
+            ? `Stop ${o.stopPrice} → limit ${o.price}`
+            : o.type === 'trailingStop'
+              ? `Trailing ${+((o.callbackRate || 0) * 100).toFixed(2)}%${o.trailExtreme === undefined && o.activationPrice ? ` from ${o.activationPrice}` : o.stopPrice ? ` (stop ${o.stopPrice})` : ''}`
+              : `Take-profit ${o.stopPrice}`;
   const what = o.bracket ? (o.bracket === 'sl' ? 'Stop loss' : 'Take profit') : `${o.side === 'buy' ? 'Buy' : 'Sell'} ${fmtQ(o.qty)} ${SYMBOL_SPECS[o.symbol].base}`;
   return o.bracket ? `${what} @ ${o.stopPrice}` : `${what} · ${t}`;
 }

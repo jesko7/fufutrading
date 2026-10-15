@@ -387,7 +387,7 @@ export function ChartModule({ module }: ModuleProps) {
   );
 
   return (
-    <div className="chart-module">
+    <div className={clsx('chart-module', replay.picking && 'picking')}>
       <HeadControls>
         <SymbolPicker symbol={cfg.symbol} market={cfg.market} onChange={changeSymbol} />
         <div className="vsep" />

@@ -9,7 +9,7 @@ import { Icon } from '../../components/Icon';
 import { AccountSelect, useAccounts, useAccount, resolveAccountId, statusBadge, openCreateAccount } from './accounts';
 import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick, type Market, type SymbolId } from '../../../shared/symbols';
 import { liquidationPrice, maxLeverageFor } from '../../../shared/trading/brackets';
-import type { OrderType, PlaceOrderRequest } from '../../../shared/trading/types';
+import type { OrderType, PlaceOrderRequest, TimeInForce } from '../../../shared/trading/types';
 import { clsx, fmtNum, fmtUsd } from '../../lib/format';
 import { useReplayView } from '../chart/replay';
 import './trading.css';
@@ -47,6 +47,10 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const [sl, setSl] = useState<number | null>(null);
   const [riskPct, setRiskPct] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tif, setTif] = useState<TimeInForce>('GTC');
+  const [postOnly, setPostOnly] = useState(false);
+  const [callback, setCallback] = useState<number | null>(1);
+  const [activation, setActivation] = useState<number | null>(null);
 
   // price picked from order book / chart
   useEffect(
@@ -69,7 +73,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const [levDraft, setLevDraft] = useState<number | null>(null);
   const mode = acct ? acct.config.futures.marginModes[symbol] || acct.config.futures.marginMode : 'cross';
   const pos = acct?.positions.find((p) => p.symbol === symbol);
-  const refPrice = type === 'limit' || type === 'stopLimit' ? price || last : type === 'stop' ? stop || last : last;
+  const refPrice = type === 'limit' || type === 'stopLimit' ? price || last : type === 'stop' ? stop || last : type === 'trailingStop' ? activation || last : last;
 
   const qty = useMemo(() => {
     if (!size || !(refPrice > 0) || !acct) return 0;
@@ -97,7 +101,8 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const notional = qty * (refPrice || 0);
   const feeRate = acct ? (type === 'limit' ? acct.config.costs.makerFee : acct.config.costs.takerFee) : 0;
   const fee = notional * feeRate + (acct?.config.costs.flatFee || 0);
-  const margin = market === 'futures' ? notional / lev : notional + fee;
+  // reduce-only orders free margin instead of using it
+  const margin = market === 'futures' ? (reduceOnly ? 0 : notional / lev) : notional + fee;
   const estLiq = useMemo(() => {
     if (market !== 'futures' || !acct || !(qty > 0) || !(refPrice > 0)) return NaN;
     const dir = side === 'buy' ? 1 : -1;
@@ -108,13 +113,21 @@ export function OrderEntryModule({ module }: ModuleProps) {
     return liquidationPrice({ symbol, side: signed > 0 ? 1 : -1, qty: Math.abs(signed), entry, wallet });
   }, [market, acct, qty, refPrice, side, pos, mode, lev, symbol]);
 
-  const canSubmit = !!acct && qty >= spec.minQty && !busy && (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price));
+  const canSubmit = !!acct && qty >= spec.minQty && !busy && (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0));
 
   const submit = async () => {
     if (!acct) return;
     const req: PlaceOrderRequest = { symbol, side, type, qty, reduceOnly: reduceOnly || undefined, source: 'manual' };
     if (type === 'limit' || type === 'stopLimit') req.price = price!;
     if (type === 'stop' || type === 'stopLimit') req.stopPrice = stop!;
+    if (type === 'limit') {
+      req.tif = tif;
+      if (postOnly) req.postOnly = true;
+    }
+    if (type === 'trailingStop') {
+      req.callbackRate = (callback || 0) / 100;
+      if (activation) req.activationPrice = activation;
+    }
     if (withBrackets && !reduceOnly) {
       if (sl) req.sl = sl;
       if (tp) req.tp = tp;
@@ -194,7 +207,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
           {market === 'futures' ? 'Short' : 'Sell'}
         </button>
       </div>
-      <Tabs value={type} onChange={setType} tabs={[{ value: 'market', label: 'Market' }, { value: 'limit', label: 'Limit' }, { value: 'stop', label: 'Stop' }, { value: 'stopLimit', label: 'Stop-limit' }]} />
+      <Tabs value={type} onChange={setType} tabs={[{ value: 'market', label: 'Market' }, { value: 'limit', label: 'Limit' }, { value: 'stop', label: 'Stop' }, { value: 'stopLimit', label: 'Stop-limit' }, { value: 'trailingStop', label: 'Trailing' }]} />
       {market === 'futures' && acct && (
         <div className="row">
           <span className="muted" style={{ width: 70 }}>
@@ -223,6 +236,39 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <PriceRow label="Trigger" value={stop} onChange={setStop} last={last} pd={pd} tick={spec.tickSize} />
       )}
       {(type === 'limit' || type === 'stopLimit') && <PriceRow label="Limit" value={price} onChange={setPrice} last={last} pd={pd} tick={spec.tickSize} />}
+      {type === 'limit' && (
+        <div className="row" style={{ gap: 6 }}>
+          <span className="muted" style={{ width: 70 }} data-tip="GTC rests until filled or canceled. IOC fills what it can right away and cancels the rest. FOK fills completely right away or not at all.">
+            Validity
+          </span>
+          <Segmented size="sm" value={tif} onChange={(v) => setTif(v)} options={[{ value: 'GTC', label: 'GTC' }, { value: 'IOC', label: 'IOC' }, { value: 'FOK', label: 'FOK' }]} />
+          <div className="spacer" />
+          <label className="row" style={{ gap: 6 }} data-tip="Only add liquidity: rejected if it would fill immediately (maker fee)">
+            <Toggle value={postOnly} onChange={setPostOnly} />
+            <span>Post-only</span>
+          </label>
+        </div>
+      )}
+      {type === 'trailingStop' && (
+        <>
+          <div className="row">
+            <span className="muted" style={{ width: 70 }} data-tip={`How far the price may come back from its best level before the order triggers (${market === 'futures' ? '0.1–10%' : '0.1–20%'})`}>
+              Callback
+            </span>
+            <NumberField value={callback} onChange={setCallback} min={0.1} max={market === 'futures' ? 10 : 20} step={0.1} suffix="%" style={{ flex: 1 }} />
+            {[0.5, 1, 2, 5].map((p) => (
+              <button key={p} className={clsx('btn small', callback === p && 'on')} onClick={() => setCallback(p)}>
+                {p}%
+              </button>
+            ))}
+          </div>
+          <PriceRow label="Activation" value={activation} onChange={setActivation} last={last} pd={pd} tick={spec.tickSize} />
+          <div className="hint">
+            {side === 'sell' ? 'Follows the highest price' : 'Follows the lowest price'}
+            {activation ? ` after the price reaches ${fmtNum(activation, pd)}` : ' from now'} and triggers a market order {callback || 0}% {side === 'sell' ? 'below' : 'above'} it.
+          </div>
+        </>
+      )}
       <div className="row">
         <span className="muted" style={{ width: 70 }}>
           Size
@@ -273,12 +319,12 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <Row k="Quantity" v={`${fmtNum(qty, qd)} ${SYMBOL_SPECS[symbol].base}`} />
         <Row k="Value" v={fmtUsd(notional)} />
         <Row k={market === 'futures' ? 'Initial margin' : 'Cost'} v={fmtUsd(margin)} />
-        <Row k={`Fee (${type === 'limit' ? 'maker' : 'taker'})`} v={fmtUsd(fee)} />
+        <Row k={`Fee (${type === 'limit' && postOnly ? 'maker' : type === 'limit' ? 'maker if resting' : 'taker'})`} v={fmtUsd(fee)} />
         {market === 'futures' && <Row k="Est. liquidation" v={isFinite(estLiq) && estLiq > 0 ? fmtNum(estLiq, pd) : '—'} />}
         <Row k="Available" v={acct ? fmtUsd(acct.available) : '—'} />
       </div>
       <button className={clsx('btn large', side === 'buy' ? 'buy' : 'sell')} disabled={!canSubmit} onClick={submit}>
-        {busy ? 'Sending…' : `${side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}`}
+        {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : ''}`}
       </button>
       {pos && (
         <div className="card row" style={{ padding: 8 }}>

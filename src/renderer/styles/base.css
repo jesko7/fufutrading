@@ -659,6 +659,8 @@ html[data-theme='dark'] .popover {
   overflow-x: auto;
   scrollbar-width: none;
   min-width: 0;
+  /* a scroll container may shrink to nothing in flex columns: keep the row's height */
+  flex-shrink: 0;
 }
 .tabs::-webkit-scrollbar {
   display: none;

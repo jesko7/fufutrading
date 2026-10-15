@@ -535,3 +535,11 @@
 .other-pos.down {
   color: var(--down);
 }
+
+/* picking a replay start bar: every click goes to the chart, legends and overlays let it through */
+.chart-module.picking .chart-host-wrap > :not(.chart-host):not(.replay-bar) {
+  pointer-events: none;
+}
+.chart-module.picking .chart-host {
+  cursor: crosshair;
+}

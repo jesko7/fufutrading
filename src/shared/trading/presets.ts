@@ -1,9 +1,10 @@
 /**
  * Trading-cost and account presets. Presets are starting points — every value stays editable.
  *
- * Binance fee assumptions (regular user, VIP 0, no BNB discount):
- *  - Spot: 0.10 % maker / 0.10 % taker → ≈ 0.20 % round trip with market orders.
- *  - USDⓈ-M futures: 0.02 % maker / 0.05 % taker.
+ * Binance fee assumptions (regular user, VIP 0):
+ *  - Spot: 0.10 % maker / 0.10 % taker → ≈ 0.20 % round trip with market orders;
+ *    0.075 % with fees paid in BNB (25 % discount).
+ *  - USDⓈ-M futures: 0.02 % maker / 0.05 % taker; 0.018 % / 0.045 % with BNB (10 % discount).
  * Source: https://www.binance.com/en/fee/schedule (check for your own tier).
  */
 import type { AccountConfig, CostModel, ExecutionModel, RiskLimits, FuturesSettings } from './types';
@@ -31,6 +32,20 @@ export const COST_PRESETS: CostPreset[] = [
     description: '0.02% maker / 0.05% taker (VIP 0) plus funding payments every 8 hours.',
     market: 'futures',
     costs: { preset: 'binance-futures', makerFee: 0.0002, takerFee: 0.0005, flatFee: 0, slippage: { model: 'book', bps: 1 }, funding: true },
+  },
+  {
+    id: 'binance-spot-bnb',
+    label: 'Binance spot, fees in BNB (−25%)',
+    description: '0.075% maker / 0.075% taker: VIP 0 with fees paid in BNB (25% discount).',
+    market: 'spot',
+    costs: { preset: 'binance-spot-bnb', makerFee: 0.00075, takerFee: 0.00075, flatFee: 0, slippage: { model: 'book', bps: 2 }, funding: false },
+  },
+  {
+    id: 'binance-futures-bnb',
+    label: 'Binance futures, fees in BNB (−10%)',
+    description: '0.018% maker / 0.045% taker: VIP 0 with fees paid in BNB (10% discount), plus funding.',
+    market: 'futures',
+    costs: { preset: 'binance-futures-bnb', makerFee: 0.00018, takerFee: 0.00045, flatFee: 0, slippage: { model: 'book', bps: 1 }, funding: true },
   },
   {
     id: 'tradingview-flat',

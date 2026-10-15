@@ -51,6 +51,13 @@ export function useChartTrading(cfg: ChartModuleConfig, replay: { active: boolea
         out.push({ id: `${o.bracket}:${o.id}`, kind: o.bracket, price: px, label: `${o.bracket === 'sl' ? 'SL' : 'TP'}  ${fmtSignedUsd(pnl)}`, color: o.bracket === 'sl' ? down : up, draggable: true, cancellable: true });
         continue;
       }
+      if (o.type === 'trailingStop') {
+        // the trailing stop moves with the price; before activation the line shows the activation price
+        const px = o.trailExtreme === undefined ? o.activationPrice : o.stopPrice;
+        if (!px) continue;
+        out.push({ id: `ord:${o.id}`, kind: 'stop', price: px, label: `${o.side === 'buy' ? 'BUY' : 'SELL'} TRAIL ${+((o.callbackRate || 0) * 100).toFixed(2)}%${o.trailExtreme === undefined ? ' (activation)' : ''} ${+(o.qty - o.filledQty).toFixed(5)}`, color: o.side === 'buy' ? accent : down, draggable: false, cancellable: true, side: o.side });
+        continue;
+      }
       const px = o.type === 'limit' || (o.type === 'stopLimit' && o.triggered) ? o.price! : o.stopPrice!;
       const t = o.type === 'limit' ? 'LMT' : o.type === 'stop' ? 'STOP' : o.type === 'takeProfit' ? 'TP' : o.triggered ? 'LMT' : 'STP-LMT';
       out.push({ id: `ord:${o.id}`, kind: o.type === 'limit' ? 'limit' : 'stop', price: px, label: `${o.side === 'buy' ? 'BUY' : 'SELL'} ${t} ${+(o.qty - o.filledQty).toFixed(5)}`, color: o.side === 'buy' ? accent : down, draggable: true, cancellable: true, side: o.side });

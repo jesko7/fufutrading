@@ -329,6 +329,7 @@ class BotRunner {
       symbol: b.symbol,
       filters: f,
       price,
+      priceBand: market === 'futures' ? { up: SYMBOL_SPECS[b.symbol].futures.priceBandUp, down: SYMBOL_SPECS[b.symbol].futures.priceBandDown } : undefined,
       equity: snap.equity,
       leverage: market === 'futures' ? rt.leverageFor(b.symbol) : 1,
       sizing: b.sizing,
