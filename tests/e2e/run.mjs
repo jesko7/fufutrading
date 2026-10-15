@@ -721,6 +721,8 @@ const S = {
     console.log('    ' + rb.result.runs.map((r) => `${r.label}: ${r.error || `${r.returnPct}% (B&H ${r.buyHoldPct}%)`}`).join(' | '));
     const hist = await page.evaluate(() => window.fufu.invoke('backtests:list'));
     check(!hist.some((h) => h.label === 'robustness'), 'robustness runs stay out of the Strategy Tester history');
+    const saved = await call('get_backtest', { id: bt.result.recordId });
+    check(saved.result.ok && saved.result.metrics?.vsRandom && saved.result.request?.tf === '4h', `Claude can read a saved backtest (${saved.result.label})`);
     // Claude prepares a paper bot: the dialog opens prefilled, the bot is set up with the strategy
     await call('show_in_app', { action: 'create_bot', id: 'builtin:strat_ma_cross', symbol: 'ETHUSDT', market: 'spot', tf: '4h', inputs: {} });
     await page.waitForSelector('.modal:has-text("New paper account")', { timeout: 10000 });

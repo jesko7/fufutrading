@@ -450,6 +450,11 @@ export class BacktestService {
     return rec;
   }
 
+  /** A saved backtest record (null when unknown). */
+  getRecord(id: string): BacktestRecord | null {
+    return this.store.get(String(id)) || null;
+  }
+
   private register(): void {
     const r = this.core.router;
     r.topic('backtest', async (req: BacktestRequest, push) => {

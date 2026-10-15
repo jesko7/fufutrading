@@ -12,6 +12,7 @@ import type { ScriptService } from '../scripts/service';
 import { runContext } from '../scripts/service';
 import type { BacktestService, BacktestRecord, BacktestRequest } from '../backtest/service';
 import type { OptimizerService, OptimizeRequest } from '../backtest/optimizer';
+import type { DerivativesService } from '../market/derivatives';
 import type { McpTool } from './mcp';
 import { pineFunctionReference } from '../../engine/docs';
 import { fromPacked } from '../../engine/data';
@@ -26,6 +27,7 @@ export interface AiToolDeps {
   scripts: ScriptService;
   backtests: BacktestService;
   optimizer: OptimizerService;
+  derivatives?: DerivativesService;
   docsDir: string;
 }
 
@@ -493,6 +495,31 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       card: (_a, r) => ({ kind: 'backtest', title: r?.ok ? `Backtest ${r.market}` : `Backtest failed: ${r?.error}`, data: r || {} }),
     },
     {
+      name: 'get_backtest',
+      readOnly: true,
+      description:
+        'Read a saved backtest from the Strategy Tester history by record id: the request (script, inputs, instrument, timeframe, period, costs), all metrics with the Greeks and the random-twin comparison, warnings and recent trades. Use it when the user asks about a backtest they ran.',
+      inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'Backtest record id' } }, required: ['id'] },
+      async run(args) {
+        const rec = deps.backtests.getRecord(str(args.id, 'id'));
+        if (!rec) throw new Error(`backtest "${args.id}" not found`);
+        const q = rec.request;
+        return {
+          ok: rec.ok,
+          error: rec.error,
+          recordId: rec.id,
+          label: rec.label,
+          script: { id: rec.script.id, name: rec.script.name, language: rec.script.language },
+          request: { symbol: q.symbol, market: q.market, tf: q.tf, from: new Date(q.from).toISOString().slice(0, 10), to: new Date(q.to).toISOString().slice(0, 10), inputs: q.inputs, costs: q.costs, broker: q.broker },
+          metrics: summarizeMetrics(rec),
+          sampleTrades: rec.trades.slice(-8).map((t: BacktestRecord['trades'][number]) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
+          warnings: rec.warnings.slice(0, 8),
+          assumptions: rec.info.fills,
+        };
+      },
+      card: (_a, r) => ({ kind: 'backtest', title: r?.ok ? `Read backtest “${r.label}”` : `Backtest: ${r?.error || 'failed'}`, data: r ? { ...r, market: r.request ? `${r.request.symbol} ${r.request.market} ${r.request.tf}` : '' } : {} }),
+    },
+    {
       name: 'optimize',
       readOnly: true,
       description:
@@ -719,6 +746,27 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
         };
       },
       card: (_a, r) => ({ kind: 'market', title: `Market: ${r?.instrument}`, data: r || {} }),
+    },
+    {
+      name: 'futures_snapshot',
+      readOnly: true,
+      description:
+        "Positioning in the Binance perpetual right now: open interest (value and 1h/24h change), the predicted funding rate, the 7-day average funding annualised and the last fundings, long/short ratios of all accounts and of top traders' positions, and the taker buy/sell ratio. Use it to understand crowding and sentiment (for example high positive funding with rising open interest means crowded longs). Historical series of these aren't available to scripts.",
+      inputSchema: { type: 'object', properties: { symbol: INSTRUMENT_SCHEMA.symbol } },
+      async run(args) {
+        if (!deps.derivatives) throw new Error('futures data is not available');
+        const symbol = String(args.symbol || 'BTCUSDT').toUpperCase() as SymbolId;
+        if (!isSymbol(symbol)) throw new Error('symbol must be BTCUSDT, ETHUSDT or SOLUSDT');
+        const s = await deps.derivatives.once(symbol);
+        return {
+          symbol,
+          openInterest: s.openInterest ? { valueUsdt: Math.round(s.openInterest.value), contracts: r2(s.openInterest.qty), change1hPct: r2(s.openInterest.change1hPct), change24hPct: r2(s.openInterest.change24hPct) } : null,
+          funding: s.funding ? { predictedPct: r4(s.funding.rate * 100), nextFunding: new Date(s.funding.next).toISOString(), avg7dAnnualPct: r2(s.funding7dAnnualPct), lastPct: s.fundingHistory.slice(-6).map((f) => r4(f.rate * 100)) } : null,
+          longShort: s.longShort ? { accountsLongPct: r2(s.longShort.long * 100), ratio: r2(s.longShort.ratio), topTradersLongPct: r2(s.longShort.topLong * 100), topTradersRatio: r2(s.longShort.topRatio) } : null,
+          taker: s.taker ? { buySellRatio5m: r2(s.taker.ratio), buy1h: r2(s.taker.buy1h), sell1h: r2(s.taker.sell1h) } : null,
+        };
+      },
+      card: (_a, r) => ({ kind: 'market', title: `Futures positioning: ${r?.symbol}`, data: r ? { last: r.openInterest ? `OI $${(r.openInterest.valueUsdt / 1e9).toFixed(2)}B` : '—', changePct: r.openInterest?.change24hPct, atr14Pct: r.funding?.predictedPct, annualVolatilityPct: r.funding?.avg7dAnnualPct, trend: r.longShort ? `L/S ${r.longShort.ratio}` : '—' } : {} }),
     },
     {
       name: 'show_in_app',

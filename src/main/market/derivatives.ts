@@ -56,6 +56,29 @@ export class DerivativesService {
     };
   }
 
+  /** One complete snapshot (open interest, ratios, funding history), waiting at most `timeoutMs`. */
+  once(symbol: SymbolId, timeoutMs = 12000): Promise<DerivativesSnapshot> {
+    return new Promise((resolve) => {
+      let last: DerivativesSnapshot | null = null;
+      let off: (() => void) | null = null;
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        // the first snapshot arrives synchronously, before `off` exists
+        queueMicrotask(() => off?.());
+        resolve(last!);
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      off = this.watch(symbol, (s) => {
+        last = s;
+        if (s.openInterest?.history.length && s.longShort && s.fundingHistory.length && s.funding) finish();
+      });
+      if (finished) off();
+    });
+  }
+
   private start(symbol: SymbolId, w: Watched): void {
     const hub = this.core.hub;
     const rest = hub.rest;

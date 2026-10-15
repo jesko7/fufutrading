@@ -324,6 +324,21 @@ function Results({ rec, tab, setTab, onAddToChart, onRerun }: { rec: BacktestRec
             items={[
               { label: 'Run again', icon: 'refresh', onClick: onRerun },
               {
+                label: 'Ask AI to assess…',
+                icon: 'spark',
+                onClick: () =>
+                  bus.emit(
+                    'ai:open',
+                    {
+                      prompt: `Assess my backtest “${rec.label}” (record ${rec.id}): is the edge real or luck? Look at the comparison with random twins, the Greeks and how it holds up in a robustness test, then suggest concrete improvements.`,
+                      context: { chart: { symbol: rec.request.symbol, market: rec.request.market, tf: rec.request.tf }, ...(rec.script.id ? { script: { id: rec.script.id, name: rec.script.name, language: rec.script.language } } : {}) },
+                      mode: 'plan',
+                      send: true,
+                    },
+                    false,
+                  ),
+              },
+              {
                 label: 'Run as paper bot…',
                 icon: 'bot',
                 disabled: !rec.script.id,

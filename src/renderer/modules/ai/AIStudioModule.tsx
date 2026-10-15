@@ -436,11 +436,13 @@ const TOOL_LABEL: Record<string, string> = {
   backtest: 'Backtesting',
   optimize: 'Optimizing parameters',
   robustness_test: 'Testing robustness',
+  get_backtest: 'Reading a backtest',
   market_snapshot: 'Looking at the market',
+  futures_snapshot: 'Checking futures positioning',
   show_in_app: 'Showing it in the app',
 };
 
-const TOOL_ICON: Record<string, string> = { get_docs: 'notebook', list_scripts: 'folder', read_script: 'code', check_script: 'check', save_script: 'save', run_script: 'play', backtest: 'flask', optimize: 'target', robustness_test: 'layers', market_snapshot: 'chart', show_in_app: 'external' };
+const TOOL_ICON: Record<string, string> = { get_docs: 'notebook', list_scripts: 'folder', read_script: 'code', check_script: 'check', save_script: 'save', run_script: 'play', backtest: 'flask', optimize: 'target', robustness_test: 'layers', get_backtest: 'flask', market_snapshot: 'chart', futures_snapshot: 'zap', show_in_app: 'external' };
 
 function AssistantMsg({ m, running }: { m: Message; running: boolean }) {
   const parts = m.parts || [];
