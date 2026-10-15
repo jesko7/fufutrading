@@ -124,6 +124,40 @@ const S = {
     check(true, 'presets render in the light theme');
     await page.click('button[data-tip="Toggle light / dark"]');
   },
+  async perf() {
+    console.log('scenario: performance');
+    const metrics = () => app.evaluate(({ app }) => app.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, cpu: m.cpu.percentCPUUsage, mem: Math.round(m.memory.workingSetSize / 1024) })));
+    await wait(4000);
+    await metrics();
+    await wait(10000);
+    const idle = await metrics();
+    const total = idle.reduce((a, m) => a + m.cpu, 0);
+    console.log('    idle (10 s): ' + idle.map((m) => `${m.type} ${m.cpu.toFixed(1)}% ${m.mem}MB`).join(' | '));
+    check(total < 60, `idle CPU with a live chart, book, tape and watchlist: ${total.toFixed(1)}% of one core`);
+    // frame rate while panning the chart
+    const box = await page.locator('.chart-host').first().boundingBox();
+    const fps = page.evaluate(() => new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(f); else r(n / ((performance.now() - t0) / 1000)); }; requestAnimationFrame(f); }));
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
+    await page.mouse.down();
+    for (let k = 0; k < 60; k++) {
+      await page.mouse.move(box.x + box.width * (0.6 - 0.3 * Math.sin(k / 10)), box.y + box.height * 0.5);
+      await wait(25);
+    }
+    await page.mouse.up();
+    const f = await fps;
+    check(f > 30, `frame rate while panning: ${f.toFixed(0)} fps`);
+    // a long backtest: one year of 5-minute bars
+    const t0 = Date.now();
+    const bt = await page.evaluate(() => window.fufu.invoke('ai:testTool', 'backtest', { id: 'builtin:strat_ma_cross', symbol: 'BTCUSDT', tf: '5m', days: 365 }));
+    const ms = Date.now() - t0;
+    console.log(`    backtest 1y of 5m: ${ms} ms (${bt.result.metrics?.trades} trades)`);
+    check(bt.result.ok && ms < 120000, `one year of 5-minute bars backtested in ${(ms / 1000).toFixed(1)} s`);
+    // the same again with the data cached: compute only
+    const t1 = Date.now();
+    const bt2 = await page.evaluate(() => window.fufu.invoke('ai:testTool', 'backtest', { id: 'builtin:strat_ma_cross', symbol: 'BTCUSDT', tf: '5m', days: 365 }));
+    const ms2 = Date.now() - t1;
+    check(bt2.result.ok && ms2 < 30000, `cached rerun: ${(ms2 / 1000).toFixed(1)} s`);
+  },
   async charts() {
     console.log('scenario: charts');
     // switch chart type & timeframe on the first chart
