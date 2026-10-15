@@ -1,6 +1,7 @@
 /** Assemble the `B` object used by generated Pine code. */
 import * as ta from './ta';
 import { math, nz, str, color, array, map, time, label, line, box, table, linefill, polyline, chartPoint, log, alert } from './lib';
+import { matrix, PineMatrix } from './matrix';
 import type { Runtime } from '../runtime';
 import { parseTimeframe, tfDurationMs, bucketStart, normalize, tfToString } from '../../../shared/timeframes';
 import type { StrategyBroker } from '../../backtest/broker';
@@ -78,6 +79,9 @@ export const B = {
   linefill,
   polyline,
   chartPoint,
+  matrix,
+  /** for-in: matrices iterate over their rows (as arrays). */
+  iter: (x: unknown) => (x instanceof PineMatrix ? Array.from({ length: x.rows }, (_, r) => x.rowArray(r)) : x),
   tickerInherit: (_from: string, symbol: string) => symbol,
   log,
   alert,
@@ -282,6 +286,11 @@ export const B = {
       const f = (array as any)[name];
       if (!f) R.error(`array.${name} is not supported`);
       return needsRt.has(name) ? f(R, obj, ...args) : f(obj, ...args);
+    }
+    if (obj instanceof PineMatrix) {
+      const f = (matrix as any)[name];
+      if (!f) R.error(`matrix.${name} is not supported`);
+      return f(obj, ...args);
     }
     if (obj instanceof Map) {
       const f = (map as any)[name];

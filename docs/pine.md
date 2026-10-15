@@ -30,7 +30,9 @@ Supported:
 - User-defined types (`type`), methods (`method`), enums (`enum`), `export` (ignored outside libraries).
 - History referencing `x[n]` on any series expression, including function results.
 - Version semantics: v6 evaluates `and` / `or` lazily, earlier versions evaluate both sides.
-- Collections: `array.*`, `map.*` (all common functions; see the reference).
+- Collections: `array.*`, `map.*` and `matrix.*`. Matrices cover products, powers,
+  determinant, inverse, pseudo-inverse, rank, eigenvalues and eigenvectors, and Kronecker
+  products. `for row in m` iterates over the rows.
 - Drawings: `label.*`, `line.*`, `box.*`, `table.*` (all setters and getters, as functions or
   methods), `linefill.*`, `polyline.*` and `chart.point.*` (including the point forms of
   `line.new`, `label.new` and `box.new`), with `max_labels_count` etc.
@@ -44,7 +46,7 @@ Not supported (compile error with the reason):
 
 - `import` of TradingView libraries (the library repository is not available). Paste the
   functions into your script instead.
-- `matrix.*`, `request.financial/economic/quandl/dividends/splits/earnings/seed/currency_rate`.
+- `request.financial/economic/quandl/dividends/splits/earnings/seed/currency_rate`.
 - `request.footprint`: use the native footprint chart mode.
 - Other symbols than BTC, ETH and SOL.
 

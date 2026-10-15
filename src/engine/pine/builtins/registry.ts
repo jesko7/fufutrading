@@ -3,6 +3,7 @@
  * arguments), evaluation mode and return type. Anything not listed is reported as unsupported
  * at compile time instead of silently producing wrong results.
  */
+import { MATRIX_PARAMS } from './matrix';
 
 export type Mode = 'state' | 'rt' | 'pure' | 'special';
 export type Ret = 'num' | 'bool' | 'str' | 'color' | 'tuple' | 'any' | 'void' | 'array' | 'map' | 'obj';
@@ -345,6 +346,11 @@ const DRAWING: Record<string, [params: string, mode: Mode, ret: Ret]> = {
   'chart.point.copy': ['id', 'pure', 'obj'],
 };
 for (const [name, [params, mode, ret]] of Object.entries(DRAWING)) if (!BUILTINS[name]) BUILTINS[name] = S(params, `B.${name.replace('chart.point', 'chartPoint')}`, mode, ret);
+// matrix.*: return types by function
+for (const [fn, params] of Object.entries(MATRIX_PARAMS)) {
+  const ret: Ret = /^is_/.test(fn) ? 'bool' : ['rows', 'columns', 'elements_count', 'det', 'rank', 'trace', 'avg', 'max', 'min', 'median', 'mode'].includes(fn) ? 'num' : ['row', 'col', 'remove_row', 'remove_col', 'eigenvalues'].includes(fn) ? 'array' : ['set', 'add_row', 'add_col', 'fill', 'reshape', 'reverse', 'swap_rows', 'swap_columns', 'sort'].includes(fn) ? 'void' : fn === 'get' || fn === 'mult' ? 'any' : 'obj';
+  BUILTINS[`matrix.${fn}`] = S(params, `B.matrix.${fn}`, 'pure', ret);
+}
 Object.assign(BUILTINS, {
   'array.binary_search_leftmost': S('id,val', 'B.array.binary_search_leftmost', 'pure', 'num'),
   'array.binary_search_rightmost': S('id,val', 'B.array.binary_search_rightmost', 'pure', 'num'),
@@ -408,7 +414,6 @@ export const UNSUPPORTED: Record<string, string> = {
   'request.seed': 'Pine Seeds repositories are not available.',
   'request.currency_rate': 'Currency conversion rates are not available (all instruments are quoted in USDT).',
   'request.footprint': 'Use FuFu’s native footprint chart mode instead.',
-  'matrix.new': 'Matrices are not supported yet.',
 };
 
 /** Built-in variables -> JS expression. */

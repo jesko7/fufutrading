@@ -709,7 +709,7 @@ class Compiler {
   forInStmt(s: ForInStmt, target: string | null): void {
     const it = this.tmp();
     const k = this.tmp();
-    this.emit(`{ const ${it} = ${this.expr(s.iter).js};`);
+    this.emit(`{ const ${it} = B.iter(${this.expr(s.iter).js});`);
     this.indent++;
     this.push();
     if (s.names.length === 2) {
@@ -1208,9 +1208,6 @@ class Compiler {
       if (V4_FUNCTIONS[name]) name = V4_FUNCTIONS[name];
     }
     // generics: array.new<float>(...) / map.new<k,v>()
-    if (name === 'array.new' || name === 'map.new' || name === 'matrix.new') {
-      if (name === 'matrix.new') this.err(`matrix.new: ${UNSUPPORTED['matrix.new']}`, e, 'unsupported');
-    }
     if (UNSUPPORTED[name]) this.err(`${name}: ${UNSUPPORTED[name]}`, e, 'unsupported');
     if (name.startsWith('strategy.risk.')) {
       this.warn(e, `${name} is not supported and is ignored (risk-management rules are not simulated).`, 'compat');

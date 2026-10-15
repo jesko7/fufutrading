@@ -669,3 +669,75 @@ plot(line.get_y1(dn), "y1")`;
     expect(q[100]).toBeCloseTo(1000 / data.c[100], 4);
   });
 });
+
+describe('Pine matrices', () => {
+  const data = bars(300);
+  const run1 = (body: string) => {
+    const r = runPine(`//@version=5\nindicator("m")\n${body}`, { data, ctx, inputs: {} });
+    if (r.error) throw new Error(`${r.error.message} (line ${r.error.line})`);
+    const out: Record<string, number> = {};
+    for (const p of r.plots) out[p.title] = p.values[data.length - 1];
+    return out;
+  };
+
+  it('builds, multiplies, inverts and decomposes', () => {
+    const v = run1(`matrix<float> a = matrix.new<float>(2, 2, 0)
+a.set(0, 0, 4), a.set(0, 1, 7), a.set(1, 0, 2), a.set(1, 1, 6)
+b = matrix.inv(a)
+i = matrix.mult(a, b)
+s = matrix.new<float>(2, 2, 2.0)
+s.set(0, 1, 1), s.set(1, 0, 1)
+ev = matrix.eigenvalues(s)
+plot(matrix.det(a), "det")
+plot(i.get(0, 0) + i.get(1, 1) + i.get(0, 1), "identity")
+plot(a.trace() + matrix.rank(a) * 100, "trace")
+plot(array.get(ev, 0) * 10 + array.get(ev, 1), "eig")
+plot(matrix.transpose(a).get(0, 1), "t")
+plot(matrix.kron(a, s).rows() * 10 + matrix.kron(a, s).columns(), "kron")
+plot(matrix.pow(a, 2).get(0, 0), "pow")`);
+    expect(v.det).toBeCloseTo(10, 9);
+    expect(v.identity).toBeCloseTo(2, 9);
+    expect(v.trace).toBeCloseTo(10 + 200, 9);
+    expect(v.eig).toBeCloseTo(3 * 10 + 1, 9);
+    expect(v.t).toBe(2);
+    expect(v.kron).toBe(44);
+    expect(v.pow).toBe(4 * 4 + 7 * 2);
+  });
+
+  it('solves least squares with pinv (regression)', () => {
+    // y = 3 + 2x on x = 0..9: [1 x] * beta = y
+    const v = run1(`X = matrix.new<float>(0, 0)
+y = array.new_float()
+for x = 0 to 9
+    X.add_row(X.rows(), array.from(1.0, float(x)))
+    y.push(3 + 2 * x)
+beta = matrix.mult(matrix.pinv(X), y)
+plot(array.get(beta, 0), "b0")
+plot(array.get(beta, 1), "b1")`);
+    expect(v.b0).toBeCloseTo(3, 6);
+    expect(v.b1).toBeCloseTo(2, 6);
+  });
+
+  it('iterates rows, sorts and reshapes', () => {
+    const v = run1(`m = matrix.new<float>(3, 2, 0)
+m.set(0, 0, 3), m.set(1, 0, 1), m.set(2, 0, 2)
+m.set(0, 1, 30), m.set(1, 1, 10), m.set(2, 1, 20)
+m.sort(0)
+total = 0.0
+for row in m
+    total += array.get(row, 1)
+first = m.get(0, 1)
+m.reshape(2, 3)
+plot(total, "total")
+plot(first, "first")
+plot(m.columns(), "cols")
+plot(matrix.avg(m) + matrix.median(m) + matrix.max(m), "stats")
+plot(matrix.is_square(matrix.new<int>(2, 2)) ? 1 : 0, "sq")`);
+    expect(v.total).toBe(60);
+    expect(v.first).toBe(10);
+    expect(v.cols).toBe(3);
+    // values 1,10,2,20,3,30: mean 11, median 6.5, max 30
+    expect(v.stats).toBeCloseTo(11 + 6.5 + 30, 9);
+    expect(v.sq).toBe(1);
+  });
+});
