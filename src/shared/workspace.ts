@@ -21,6 +21,7 @@ export type ModuleType =
   | 'experiments'
   | 'alerts'
   | 'news'
+  | 'derivatives'
   | 'ai'
   | 'bots'
   | 'data'
@@ -151,6 +152,8 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
       return { chatId: null };
     case 'news':
       return { filter: 'all' };
+    case 'derivatives':
+      return { symbol };
     case 'propRules':
       return { tab: 'challenges', accountId: null };
     case 'builder':
@@ -175,6 +178,7 @@ export const MODULE_INFO: Record<ModuleType, { title: string; description: strin
   experiments: { title: 'Experiments', description: 'Track research runs and notes', icon: 'notebook' },
   alerts: { title: 'Alerts', description: 'Price, indicator, strategy and order book alerts', icon: 'bell' },
   news: { title: 'News', description: 'Crypto headlines for BTC, ETH and SOL', icon: 'news' },
+  derivatives: { title: 'Derivatives', description: 'Open interest, funding, long/short ratios and live liquidations', icon: 'zap' },
   ai: { title: 'AI Studio', description: 'Claude builds, tests and explains strategies', icon: 'spark' },
   bots: { title: 'Bots', description: 'Automated paper-trading bots', icon: 'bot' },
   data: { title: 'Data Manager', description: 'Local historical data and tick downloads', icon: 'database' },
@@ -352,7 +356,8 @@ export function presetWorkspaces(): Workspace[] {
       const book = add(mod('orderbook', { levels: 24 }));
       const depth = add(mod('depth'));
       const tape = add(mod('trades'));
-      return split('row', [split('col', [stack([heat]), stack([fp])], [0.5, 0.5]), split('col', [stack([book]), stack([depth, tape])], [0.6, 0.4])], [0.74, 0.26]);
+      const deriv = add(mod('derivatives'));
+      return split('row', [split('col', [stack([heat]), stack([fp])], [0.5, 0.5]), split('col', [stack([book]), stack([depth, tape, deriv])], [0.6, 0.4])], [0.74, 0.26]);
     }),
     makeWs('Strategy Lab', 'Chart, AI Studio, script editor, strategy builder, tester and optimizer.', (add) => {
       const chart = add(mod('chart', defaultChartConfig({ tf: '1h' })));

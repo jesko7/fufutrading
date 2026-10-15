@@ -1,0 +1,117 @@
+.deriv {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.deriv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 10px;
+}
+.deriv-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.dc-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-3);
+}
+.dc-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dc-sub {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.spark {
+  width: 100%;
+  display: block;
+}
+.spark-zero {
+  stroke: var(--border-strong, var(--border));
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.funding-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 30px;
+}
+.funding-bars .fb {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 1px;
+}
+.funding-bars .fb.pos {
+  background: color-mix(in srgb, var(--down) 70%, transparent);
+}
+.funding-bars .fb.neg {
+  background: color-mix(in srgb, var(--up) 70%, transparent);
+}
+.split {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.split-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.split-bar .up-bg {
+  background: var(--up);
+}
+.split-bar .down-bg {
+  background: var(--down);
+}
+.split-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.liq-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+.liq-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow: auto;
+}
+.liq-row {
+  display: grid;
+  grid-template-columns: 64px 14px 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  padding: 3px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.liq-row.big {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.split-bar.empty .up-bg,
+.split-bar.empty .down-bg {
+  background: var(--panel-3, var(--border));
+}

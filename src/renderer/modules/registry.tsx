@@ -30,6 +30,7 @@ export const MODULES: Record<ModuleType, { component: ComponentType<ModuleProps>
   experiments: { component: Pending },
   alerts: { component: Pending },
   news: { component: Pending },
+  derivatives: { component: Pending },
   ai: { component: Pending },
   bots: { component: Pending },
   data: { component: Pending },

@@ -954,6 +954,9 @@ function Compare({ ids, onClose }: { ids: string[]; onClose: () => void }) {
     ['CAGR', (r) => fmtPct(r.metrics!.cagr)],
     ['Exposure', (r) => fmtPct(r.metrics!.exposure, 1, false)],
     ['Buy & hold', (r) => fmtPct(r.metrics!.buyHold.returnPct)],
+    ['Alpha (per year)', (r) => (r.metrics!.greeks ? fmtPct(r.metrics!.greeks.alpha, 1) : '—')],
+    ['Beta', (r) => (r.metrics!.greeks ? r.metrics!.greeks.beta.toFixed(2) : '—')],
+    ['Beats random twins', (r) => (r.random ? `${r.random.timing.beats.returnPct.toFixed(0)}% (p ${r.random.timing.pReturn.toFixed(3)})` : '—')],
     ['Market / TF', (r) => `${r.request.symbol} ${r.request.market} ${r.request.tf}`],
     ['Inputs', (r) => JSON.stringify(r.request.inputs || {})],
   ];

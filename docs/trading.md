@@ -62,6 +62,20 @@ Futures accounts follow Binance's rules for USDⓈ-M perpetuals:
 - **Funding** is paid or received at Binance's funding times using the live (or, in
   backtests and replays, historical) funding rate.
 
+## Derivatives data
+
+The **Derivatives** module shows what the futures market is doing around a coin, from Binance's
+public data:
+
+- Open interest with its 1-hour and 24-hour change and a one-day chart.
+- The predicted funding rate with a countdown, the last 21 fundings and the 7-day average
+  (annualised).
+- Long/short ratios of all accounts and of top traders' positions.
+- Taker buy/sell volume.
+- A live liquidation feed with hourly and daily totals of long and short liquidations. Binance
+  streams at most one liquidation per symbol and second (the largest), so the totals are lower
+  bounds.
+
 ## Prop-firm challenges (FTMO, Lucid Trading)
 
 Choose a program, phase and account size when creating an account: FTMO 1-Step / 2-Step

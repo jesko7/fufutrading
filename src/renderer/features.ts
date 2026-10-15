@@ -7,4 +7,5 @@ import './modules/alerts';
 import './modules/ai';
 import './modules/data';
 import './modules/news';
+import './modules/derivatives';
 import './modules/builder';

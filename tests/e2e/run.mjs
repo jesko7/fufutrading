@@ -771,6 +771,21 @@ const S = {
     check(rows > 0, `cached data listed (${rows} rows)`);
     await shot('30-data');
   },
+  async derivatives() {
+    console.log('scenario: derivatives');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Derivatives');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.deriv', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelectorAll('.deriv-card .dc-value').length >= 4, null, { timeout: 45000 });
+    const vals = await page.$$eval('.deriv-card .dc-value', (e) => e.map((x) => x.textContent || ''));
+    check(/\$\d/.test(vals[0]) && /%/.test(vals[1]), `open interest, funding, long/short and taker data (${vals.join(' | ')})`);
+    await page.waitForFunction(() => !!document.querySelector('.deriv-card .spark path'), null, { timeout: 30000 });
+    check(true, 'open interest history drawn');
+    await wait(1500);
+    await shot('29b-derivatives');
+  },
   async prop() {
     console.log('scenario: prop challenges');
     await page.keyboard.press('Control+k');
