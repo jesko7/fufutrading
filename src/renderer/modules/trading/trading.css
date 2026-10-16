@@ -130,3 +130,70 @@
 .funding-row .faint:not(:first-child) {
   margin-left: 6px;
 }
+
+/* ---- trade journal */
+.journal-cell {
+  min-width: 140px;
+  max-width: 320px;
+}
+.journal-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.journal-btn:hover .faint {
+  color: var(--text-2);
+}
+.journal-tag {
+  display: inline-block;
+  font-size: 10.5px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  white-space: nowrap;
+  border: none;
+  line-height: 17px;
+}
+.journal-tag.clickable {
+  cursor: pointer;
+}
+.journal-rating {
+  color: var(--warn);
+  font-size: 10.5px;
+  letter-spacing: -1px;
+}
+.journal-note {
+  min-width: 0;
+  max-width: 180px;
+}
+.journal-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 4px 0;
+  min-width: 260px;
+}
+.journal-editor textarea {
+  resize: vertical;
+  min-height: 44px;
+}
+.star-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 1px;
+}
+.star-btn.on {
+  color: var(--warn);
+}

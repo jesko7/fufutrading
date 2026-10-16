@@ -224,6 +224,19 @@ const S = {
     await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 0, null, { timeout: 10000 });
     const tabs = await page.textContent('.acct .tabs');
     check(!/Orders\s*\d/.test(tabs || ''), 'closing the position canceled its TP/SL (OCO)');
+    // journal: a note, a tag and a rating on the closed trade; stats per setup
+    await page.click('.acct .tabs .tab:has-text("Trades")');
+    await page.click('.acct .journal-btn');
+    await page.fill('.journal-editor textarea', 'Tested the trailing stop');
+    await page.fill('.journal-editor input', 'breakout');
+    await page.click('.journal-editor .star-btn >> nth=3');
+    await page.click('.journal-editor button:has-text("Save")');
+    await page.waitForSelector('.acct .journal-tag:has-text("breakout")', { timeout: 10000 });
+    await page.click('.acct button:has-text("By setup")');
+    const setups = await page.textContent('.acct .mod-scroll');
+    check(/breakout/.test(setups || '') && /4\.0 ★/.test(setups || ''), 'journal tag, note and rating saved; stats per setup');
+    await shot('05b-journal');
+    await page.click('.acct button:has-text("Trades") >> nth=0');
   },
   async scripts() {
     console.log('scenario: scripts');

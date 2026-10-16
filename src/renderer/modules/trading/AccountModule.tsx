@@ -147,7 +147,7 @@ export function AccountModule({ module }: ModuleProps) {
       <div className="mod-scroll">
         {tab === 'positions' && <Positions a={a} />}
         {tab === 'orders' && <Orders a={a} />}
-        {tab === 'trades' && <Trades trades={history?.trades || []} />}
+        {tab === 'trades' && <Trades trades={history?.trades || []} accountId={a.config.id} accountName={a.config.name} />}
         {tab === 'equity' && <EquityChart points={history?.equity || []} initial={a.config.initialBalance} />}
         {tab === 'events' && <Events events={history?.events || []} />}
         {tab === 'rules' && a.rules && <RulesDetail a={a} />}
@@ -329,51 +329,245 @@ export function Orders({ a, readOnly }: { a: AccountSnapshot; readOnly?: boolean
   );
 }
 
-export function Trades({ trades }: { trades: ClosedTrade[] }) {
+interface JournalEntry {
+  note: string;
+  tags: string[];
+  rating?: number;
+  updated: number;
+}
+
+const tradeKey = (t: ClosedTrade) => `${t.id}:${t.closedAt}`;
+
+/** The account's journal, kept current across windows. */
+function useJournal(accountId: string | null | undefined): Record<string, JournalEntry> {
+  const [j, setJ] = useState<Record<string, JournalEntry>>({});
+  useEffect(() => {
+    if (!accountId) return;
+    let alive = true;
+    const load = () => void api.call<Record<string, JournalEntry>>('journal:get', accountId).then((x) => alive && setJ(x || {}));
+    load();
+    const off = api.on<{ accountId: string }>('journal:changed', (d) => d.accountId === accountId && load());
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [accountId]);
+  return j;
+}
+
+function exportTradesCsv(trades: ClosedTrade[], journal: Record<string, JournalEntry>, name: string): void {
+  const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const head = 'opened,closed,symbol,side,qty,entry,exit,pnl,fees,funding,return_pct,exit_reason,tags,rating,note';
+  const lines = trades.map((t) => {
+    const e = journal[tradeKey(t)];
+    return [new Date(t.openedAt).toISOString(), new Date(t.closedAt).toISOString(), t.symbol, t.side === 1 ? 'long' : 'short', t.qty, t.entry, t.exit, t.pnl.toFixed(8), t.fees.toFixed(8), t.funding.toFixed(8), t.returnPct.toFixed(4), esc(t.exitReason || ''), esc((e?.tags || []).join(' ')), e?.rating ?? '', esc(e?.note || '')].join(',');
+  });
+  const blob = new Blob([[head, ...lines].join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name.replace(/[^\w.-]+/g, '_')}_trades.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** Closed trades; with an account id they carry journal notes, tags and ratings, and stats per setup. */
+export function Trades({ trades, accountId, accountName }: { trades: ClosedTrade[]; accountId?: string; accountName?: string }) {
+  const journal = useJournal(accountId);
+  const [view, setView] = useState<'list' | 'setups'>('list');
+  const [editing, setEditing] = useState<string | null>(null);
   if (!trades.length) return <Empty icon="history" title="No closed trades yet" />;
   const list = trades.slice().reverse();
   const wins = trades.filter((t) => t.pnl > 0).length;
   const total = trades.reduce((s, t) => s + t.pnl, 0);
   return (
     <>
-      <div className="row" style={{ padding: '6px 10px', fontSize: 12 }}>
+      <div className="row" style={{ padding: '6px 10px', fontSize: 12, flexWrap: 'wrap' }}>
         <span className="faint">{trades.length} trades</span>
         <span>Win rate {((wins / trades.length) * 100).toFixed(1)}%</span>
         <span className={total >= 0 ? 'up' : 'down'}>Net {fmtSignedUsd(total)}</span>
+        {accountId && (
+          <>
+            <span className="spacer" />
+            <div className="seg sm">
+              <button className={clsx(view === 'list' && 'on')} onClick={() => setView('list')}>
+                Trades
+              </button>
+              <button className={clsx(view === 'setups' && 'on')} onClick={() => setView('setups')} data-tip="Statistics per journal tag">
+                By setup
+              </button>
+            </div>
+            <button className="btn tiny ghost" onClick={() => exportTradesCsv(trades, journal, accountName || 'account')} data-tip="Export the trades with journal notes (CSV)">
+              <Icon name="download" size={12} /> CSV
+            </button>
+          </>
+        )}
       </div>
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Closed</th>
-            <th>Symbol</th>
-            <th className="r">Size</th>
-            <th className="r">Entry → Exit</th>
-            <th className="r">Net P&L</th>
-            <th className="r">Fees</th>
-            <th>Duration</th>
-            <th>Exit</th>
-          </tr>
-        </thead>
-        <tbody>
-          {list.map((t) => (
-            <tr key={t.id + t.closedAt}>
-              <td className="faint">{fmtDateTime(t.closedAt)}</td>
-              <td>
-                <span className={t.side === 1 ? 'up' : 'down'}>{t.side === 1 ? 'Long' : 'Short'}</span> {SYMBOL_SPECS[t.symbol].base}
-              </td>
-              <td className="r">{fmtNum(t.qty, 4)}</td>
-              <td className="r">
-                {fmtNum(t.entry, 2)} → {fmtNum(t.exit, 2)}
-              </td>
-              <td className={clsx('r', t.pnl >= 0 ? 'up' : 'down')}>{fmtSignedUsd(t.pnl)}</td>
-              <td className="r faint">{fmtUsd(t.fees)}</td>
-              <td className="faint">{fmtDuration(t.closedAt - t.openedAt)}</td>
-              <td className="faint">{t.exitReason || ''}</td>
+      {view === 'setups' && accountId ? (
+        <SetupStats trades={trades} journal={journal} />
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Closed</th>
+              <th>Symbol</th>
+              <th className="r">Size</th>
+              <th className="r">Entry → Exit</th>
+              <th className="r">Net P&L</th>
+              <th className="r">Fees</th>
+              <th>Duration</th>
+              <th>Exit</th>
+              {accountId && <th>Journal</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {list.map((t) => {
+              const key = tradeKey(t);
+              const e = journal[key];
+              return (
+                <tr key={key}>
+                  <td className="faint">{fmtDateTime(t.closedAt)}</td>
+                  <td>
+                    <span className={t.side === 1 ? 'up' : 'down'}>{t.side === 1 ? 'Long' : 'Short'}</span> {SYMBOL_SPECS[t.symbol].base}
+                  </td>
+                  <td className="r">{fmtNum(t.qty, 4)}</td>
+                  <td className="r">
+                    {fmtNum(t.entry, 2)} → {fmtNum(t.exit, 2)}
+                  </td>
+                  <td className={clsx('r', t.pnl >= 0 ? 'up' : 'down')}>{fmtSignedUsd(t.pnl)}</td>
+                  <td className="r faint">{fmtUsd(t.fees)}</td>
+                  <td className="faint">{fmtDuration(t.closedAt - t.openedAt)}</td>
+                  <td className="faint">{t.exitReason || ''}</td>
+                  {accountId && (
+                    <td className="journal-cell">
+                      {editing === key ? (
+                        <JournalEditor accountId={accountId} tradeKey={key} entry={e} onClose={() => setEditing(null)} />
+                      ) : (
+                        <button className="journal-btn" onClick={() => setEditing(key)} data-tip={e?.note || 'Add a note, tags and a rating'}>
+                          {e ? (
+                            <>
+                              {e.rating ? <span className="journal-rating">{'★'.repeat(e.rating)}</span> : null}
+                              {e.tags.map((g) => (
+                                <span key={g} className="journal-tag">
+                                  {g}
+                                </span>
+                              ))}
+                              {e.note && <span className="faint ellipsis journal-note">{e.note}</span>}
+                            </>
+                          ) : (
+                            <span className="faint">
+                              <Icon name="edit" size={11} /> note
+                            </span>
+                          )}
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </>
+  );
+}
+
+function JournalEditor({ accountId, tradeKey: key, entry, onClose }: { accountId: string; tradeKey: string; entry?: JournalEntry; onClose: () => void }) {
+  const [note, setNote] = useState(entry?.note || '');
+  const [tags, setTags] = useState((entry?.tags || []).join(', '));
+  const [rating, setRating] = useState(entry?.rating || 0);
+  const [suggest, setSuggest] = useState<string[]>([]);
+  useEffect(() => {
+    void api.call<string[]>('journal:tags').then((t) => setSuggest(t.slice(0, 8)));
+  }, []);
+  const save = () => {
+    void api
+      .call('journal:set', accountId, key, { note, tags: tags.split(/[,;]/).map((x) => x.trim()).filter(Boolean), rating: rating || undefined })
+      .then(onClose)
+      .catch((e) => toast({ title: 'Journal not saved', body: errorMessage(e), kind: 'error' }));
+  };
+  const current = tags.split(/[,;]/).map((x) => x.trim().toLowerCase());
+  return (
+    <div className="journal-editor" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <textarea className="input" autoFocus rows={2} placeholder="Why did you take it? What did you learn?" value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && save()} />
+      <input className="input" placeholder="Setup tags, comma separated (e.g. breakout, fomo)" value={tags} onChange={(e) => setTags(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+      {suggest.filter((s) => !current.includes(s)).length > 0 && (
+        <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+          {suggest
+            .filter((s) => !current.includes(s))
+            .map((s) => (
+              <button key={s} className="journal-tag clickable" onClick={() => setTags(tags.trim() ? `${tags.replace(/[,\s]+$/, '')}, ${s}` : s)}>
+                + {s}
+              </button>
+            ))}
+        </div>
+      )}
+      <div className="row" style={{ gap: 6 }}>
+        <span className="faint small">Followed the plan</span>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} className={clsx('star-btn', n <= rating && 'on')} onClick={() => setRating(n === rating ? 0 : n)}>
+            ★
+          </button>
+        ))}
+        <span className="spacer" />
+        <button className="btn tiny ghost" onClick={onClose}>
+          Cancel
+        </button>
+        <button className="btn tiny primary" onClick={save}>
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Win rate, P&L and profit factor per journal tag (and untagged trades). */
+function SetupStats({ trades, journal }: { trades: ClosedTrade[]; journal: Record<string, JournalEntry> }) {
+  const groups = new Map<string, ClosedTrade[]>();
+  for (const t of trades) {
+    const tags = journal[tradeKey(t)]?.tags || [];
+    for (const g of tags.length ? tags : ['(untagged)']) {
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(t);
+    }
+  }
+  const rows = [...groups.entries()].map(([tag, ts]) => {
+    const w = ts.filter((t) => t.pnl > 0);
+    const gp = w.reduce((s, t) => s + t.pnl, 0);
+    const gl = -ts.filter((t) => t.pnl <= 0).reduce((s, t) => s + t.pnl, 0);
+    const ratings = ts.map((t) => journal[tradeKey(t)]?.rating).filter((r): r is number => !!r);
+    return { tag, n: ts.length, winRate: w.length / ts.length, net: gp - gl, avg: (gp - gl) / ts.length, pf: gl > 0 ? gp / gl : gp > 0 ? Infinity : 0, rating: ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : NaN };
+  });
+  rows.sort((a, b) => b.net - a.net);
+  if (rows.length === 1 && rows[0].tag === '(untagged)')
+    return <Empty icon="edit" title="No setups tagged yet">Add tags to your trades (the Journal column) to see which setups work.</Empty>;
+  return (
+    <table className="table">
+      <thead>
+        <tr>
+          <th>Setup</th>
+          <th className="r">Trades</th>
+          <th className="r">Win rate</th>
+          <th className="r">Net P&L</th>
+          <th className="r">Avg trade</th>
+          <th className="r">Profit factor</th>
+          <th className="r">Plan rating</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.tag}>
+            <td>{r.tag === '(untagged)' ? <span className="faint">untagged</span> : <span className="journal-tag">{r.tag}</span>}</td>
+            <td className="r">{r.n}</td>
+            <td className="r">{fmtPct(r.winRate * 100, 0, false)}</td>
+            <td className={clsx('r', r.net >= 0 ? 'up' : 'down')}>{fmtSignedUsd(r.net)}</td>
+            <td className={clsx('r', r.avg >= 0 ? 'up' : 'down')}>{fmtSignedUsd(r.avg)}</td>
+            <td className="r">{Number.isFinite(r.pf) ? r.pf.toFixed(2) : '∞'}</td>
+            <td className="r faint">{Number.isFinite(r.rating) ? `${r.rating.toFixed(1)} ★` : '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 

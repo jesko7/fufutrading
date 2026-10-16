@@ -14,6 +14,7 @@ import { registerAI, type AIService } from './ai/service';
 import { registerFootprint } from './market/footprint';
 import { registerDataManager } from './dataManager';
 import { registerNews } from './news';
+import { registerJournal } from './trading/journal';
 import { registerDerivatives } from './market/derivatives';
 import type { TradeStore } from './storage/tradeStore';
 
@@ -45,6 +46,8 @@ export async function registerServices(core: AppCore): Promise<Services> {
   const trades = registerFootprint(core);
   registerDataManager(core, trades);
   registerNews(core);
+  const journal = registerJournal(core);
+  trading.beforeRemove.add((id) => journal.remove(id));
   const services: Services = { trading, scripts, backtests, optimizer, experiments, bots, replay, alerts, ai, trades };
   (core as any).services = services;
   return services;

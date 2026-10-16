@@ -38,6 +38,13 @@ the right-click menu, and drag orders, SL/TP and position brackets.
   - Reduce-only orders of a position that closes or reverses are canceled.
   - Bots wait with limit orders outside the price band until the price comes closer.
 
+### Trade journal
+
+Every closed trade in the Account module's **Trades** tab can get a note, setup tags (for
+example "breakout", "fomo") and a 1–5 rating for how well it followed the plan. **By setup**
+shows the number of trades, win rate, net and average P&L, profit factor and the average rating
+per tag, so you can see which setups work. **CSV** exports the trades with the journal.
+
 ## Futures margin, leverage and liquidation
 
 Futures accounts follow Binance's rules for USDⓈ-M perpetuals:
