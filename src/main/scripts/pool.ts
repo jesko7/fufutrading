@@ -22,6 +22,8 @@ interface Pending {
   op: string;
   timer?: NodeJS.Timeout;
   onEvent?: (e: any) => void;
+  /** The worker began executing the job (its time limit starts). */
+  onStart?: () => void;
 }
 
 let slotSeq = 0;
@@ -50,7 +52,11 @@ class Slot {
     });
     this.worker.on('message', (m: any) => {
       if (m && m.event) {
-        if (m.job !== undefined) this.pending.get(m.job)?.onEvent?.(m);
+        if (m.job !== undefined) {
+          const p = this.pending.get(m.job);
+          if (m.event === 'started') p?.onStart?.();
+          else p?.onEvent?.(m);
+        }
         return;
       }
       const p = this.pending.get(m.id);
@@ -162,12 +168,22 @@ export class ScriptPool {
     return new Promise<T>((resolve, reject) => {
       const p: Pending = { resolve, reject, op: String(msg.op), onEvent: opts.onEvent };
       if (opts.timeoutMs) {
-        p.timer = setTimeout(() => {
-          this.log('warn', `script ${msg.op} exceeded ${Math.round(opts.timeoutMs! / 1000)}s — interrupting`);
+        const limit = opts.timeoutMs;
+        const interrupt = () => {
+          this.log('warn', `script ${msg.op} exceeded ${Math.round(limit / 1000)}s — interrupting`);
           Atomics.store(slot.ctl, 0, id);
           slot.pyInterrupt[0] = 2;
           p.timer = setTimeout(() => slot.terminate(`terminated: ${msg.op} did not stop after interrupt`), 4000);
-        }, opts.timeoutMs);
+        };
+        // the limit counts from when the job starts executing; queueing and loading Python get a
+        // generous allowance (jobs without a start event keep the plain limit)
+        const startsLater = msg.op === 'run' || msg.op === 'trial' || msg.op === 'botStep';
+        p.timer = setTimeout(interrupt, startsLater ? limit + 180000 : limit);
+        if (startsLater)
+          p.onStart = () => {
+            if (p.timer) clearTimeout(p.timer);
+            p.timer = setTimeout(interrupt, limit);
+          };
       }
       slot.pending.set(id, p);
       slot.lastUsed = Date.now();

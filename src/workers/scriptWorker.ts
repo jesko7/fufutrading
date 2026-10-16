@@ -46,6 +46,11 @@ function transferables(x: unknown, out: ArrayBuffer[] = [], seen = new Set<unkno
   return out;
 }
 
+/** The job's time limit starts now (not while it queued or Python was loading). */
+function started(m: any): void {
+  parentPort!.postMessage({ event: 'started', job: m.id });
+}
+
 async function handle(m: any): Promise<{ r: unknown; transfer: boolean }> {
   switch (m.op) {
     case 'ping':
@@ -66,6 +71,7 @@ async function handle(m: any): Promise<{ r: unknown; transfer: boolean }> {
       return { r: true, transfer: false };
     case 'run': {
       if (m.spec.lang === 'python') await ensurePython();
+      started(m);
       const jobId = m.id as number;
       const spec = { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId };
       if (m.debug) {
@@ -83,12 +89,14 @@ async function handle(m: any): Promise<{ r: unknown; transfer: boolean }> {
     }
     case 'trial': {
       if (m.spec.lang === 'python') await ensurePython();
+      started(m);
       const jobId = m.id as number;
       const r = await runTrial(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId } as never);
       return { r, transfer: false };
     }
     case 'botStep': {
       if (m.spec.lang === 'python') await ensurePython();
+      started(m);
       const jobId = m.id as number;
       const r = await botStep(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId });
       return { r, transfer: false };
