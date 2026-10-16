@@ -16,10 +16,12 @@ import { DocStore, uid, readJson, writeJsonAtomic } from './storage/jsonStore';
 import { applyPatch } from '../engine/patch';
 import type { ScriptResult } from '../engine/types';
 import type { TradeTick } from '../shared/live';
-import { alertTitle, describeAlert, instrumentLabel, renderMessage, type Alert, type AlertEvent, type BookAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
+import { alertTitle, describeAlert, instrumentLabel, renderMessage, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
 import { isSymbol, type Market, type SymbolId } from '../shared/symbols';
 import { parseTimeframe } from '../shared/timeframes';
 import { webhookBody, webhookUrlError } from '../shared/alerts';
+import type { DerivativesService } from './market/derivatives';
+import { oiValueAt } from '../shared/derivatives';
 
 /** One webhook request with a timeout (5 s by default). */
 export async function sendWebhook(url: string, message: string, timeoutMs = 5000): Promise<{ ok: boolean; status?: number; error?: string; ms: number }> {
@@ -59,6 +61,9 @@ export class AlertService {
   private listeners = new Set<() => void>();
   private expiryTimer: NodeJS.Timeout;
   private logDirty = false;
+
+  /** Futures data for futures alerts (set at registration). */
+  derivatives?: DerivativesService;
 
   constructor(
     readonly core: AppCore,
@@ -138,6 +143,12 @@ export class AlertService {
         if (!(a.rangePct > 0) || a.rangePct > 10) throw new Error('Validation: range must be between 0 and 10%');
         a.sustainSec = Math.max(0, Math.min(3600, Math.round(+a.sustainSec || 0)));
         break;
+      case 'futures':
+        a.market = 'futures';
+        if (!Number.isFinite(+a.value)) throw new Error('Validation: enter a value');
+        if (a.metric !== 'funding' && !(+a.value > 0)) throw new Error('Validation: the value must be positive');
+        if (a.metric === 'oiChange' || a.metric === 'liquidations') a.minutes = Math.max(1, Math.min(a.metric === 'liquidations' ? 60 : 1440, Math.round(+a.minutes || 5)));
+        break;
     }
   }
 
@@ -212,6 +223,7 @@ export class AlertService {
       if (this.evaluators.has(a.id)) continue;
       if (a.kind === 'indicator' || a.kind === 'script') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.scriptEvaluator(a) });
       else if (a.kind === 'book') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.bookEvaluator(a) });
+      else if (a.kind === 'futures') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.futuresEvaluator(a) });
     }
   }
 
@@ -422,6 +434,56 @@ export class AlertService {
     return { stop: () => live.stop() };
   }
 
+  /** Funding, open interest changes, liquidations and the long/short ratio from the futures data feed. */
+  private futuresEvaluator(a: FuturesAlert): Evaluator {
+    if (!this.derivatives) return { stop: () => {} };
+    const p = `${instrumentLabel(a.symbol, 'futures')}`;
+    const off = this.derivatives.watch(a.symbol, (s) => {
+      try {
+        const price = s.funding?.mark;
+        switch (a.metric) {
+          case 'funding': {
+            if (!s.funding) return;
+            const v = s.funding.rate * 100;
+            if (a.condition === 'below' ? v < a.value : v > a.value) this.fire(a, `${p} funding ${v.toFixed(4)}% is ${a.condition === 'below' ? 'below' : 'above'} ${a.value}%`, { price, value: v });
+            return;
+          }
+          case 'longShortRatio': {
+            if (!s.longShort) return;
+            const v = s.longShort.ratio;
+            if (a.condition === 'below' ? v < a.value : v > a.value) this.fire(a, `${p} long/short ratio ${v.toFixed(2)} is ${a.condition === 'below' ? 'below' : 'above'} ${a.value}`, { price, value: v });
+            return;
+          }
+          case 'oiChange': {
+            const now = s.openInterest?.value;
+            const then = oiValueAt(s, Date.now() - a.minutes * 60000);
+            if (!now || !then) return;
+            const chg = (now / then - 1) * 100;
+            const hit = a.condition === 'up' ? chg >= a.value : a.condition === 'down' ? chg <= -a.value : Math.abs(chg) >= a.value;
+            if (hit) this.fire(a, `${p} open interest ${chg >= 0 ? '+' : ''}${chg.toFixed(2)}% within ${a.minutes} min (now $${(now / 1e9).toFixed(2)}B)`, { price, value: chg });
+            return;
+          }
+          case 'liquidations': {
+            const from = Date.now() - a.minutes * 60000;
+            let longs = 0;
+            let shorts = 0;
+            for (const [t, l, sh] of s.liqMinutes)
+              if (t + 60000 > from) {
+                longs += l;
+                shorts += sh;
+              }
+            const v = a.condition === 'longs' ? longs : a.condition === 'shorts' ? shorts : longs + shorts;
+            if (v >= a.value) this.fire(a, `${p}: $${Math.round(v).toLocaleString('en-US')} of ${a.condition === 'longs' ? 'longs' : a.condition === 'shorts' ? 'shorts' : 'positions'} liquidated within ${a.minutes} min`, { price, value: v });
+            return;
+          }
+        }
+      } catch (e) {
+        this.core.log('warn', `futures alert ${a.id}: ${(e as Error).message}`);
+      }
+    });
+    return { stop: off };
+  }
+
   private bookEvaluator(a: BookAlert): Evaluator {
     const { book, release } = this.core.hub.acquireBook(a.market, a.symbol);
     let since: number | null = null;
@@ -630,8 +692,9 @@ export class AlertService {
   }
 }
 
-export function registerAlerts(core: AppCore, scripts: ScriptService): AlertService {
+export function registerAlerts(core: AppCore, scripts: ScriptService, derivatives?: DerivativesService): AlertService {
   const svc = new AlertService(core, scripts);
+  svc.derivatives = derivatives;
   const r = core.router;
   r.handle('alerts:list', () => svc.list());
   r.handle('alerts:save', ([a]) => svc.save(a));

@@ -634,6 +634,16 @@ const S = {
     }
     check(log.some((e) => e.kind === 'indicator' && /RSI/.test(e.message)), `indicator alert fired (${log.find((e) => e.kind === 'indicator')?.message})`);
     check(log.some((e) => e.kind === 'book' && /spread/.test(e.message)), `order-book alert fired (${log.find((e) => e.kind === 'book')?.message})`);
+    // futures data: funding above -1% holds at once and fires from the live feed
+    const fut = await page.evaluate(() =>
+      window.fufu.invoke('alerts:save', { id: '', name: '', kind: 'futures', symbol: 'BTCUSDT', market: 'futures', enabled: true, frequency: 'once', cooldownSec: 60, expiresAt: null, message: '', notify: { desktop: false, sound: false }, created: 0, updated: 0, triggerCount: 0, status: 'active', metric: 'funding', condition: 'above', value: -1, minutes: 5 }),
+    );
+    let futEv = null;
+    for (let k = 0; k < 60 && !futEv; k++) {
+      await wait(500);
+      futEv = (await page.evaluate(() => window.fufu.invoke('alerts:log'))).find((e) => e.alertId === fut.id);
+    }
+    check(!!futEv && /funding/.test(futEv.message), `futures-data alert fired (${futEv?.message})`);
     // chart right-click: alert at a price, drawn on the chart
     const box = await page.locator('.chart-host').first().boundingBox();
     await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.3, { button: 'right' });
@@ -650,7 +660,7 @@ const S = {
     await page.click('.alerts .tabs .tab:has-text("Alerts")');
     await page.waitForSelector('.alert-row');
     const n0 = await page.$$eval('.alert-row', (r) => r.length);
-    check(n0 === 4, `four alerts listed (${n0})`);
+    check(n0 === 5, `five alerts listed (${n0})`);
     await page.locator('.alert-row').first().locator('.toggle').click();
     await wait(400);
     const states = await page.evaluate(() => window.fufu.invoke('alerts:list').then((l) => l.map((a) => a.enabled)));

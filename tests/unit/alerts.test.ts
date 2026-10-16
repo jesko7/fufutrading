@@ -177,3 +177,19 @@ describe('alert webhooks', () => {
     }
   });
 });
+
+describe('futures alerts', () => {
+  it('describe themselves and find open interest at a past time', async () => {
+    const { newAlert, describeAlert } = await import('../../src/shared/alerts');
+    const { oiValueAt } = await import('../../src/shared/derivatives');
+    const liq = newAlert('futures', 'BTCUSDT', 'spot');
+    expect(liq.market).toBe('futures');
+    expect(describeAlert(liq)).toMatch(/BTC perp liquidations reach \$1,000,000 within 5 min/);
+    expect(describeAlert({ ...liq, metric: 'oiChange', condition: 'up', value: 3, minutes: 60 } as any)).toMatch(/open interest rises 3% within 60 min/);
+    expect(describeAlert({ ...liq, metric: 'funding', condition: 'below', value: -0.01 } as any)).toMatch(/funding is below -0.01%/);
+    const snap: any = { oiMinutes: [[1000, 10], [2000, 11]], openInterest: { history: [[0, 5], [600, 7]] } };
+    expect(oiValueAt(snap, 1500)).toBe(10);
+    expect(oiValueAt(snap, 700)).toBe(7);
+    expect(oiValueAt(snap, -1)).toBeNull();
+  });
+});

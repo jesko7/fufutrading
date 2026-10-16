@@ -27,4 +27,18 @@ export interface DerivativesSnapshot {
   taker: { ratio: number; buy1h: number; sell1h: number; history: [number, number][] } | null;
   /** Liquidations since the module started watching (Binance streams at most one per second, the largest). */
   liquidations: { since: number; long1h: number; short1h: number; long24h: number; short24h: number; recent: LiquidationEvent[] };
+  /** Liquidated notional per minute over the last hour: [minute start, longs, shorts]. */
+  liqMinutes: [number, number, number][];
+  /** Open interest value sampled every minute while watched: [time, USDT]. */
+  oiMinutes: [number, number][];
+}
+
+/** Open interest value at `t` from the minute samples, else the 5-minute history (null when unknown). */
+export function oiValueAt(s: DerivativesSnapshot, t: number): number | null {
+  let best: number | null = null;
+  for (const [ts, v] of s.oiMinutes) if (ts <= t) best = v;
+  if (best !== null && s.oiMinutes.length && s.oiMinutes[0][0] <= t) return best;
+  best = null;
+  for (const [ts, v] of s.openInterest?.history || []) if (ts <= t) best = v;
+  return best;
 }

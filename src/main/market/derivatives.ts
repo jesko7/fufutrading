@@ -19,6 +19,7 @@ interface Watched {
   refs: number;
   snap: DerivativesSnapshot;
   liq: LiquidationEvent[];
+  oi: [number, number][];
   timers: NodeJS.Timeout[];
   unsub: (() => void)[];
   listeners: Set<(s: DerivativesSnapshot) => void>;
@@ -39,7 +40,7 @@ export class DerivativesService {
   watch(symbol: SymbolId, cb: (s: DerivativesSnapshot) => void): () => void {
     let w = this.watched.get(symbol);
     if (!w) {
-      w = { refs: 0, snap: empty(symbol), liq: [], timers: [], unsub: [], listeners: new Set(), pushTimer: null, since: Date.now() };
+      w = { refs: 0, snap: empty(symbol), liq: [], oi: [], timers: [], unsub: [], listeners: new Set(), pushTimer: null, since: Date.now() };
       this.watched.set(symbol, w);
       this.start(symbol, w);
     }
@@ -89,6 +90,10 @@ export class DerivativesService {
       const mark = hub.marks.get(symbol)?.mark || hub.lastPrice('futures', symbol);
       const hist = w.snap.openInterest?.history || [];
       w.snap.openInterest = { ...stats(hist, qty * mark), qty, value: qty * mark, history: hist };
+      if (qty * mark > 0) {
+        w.oi.push([oi.time || Date.now(), qty * mark]);
+        while (w.oi.length > 1500) w.oi.shift();
+      }
       this.push(w);
     };
     const slow = async () => {
@@ -159,9 +164,20 @@ export class DerivativesService {
   private snapshotOf(w: Watched): DerivativesSnapshot {
     const now = Date.now();
     const sum = (from: number, side: 'long' | 'short') => w.liq.reduce((s, e) => (e.t >= from && e.side === side ? s + e.notional : s), 0);
+    const minutes = new Map<number, [number, number, number]>();
+    for (const e of w.liq) {
+      if (e.t < now - 60 * MIN) continue;
+      const m = Math.floor(e.t / MIN) * MIN;
+      const b = minutes.get(m) || [m, 0, 0];
+      if (e.side === 'long') b[1] += e.notional;
+      else b[2] += e.notional;
+      minutes.set(m, b);
+    }
     return {
       ...w.snap,
       t: now,
+      liqMinutes: [...minutes.values()].sort((a, b) => a[0] - b[0]),
+      oiMinutes: w.oi.slice(),
       liquidations: {
         since: w.since,
         long1h: sum(now - 60 * MIN, 'long'),
@@ -185,7 +201,7 @@ export class DerivativesService {
 }
 
 function empty(symbol: SymbolId): DerivativesSnapshot {
-  return { symbol, t: Date.now(), openInterest: null, funding: null, fundingHistory: [], funding7dAnnualPct: NaN, longShort: null, taker: null, liquidations: { since: Date.now(), long1h: 0, short1h: 0, long24h: 0, short24h: 0, recent: [] } };
+  return { symbol, t: Date.now(), openInterest: null, funding: null, fundingHistory: [], funding7dAnnualPct: NaN, longShort: null, taker: null, liquidations: { since: Date.now(), long1h: 0, short1h: 0, long24h: 0, short24h: 0, recent: [] }, liqMinutes: [], oiMinutes: [] };
 }
 
 /** Changes of the open interest value over the last hour and day from the 5-minute history. */

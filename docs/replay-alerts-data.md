@@ -39,6 +39,9 @@ indicator's menu ("Add alert…"):
   fills.
 - **Order book:** bid/ask imbalance, bid or ask liquidity within a range, spread, or a large
   resting order appearing, optionally held for N seconds.
+- **Futures data:** liquidations within N minutes (longs, shorts or both), an open interest
+  rise or fall of X% within N minutes, the funding rate above or below a level, or the
+  long/short ratio above or below a level.
 
 Each alert has a frequency (once, once per bar, at most once a minute, every time with a
 pause), optional expiry, a message template (`{{symbol}} {{price}} {{value}} {{name}}

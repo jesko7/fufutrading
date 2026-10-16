@@ -2,7 +2,7 @@
 import type { Market, SymbolId } from './symbols';
 import { SYMBOL_SPECS } from './symbols';
 
-export type AlertKind = 'price' | 'move' | 'indicator' | 'script' | 'book';
+export type AlertKind = 'price' | 'move' | 'indicator' | 'script' | 'book' | 'futures';
 export type AlertFrequency = 'once' | 'perBar' | 'perMinute' | 'every';
 export type CrossCondition = 'crossesAbove' | 'crossesBelow' | 'crosses' | 'above' | 'below';
 
@@ -83,7 +83,21 @@ export interface BookAlert extends AlertBase {
   sustainSec: number;
 }
 
-export type Alert = PriceAlert | MoveAlert | IndicatorAlert | ScriptAlert | BookAlert;
+export type FuturesMetric = 'funding' | 'oiChange' | 'liquidations' | 'longShortRatio';
+
+/** Alerts on Binance futures data: funding, open interest changes, liquidations, long/short ratio. */
+export interface FuturesAlert extends AlertBase {
+  kind: 'futures';
+  metric: FuturesMetric;
+  /** funding and ratio: above/below; open interest: up/down/either; liquidations: longs/shorts/either. */
+  condition: 'above' | 'below' | 'up' | 'down' | 'either' | 'longs' | 'shorts';
+  /** Funding in % per period, the ratio, the open interest change in %, liquidations in USDT. */
+  value: number;
+  /** Window for open interest changes and liquidations, minutes. */
+  minutes: number;
+}
+
+export type Alert = PriceAlert | MoveAlert | IndicatorAlert | ScriptAlert | BookAlert | FuturesAlert;
 
 export interface AlertEvent {
   id: string;
@@ -165,6 +179,20 @@ export function describeAlert(a: Alert): string {
       const what = a.trigger.type === 'alertcondition' ? `“${a.trigger.title}”` : a.trigger.type === 'alert' ? 'alert() messages' : 'strategy orders';
       return `${a.scriptName || 'Script'} · ${what} (${ins} ${a.tf}${a.onBarClose ? ', bar close' : ''})`;
     }
+    case 'futures': {
+      const p = `${SYMBOL_SPECS[a.symbol].base} perp`;
+      switch (a.metric) {
+        case 'funding':
+          return `${p} funding is ${a.condition === 'below' ? 'below' : 'above'} ${a.value}%`;
+        case 'longShortRatio':
+          return `${p} long/short ratio is ${a.condition === 'below' ? 'below' : 'above'} ${a.value}`;
+        case 'oiChange':
+          return `${p} open interest ${a.condition === 'up' ? 'rises' : a.condition === 'down' ? 'falls' : 'moves'} ${a.value}% within ${a.minutes} min`;
+        case 'liquidations':
+          return `${p} ${a.condition === 'longs' ? 'long' : a.condition === 'shorts' ? 'short' : ''} liquidations reach $${num(a.value)} within ${a.minutes} min`.replace('  ', ' ');
+      }
+      return p;
+    }
     case 'book': {
       const unit = a.metric === 'imbalance' ? '%' : a.metric === 'spreadBps' ? ' bps' : ' USDT';
       const m = a.metric === 'imbalance' ? `order-book imbalance (±${a.rangePct}%)` : a.metric === 'bidDepth' ? `bid liquidity within ${a.rangePct}%` : a.metric === 'askDepth' ? `ask liquidity within ${a.rangePct}%` : a.metric === 'spreadBps' ? 'spread' : `a resting order within ${a.rangePct}%`;
@@ -192,6 +220,8 @@ export function newAlert(kind: AlertKind, symbol: SymbolId, market: Market, extr
       return { ...base, kind, scriptId: '', inputs: {}, tf: '15m', chartType: 'candles', onBarClose: true, trigger: { type: 'alert' }, frequency: 'every', cooldownSec: 0, ...extra } as ScriptAlert;
     case 'book':
       return { ...base, kind, metric: 'imbalance', condition: 'above', value: 40, rangePct: 0.5, sustainSec: 10, frequency: 'every', cooldownSec: 300, ...extra } as BookAlert;
+    case 'futures':
+      return { ...base, kind, market: 'futures', metric: 'liquidations', condition: 'either', value: 1000000, minutes: 5, frequency: 'every', cooldownSec: 300, ...extra } as FuturesAlert;
   }
 }
 

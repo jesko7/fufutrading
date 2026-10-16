@@ -4,12 +4,12 @@ import { toast } from '../../state/store';
 import { Modal, openModal, NumberField, Toggle, Select, Segmented, SymbolPicker, TimeframePicker, Spinner } from '../../components/ui';
 import { useScripts, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
-import { describeAlert, newAlert, webhookUrlError, type Alert, type AlertKind, type BookAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import { describeAlert, newAlert, webhookUrlError, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
 import { clsx } from '../../lib/format';
 import type { Market, SymbolId } from '../../../shared/symbols';
 import { SYMBOL_SPECS, roundToTick, priceDecimals } from '../../../shared/symbols';
 
-export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book' };
+export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book', futures: 'Futures data' };
 
 /** Open the alert editor for a new alert (kind + defaults) or an existing one. */
 export function openAlertEditor(init: Alert | { kind: AlertKind; symbol: SymbolId; market: Market; patch?: Partial<Alert> }): void {
@@ -83,12 +83,13 @@ function AlertEditor({ initial, onClose }: { initial: Alert; onClose: () => void
         )}
         <div className="ae-row">
           <span className="ae-label">Market</span>
-          <SymbolPicker symbol={a.symbol} market={a.market} onChange={(s, m) => set({ symbol: s, market: m })} />
+          <SymbolPicker symbol={a.symbol} market={a.market} onChange={(s, m) => set({ symbol: s, market: a.kind === 'futures' ? 'futures' : m })} />
         </div>
         {a.kind === 'price' && <PriceFields a={a} set={set} />}
         {a.kind === 'move' && <MoveFields a={a} set={set} />}
         {(a.kind === 'indicator' || a.kind === 'script') && <ScriptFields a={a} set={set} />}
         {a.kind === 'book' && <BookFields a={a} set={set} />}
+        {a.kind === 'futures' && <FuturesFields a={a} set={set} />}
         <div className="ae-preview">
           <span className="faint small">Notify when</span>
           <b>{preview}</b>
@@ -400,6 +401,73 @@ function IndicatorCondition({ a, set, plots }: { a: IndicatorAlert; set: (p: Par
         />
         {a.target.type === 'value' && <NumberField value={a.target.value} onChange={(v) => set({ target: { type: 'value', value: v } })} step={1} decimals={4} style={{ width: 130 }} />}
       </div>
+    </>
+  );
+}
+
+const FUTURES_DEFAULTS: Record<FuturesMetric, Partial<FuturesAlert>> = {
+  liquidations: { condition: 'either', value: 1_000_000, minutes: 5 },
+  oiChange: { condition: 'either', value: 3, minutes: 60 },
+  funding: { condition: 'above', value: 0.03 },
+  longShortRatio: { condition: 'above', value: 2.5 },
+};
+
+function FuturesFields({ a, set }: { a: FuturesAlert; set: (p: Partial<FuturesAlert>) => void }) {
+  const unit = a.metric === 'liquidations' ? 'USDT' : a.metric === 'longShortRatio' ? '' : '%';
+  const conds =
+    a.metric === 'oiChange'
+      ? [
+          { value: 'up', label: 'rises by' },
+          { value: 'down', label: 'falls by' },
+          { value: 'either', label: 'moves by' },
+        ]
+      : a.metric === 'liquidations'
+        ? [
+            { value: 'either', label: 'all positions' },
+            { value: 'longs', label: 'longs' },
+            { value: 'shorts', label: 'shorts' },
+          ]
+        : [
+            { value: 'above', label: 'above' },
+            { value: 'below', label: 'below' },
+          ];
+  const hint: Record<FuturesMetric, string> = {
+    liquidations: 'Liquidated notional on the Binance perpetual within the window. Binance reports at most one liquidation per second (the largest), so real totals are higher.',
+    oiChange: 'Change of the open interest (USDT value) over the window, from minute samples and Binance’s 5-minute history.',
+    funding: 'The predicted funding rate per 8-hour period, in %. Positive: longs pay shorts.',
+    longShortRatio: 'Ratio of accounts with long positions to accounts with short positions (Binance, 5-minute data).',
+  };
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Measure</span>
+        <Select
+          value={a.metric}
+          onChange={(m) => set({ metric: m, ...FUTURES_DEFAULTS[m] })}
+          options={[
+            { value: 'liquidations', label: 'Liquidations' },
+            { value: 'oiChange', label: 'Open interest change' },
+            { value: 'funding', label: 'Funding rate' },
+            { value: 'longShortRatio', label: 'Long/short ratio' },
+          ]}
+        />
+        <Select value={a.condition} onChange={(c) => set({ condition: c as FuturesAlert['condition'] })} options={conds as { value: FuturesAlert['condition']; label: string }[]} />
+        <NumberField
+          value={a.value}
+          onChange={(v) => set({ value: v })}
+          step={a.metric === 'liquidations' ? 100000 : a.metric === 'funding' ? 0.005 : a.metric === 'oiChange' ? 0.5 : 0.1}
+          decimals={a.metric === 'liquidations' ? 0 : a.metric === 'funding' ? 4 : 2}
+          suffix={unit}
+          style={{ width: 150 }}
+        />
+      </div>
+      {(a.metric === 'oiChange' || a.metric === 'liquidations') && (
+        <div className="ae-row">
+          <span className="ae-label">Within</span>
+          <NumberField value={a.minutes} onChange={(v) => set({ minutes: Math.max(1, Math.min(a.metric === 'liquidations' ? 60 : 1440, Math.round(v))) })} step={5} decimals={0} suffix="min" style={{ width: 110 }} />
+        </div>
+      )}
+      <div className="faint small">{hint[a.metric]}</div>
     </>
   );
 }

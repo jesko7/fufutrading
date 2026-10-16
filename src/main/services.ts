@@ -39,8 +39,8 @@ export async function registerServices(core: AppCore): Promise<Services> {
   const experiments = registerExperiments(core);
   const bots = registerBots(core, trading, scripts);
   const replay = registerReplay(core, trading);
-  const alerts = registerAlerts(core, scripts);
   const derivatives = registerDerivatives(core);
+  const alerts = registerAlerts(core, scripts, derivatives);
   const ai = registerAI(core, { scripts, backtests, optimizer, derivatives });
   const trades = registerFootprint(core);
   registerDataManager(core, trades);
