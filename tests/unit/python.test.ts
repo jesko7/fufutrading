@@ -253,3 +253,29 @@ def main(data):
     expect(v[9]).toBe(h5.c[1]);
   });
 });
+
+describe('exact cumulative volume delta (taker volume)', () => {
+  it('sums market buys minus sells per bar and resets each UTC day', async () => {
+    const fs = await import('node:fs');
+    const code = fs.readFileSync(path.join(root, 'src/engine/library/py_cvd.py'), 'utf8');
+    // 30-minute bars over two days: volume 10, taker buys 7 (delta +4) before noon, 2 (delta −6) after
+    const data = bars(96, () => 100, Date.UTC(2026, 0, 1), 30 * 60000);
+    const tbv = new Float64Array(96);
+    for (let i = 0; i < 96; i++) {
+      data.v[i] = 10;
+      tbv[i] = i % 48 < 24 ? 7 : 2;
+    }
+    const r = await py(code, { ...data, tbv });
+    const cvd = r.result.plots.find((p) => p.title === 'CVD')!.values;
+    expect(cvd[0]).toBe(4);
+    expect(cvd[23]).toBe(24 * 4);
+    expect(cvd[47]).toBe(24 * 4 - 24 * 6);
+    // the second day starts again from its first bar
+    expect(cvd[48]).toBe(4);
+    const all = await py(code, { ...data, tbv }, { inputs: { reset_daily: false } });
+    expect(all.result.plots.find((p) => p.title === 'CVD')!.values[95]).toBe(2 * (24 * 4 - 24 * 6));
+    const bars1 = await py(code, { ...data, tbv }, { inputs: { mode: 'Delta per bar' } });
+    expect(Array.from(bars1.result.plots.find((p) => p.title === 'Delta')!.values.slice(22, 26))).toEqual([4, 4, -6, -6]);
+  }, 120000);
+});
+

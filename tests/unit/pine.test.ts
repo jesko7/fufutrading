@@ -490,3 +490,16 @@ plot(close, offset=-2)
     expect(msgs.some((m) => /^lookahead: .*offset=-2/.test(m))).toBe(true);
   });
 });
+
+describe('Pine: plotcandle', () => {
+  it('stores na (from a ternary) as na, not 0', () => {
+    const r = run(`//@version=6\nindicator("c")\nshow = bar_index % 2 == 0\nplotcandle(show ? open : na, show ? high : na, show ? low : na, show ? close : na, "C")`);
+    const p = r.plots.find((x) => x.title === 'C')!;
+    expect(p.values[1]).toBeNaN();
+    expect(p.o![1]).toBeNaN();
+    expect(p.h![1]).toBeNaN();
+    expect(p.l![1]).toBeNaN();
+    expect(Number.isFinite(p.values[2]) && Number.isFinite(p.o![2])).toBe(true);
+  });
+});
+

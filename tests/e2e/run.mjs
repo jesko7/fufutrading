@@ -890,9 +890,19 @@ const S = {
     await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Open Interest/.test(r.textContent || '') && /\d\d(\.\d+)?\s?K/.test(r.textContent || '')), null, { timeout: 120000, polling: 500 });
     const oi = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Open Interest/.test(t)));
     const oiErr = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
-    check(!oiErr.length && oi.length === 1, `Open Interest indicator runs on the perpetual's statistics (${oi.join('').slice(0, 80)}${oiErr.length ? ` errors ${JSON.stringify(oiErr)}` : ''})`);
+    // the newest one (the replay scenario may have added another); no zeros where the script plots na
+    const last = oi[oi.length - 1] || '';
+    check(!oiErr.length && /\d\d(\.\d+)?\s?K/.test(last) && !/0\.000/.test(last), `Open Interest indicator runs on the perpetual's statistics (${last.slice(0, 80)}${oiErr.length ? ` errors ${JSON.stringify(oiErr)}` : ''})`);
     await wait(800);
     await shot('29c-open-interest');
+    // the Data Manager lists the futures statistics and funding caches next to the candles
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Data');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.data-mod .data-row', { timeout: 15000 });
+    const kinds = await page.$$eval('.data-mod .data-row', (e) => e.map((x) => x.textContent || '').join(' | '));
+    check(/futures statistics/.test(kinds) && /funding rates/.test(kinds), 'Data Manager lists futures statistics and funding rates');
   },
   async prop() {
     console.log('scenario: prop challenges');

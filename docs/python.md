@@ -96,6 +96,10 @@ Registered series are plotted on the chart unless `plot=False`.
 `open high low close volume time` (ms), `taker_buy_volume`, `hl2 hlc3 ohlc4 hlcc4`,
 `bar_index`, `symbol`, `market`, `tf`, `mintick`; `len(data)`.
 
+`taker_buy_volume` is Binance's real split of each bar's volume: the part bought with market
+orders. `2 * taker_buy_volume - volume` is the exact volume delta (market buys minus market
+sells). Pine has no equivalent, so the built-in **Cumulative Volume Delta** is a Python script.
+
 - `data.htf(tf, field='close', lookahead=False)` gives the same symbol on another timeframe,
   aligned to the chart bars. Without lookahead a chart bar only sees higher-timeframe bars that
   had closed by then.

@@ -14,6 +14,10 @@ one accounting ledger.
   are ignored until the test range begins.
 - Futures: historical funding rates are applied at their real times. Liquidations are checked
   against Binance mark-price klines.
+- Other data a script requests (other coins and timeframes with `request.security`, open
+  interest, long/short ratios and funding through `BINANCE:BTCUSDT.P_OI` and similar tickers)
+  is loaded for the same range and listed under "Other data" in the report's assumptions. Open
+  interest and the ratios exist since September 2020, funding since 2019.
 
 ## Fills
 

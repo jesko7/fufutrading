@@ -16,7 +16,7 @@ import { DocStore, uid } from '../storage/jsonStore';
 import type { FundingCache } from '../market/funding';
 import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
 import { randomBenchmark, tradeMonteCarlo, type RandomBenchmark, type TradeMonteCarlo } from '../../engine/backtest/benchmarks';
-import { keyParts } from '../../engine/host';
+import { describeKey, keyParts } from '../../engine/host';
 import { METRICS } from '../../shared/metrics';
 import { fromCandles } from '../../engine/data';
 import type { BrokerConfig } from '../../engine/backtest/broker';
@@ -83,7 +83,8 @@ export interface BacktestRecord {
   /** Monte Carlo of the trade sequence (shuffled and resampled). */
   monteCarlo?: TradeMonteCarlo | null;
   warnings: string[];
-  info: { bars: number; warmup: number; source: string; fills: string; funding: number; mark: boolean; ms: number; config: Record<string, unknown> };
+  /** security: other data the script requested (symbols, timeframes, futures data), for people. */
+  info: { bars: number; warmup: number; source: string; fills: string; funding: number; mark: boolean; ms: number; config: Record<string, unknown>; security?: string[] };
   logs: { bar: number; time: number; level: string; msg: string }[];
 }
 
@@ -395,7 +396,7 @@ export class BacktestService {
       openTrades: [],
       feeSensitivity: null,
       warnings: [...P.warnings, ...result.warnings.filter((w) => w.kind !== 'info').map((w) => w.message), ...(result.strategy?.warnings || [])],
-      info: { bars: bars.length - tradeFrom, warmup: tradeFrom, source: P.source, fills: P.fills, funding: P.fundingN, mark: P.markUsed, ms: 0, config: { ...(result.strategy?.config || {}) } },
+      info: { bars: bars.length - tradeFrom, warmup: tradeFrom, source: P.source, fills: P.fills, funding: P.fundingN, mark: P.markUsed, ms: 0, config: { ...(result.strategy?.config || {}) }, security: Object.keys(security).map(describeKey) },
       logs: result.logs.slice(-500),
     };
     if (result.ok && result.strategy) {

@@ -502,6 +502,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           sampleTrades: rec.trades.slice(-6).map((t) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
           warnings: rec.warnings.slice(0, 8),
           assumptions: rec.info.fills,
+          data: [rec.info.source, ...(rec.info.security || [])],
         };
       },
       card: (_a, r) => ({ kind: 'backtest', title: r?.ok ? `Backtest ${r.market}` : `Backtest failed: ${r?.error}`, data: r || {} }),
@@ -527,6 +528,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           sampleTrades: rec.trades.slice(-8).map((t: BacktestRecord['trades'][number]) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
           warnings: rec.warnings.slice(0, 8),
           assumptions: rec.info.fills,
+          data: [rec.info.source, ...(rec.info.security || [])],
         };
       },
       card: (_a, r) => ({ kind: 'backtest', title: r?.ok ? `Read backtest “${r.label}”` : `Backtest: ${r?.error || 'failed'}`, data: r ? { ...r, market: r.request ? `${r.request.symbol} ${r.request.market} ${r.request.tf}` : '' } : {} }),

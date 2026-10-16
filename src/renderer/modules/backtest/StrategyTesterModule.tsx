@@ -805,6 +805,7 @@ function Info({ rec }: { rec: BacktestRecord }) {
   const cfg = i.config as Record<string, any>;
   const rows: [string, string][] = [
     ['Data', i.source],
+    ...(i.security?.length ? ([['Other data', i.security.join(' · ')]] as [string, string][]) : []),
     ['Bars tested', `${i.bars.toLocaleString()} (+ ${i.warmup.toLocaleString()} warm-up bars that only feed indicators)`],
     ['Intrabar fills', i.fills],
     ['Market', `${rec.request.market === 'futures' ? 'USDⓈ-M perpetual' : 'Spot'}${cfg.leverage > 1 ? ` · ${cfg.leverage}x leverage` : ''}${cfg.marginMode ? ` · ${cfg.marginMode} margin` : ''}`],

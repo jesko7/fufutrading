@@ -8,7 +8,7 @@ import { fmtDate } from '../../lib/format';
 import { SYMBOL_SPECS, type Market, type SymbolId } from '../../../shared/symbols';
 import './data.css';
 
-type Kind = 'klines' | 'mark' | 'metrics';
+type Kind = 'klines' | 'mark' | 'metrics' | 'funding';
 
 interface Entry {
   kind: Kind;
@@ -55,9 +55,10 @@ function ins(symbol: SymbolId, market: Market): string {
   return `${SYMBOL_SPECS[symbol].base}${market === 'futures' ? ' Perp' : ''}`;
 }
 
-const KIND_LABEL: Record<Kind, string> = { klines: 'candles', mark: 'mark price', metrics: 'futures statistics' };
-/** The download choice for open interest and long/short ratios (5-minute samples). */
+const KIND_LABEL: Record<Kind, string> = { klines: 'candles', mark: 'mark price', metrics: 'futures statistics', funding: 'funding rates' };
+/** The download choices for open interest and long/short ratios (5-minute samples) and funding. */
 const STATS = 'stats';
+const FUNDING = 'funding';
 
 export function DataModule(_p: ModuleProps) {
   const [data, setData] = useState<Overview | null>(null);
@@ -95,6 +96,7 @@ export function DataModule(_p: ModuleProps) {
     const from = range === 'all' ? Date.UTC(2017, 6, 1) : now - +range * 86400000;
     const span = RANGES.find((r) => r.value === range)?.label.toLowerCase();
     if (interval === STATS) download({ kind: 'metrics', market: 'futures', symbol: sym.symbol, interval: '5m', from, to: now }, `${ins(sym.symbol, 'futures')} futures statistics · ${span}`);
+    else if (interval === FUNDING) download({ kind: 'funding', market: 'futures', symbol: sym.symbol, interval: '8h', from, to: now }, `${ins(sym.symbol, 'futures')} funding rates · ${span}`);
     else download({ market: sym.market, symbol: sym.symbol, interval, from, to: now }, `${ins(sym.symbol, sym.market)} ${interval} · ${span}`);
   };
 
@@ -117,9 +119,9 @@ export function DataModule(_p: ModuleProps) {
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
             <SymbolPicker symbol={sym.symbol} market={sym.market} onChange={(s, m) => setSym({ symbol: s, market: m })} />
             <Select
-              value={interval === STATS && sym.market !== 'futures' ? '1m' : interval}
+              value={(interval === STATS || interval === FUNDING) && sym.market !== 'futures' ? '1m' : interval}
               onChange={setIntervalV}
-              options={[...INTERVALS.filter((i) => !(i === '1s' && sym.market === 'futures')).map((i) => ({ value: i, label: `${i} candles` })), ...(sym.market === 'futures' ? [{ value: STATS, label: 'Open interest & long/short ratios' }] : [])]}
+              options={[...INTERVALS.filter((i) => !(i === '1s' && sym.market === 'futures')).map((i) => ({ value: i, label: `${i} candles` })), ...(sym.market === 'futures' ? [{ value: STATS, label: 'Open interest & long/short ratios' }, { value: FUNDING, label: 'Funding rates' }] : [])]}
             />
             <Select value={range} onChange={setRange} options={RANGES} />
             <button className="btn small primary" disabled={!!busy} onClick={prefetch}>

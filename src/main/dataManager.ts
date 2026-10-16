@@ -11,13 +11,15 @@ import type { TradeStore } from './storage/tradeStore';
 import type { CandleKind } from './storage/candleStore';
 import { isSymbol, type Market, type SymbolId } from '../shared/symbols';
 import { intervalMs } from '../shared/timeframes';
-import { METRICS_EPOCH } from '../shared/metrics';
+import { FUNDING_EPOCH, METRICS_EPOCH } from '../shared/metrics';
+import { readJson } from './storage/jsonStore';
 
 const KINDS: CandleKind[] = ['klines', 'mark', 'metrics'];
 const kindOf = (k: unknown): CandleKind => (KINDS.includes(k as CandleKind) ? (k as CandleKind) : 'klines');
 
 export interface CacheEntry {
-  kind: CandleKind;
+  /** Candle kinds, or "funding" (funding-rate history, one file per perpetual). */
+  kind: CandleKind | 'funding';
   market: Market;
   symbol: SymbolId;
   interval: string;
@@ -59,22 +61,39 @@ export function registerDataManager(core: AppCore, trades: TradeStore): void {
         }
       }
     }
+    // funding-rate history (backtests, replays, BINANCE:<symbol>.P_FUNDING)
+    const fdir = path.join(core.paths.data, 'funding');
+    if (fs.existsSync(fdir)) {
+      for (const f of fs.readdirSync(fdir)) {
+        const symbol = f.replace(/\.json$/, '');
+        if (!f.endsWith('.json') || !isSymbol(symbol)) continue;
+        const doc = readJson<{ ranges: [number, number][] }>(path.join(fdir, f), { ranges: [] });
+        entries.push({ kind: 'funding', market: 'futures', symbol, interval: '8h', ranges: doc.ranges, bytes: fs.statSync(path.join(fdir, f)).size, gaps: Math.max(0, doc.ranges.length - 1) });
+      }
+    }
     entries.sort((a, b) => a.symbol.localeCompare(b.symbol) || a.market.localeCompare(b.market) || INTERVALS.indexOf(a.interval) - INTERVALS.indexOf(b.interval));
     return { root: core.paths.data, entries, trades: trades.stats(), totalBytes: dirSize(core.paths.data) };
   };
   r.handle('data:overview', () => overview());
   r.handle('data:clear', ([kind, market, symbol, interval]) => {
     if (!isSymbol(symbol)) throw new Error('Validation: unsupported symbol');
-    store.clear(kindOf(kind), market === 'futures' ? 'futures' : 'spot', symbol, String(interval));
+    if (kind === 'funding') fs.rmSync(path.join(core.paths.data, 'funding', `${symbol}.json`), { force: true });
+    else store.clear(kindOf(kind), market === 'futures' ? 'futures' : 'spot', symbol, String(interval));
     return true;
   });
   r.handle('data:openFolder', () => shell.openPath(core.paths.data));
   /** Prefetch a range (progress pushed while downloading). */
-  r.topic('data:download', (p: { kind?: CandleKind; market: Market; symbol: SymbolId; interval: string; from: number; to: number }, push) => {
+  r.topic('data:download', (p: { kind?: CandleKind | 'funding'; market: Market; symbol: SymbolId; interval: string; from: number; to: number }, push) => {
     let cancelled = false;
     void (async () => {
       try {
         if (!isSymbol(p.symbol) || (p.market !== 'spot' && p.market !== 'futures')) throw new Error('invalid instrument');
+        if (p.kind === 'funding') {
+          push({ type: 'progress', done: 0, total: 1, phase: 'download' });
+          await core.funding.get(p.symbol, Math.max(Number(p.from) || 0, FUNDING_EPOCH), Math.min(Number(p.to) || Date.now(), core.hub.clock.now()));
+          if (!cancelled) push({ type: 'done' });
+          return;
+        }
         if (!INTERVALS.includes(p.interval)) throw new Error('invalid interval');
         if (p.interval === '1s' && p.market === 'futures') throw new Error('Binance has no 1s klines for futures');
         const kind = kindOf(p.kind);

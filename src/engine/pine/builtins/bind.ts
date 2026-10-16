@@ -145,13 +145,15 @@ export const B = {
       if (p.colors) p.colors[i] = (c as string) ?? null;
       return k;
     },
-    candle: (R: Runtime, k: number, o: number, h: number, l: number, c: number, col?: string) => {
+    candle: (R: Runtime, k: number, o: unknown, h: unknown, l: unknown, c: unknown, col?: string) => {
       const p = R.plots[k];
       const i = R.i;
-      p.o![i] = o;
-      p.h![i] = h;
-      p.l![i] = l;
-      p.values[i] = c;
+      // na may arrive as null (e.g. from a ternary): a typed array would store it as 0
+      const n = (x: unknown) => (x === null || x === undefined ? NaN : (x as number));
+      p.o![i] = n(o);
+      p.h![i] = n(h);
+      p.l![i] = n(l);
+      p.values[i] = n(c);
       if (p.colors) p.colors[i] = col ?? null;
     },
     hline: (R: Runtime, k: number, price: number) => {
