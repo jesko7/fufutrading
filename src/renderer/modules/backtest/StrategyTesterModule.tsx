@@ -12,7 +12,7 @@ import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { Icon } from '../../components/Icon';
 import { Menu, usePopover, Popover, SymbolPicker, TimeframePicker, Select, Tabs, Spinner, Empty, Segmented, promptDialog, confirmDialog } from '../../components/ui';
 import { LineChart } from '../../components/LineChart';
-import { clsx, fmtNum, fmtPct, fmtUsd, fmtSignedUsd, fmtDateTime, fmtDate, MONTHS, fmtDuration } from '../../lib/format';
+import { clsx, fmtNum, fmtPct, fmtUsd, fmtSignedUsd, fmtDateTime, fmtDate, MONTHS, fmtDuration, orderIdLabel } from '../../lib/format';
 import { bus } from '../../lib/bus';
 import { useScripts, openScriptInEditor, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
@@ -625,7 +625,7 @@ function Trades({ rec }: { rec: BacktestRecord }) {
                 </td>
                 <td className="num">{pd(t.entryPrice)}</td>
                 <td>
-                  {fmtDateTime(t.exitTime)} <span className="muted small">{t.exitComment || t.exitId.replace(/^__\w+?_/, '')}</span>
+                  {fmtDateTime(t.exitTime)} <span className="muted small">{t.exitComment || orderIdLabel(t.exitId)}</span>
                 </td>
                 <td className="num">{pd(t.exitPrice)}</td>
                 <td className="num">{fmtNum(t.qty, 5, 0)}</td>

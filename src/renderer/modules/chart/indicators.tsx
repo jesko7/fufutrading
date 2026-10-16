@@ -17,7 +17,7 @@ import { applyPatch } from '../../../engine/patch';
 import { bus } from '../../lib/bus';
 import { Icon } from '../../components/Icon';
 import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover, promptDialog } from '../../components/ui';
-import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd } from '../../lib/format';
+import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd, orderIdLabel } from '../../lib/format';
 import { useScripts, openScriptInEditor, loadScripts, type ScriptMeta } from '../scripts/client';
 import { STANDARD_TIMEFRAMES } from '../../../shared/timeframes';
 
@@ -236,7 +236,7 @@ function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStor
   if (r.strategy) {
     const last = store.length - 1;
     o.trades = [
-      ...r.strategy.trades.map((t) => ({ entryIndex: t.entryBar + off, exitIndex: t.exitBar + off, entryPrice: t.entryPrice, exitPrice: t.exitPrice, dir: t.dir, pnl: t.profit, entryLabel: t.entryId, exitLabel: t.exitId.replace(/^__\w+?_/, '') })),
+      ...r.strategy.trades.map((t) => ({ entryIndex: t.entryBar + off, exitIndex: t.exitBar + off, entryPrice: t.entryPrice, exitPrice: t.exitPrice, dir: t.dir, pnl: t.profit, entryLabel: t.entryId, exitLabel: orderIdLabel(t.exitId) })),
       ...r.strategy.openTrades.map((t) => ({ entryIndex: t.entryBar + off, exitIndex: last, entryPrice: t.entryPrice, exitPrice: store.c[last], dir: t.dir, pnl: (store.c[last] - t.entryPrice) * t.dir, entryLabel: t.entryId, open: true })),
     ];
   }

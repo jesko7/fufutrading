@@ -127,3 +127,8 @@ export function fmtDuration(ms: number): string {
 export function clsx(...xs: (string | false | null | undefined | 0)[]): string {
   return xs.filter(Boolean).join(' ');
 }
+
+/** A strategy order id for people: internal ids show what they close (__close_Long → Long, __close_all → all). */
+export function orderIdLabel(id: string): string {
+  return id.replace(/^__\w+?_/, '');
+}

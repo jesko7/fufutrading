@@ -5,7 +5,7 @@ import { useApp, toast } from '../../state/store';
 import { Tabs, Menu, usePopover, confirmDialog, promptDialog, Empty, Spinner, Select, Segmented, NumberField, Toggle, SymbolPicker, TimeframePicker } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { useNow } from '../../lib/hooks';
-import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtAgo } from '../../lib/format';
+import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtAgo, orderIdLabel } from '../../lib/format';
 import { useScripts, openScriptInEditor, type AnalyzeResult } from '../scripts/client';
 import { InputControl, ParamSetPicker } from '../chart/indicators';
 import { openCreateAccount, useAccount } from '../trading/accounts';
@@ -45,6 +45,14 @@ export function BotsModule({ module }: ModuleProps) {
   const cfg = module.config as { botId?: string | null; tab?: BotTab };
   const set = (p: Record<string, unknown>) => useApp.getState().setModuleConfig(module.id, p);
   const bots = useBots();
+  const settings = useApp((s) => s.settings);
+  const [hideLoginHint, setHideLoginHint] = useState(() => {
+    try {
+      return localStorage.getItem('fufu.botsLoginHint') === '1';
+    } catch {
+      return false;
+    }
+  });
   const newBot = () => openCreateAccount((id) => set({ botId: id }), { kind: 'bot' });
   if (!bots)
     return (
@@ -66,6 +74,38 @@ export function BotsModule({ module }: ModuleProps) {
           </button>
         )}
       </HeadControls>
+      {running > 0 && !settings.background.startAtLogin && !hideLoginHint && (
+        <div className="callout bots-hint">
+          <Icon name="info" size={14} />
+          <span className="grow">Running bots trade while FuFu is open, also from the tray. Start at login keeps them trading after a restart.</span>
+          <button
+            className="btn tiny"
+            onClick={() =>
+              void useApp
+                .getState()
+                .updateSettings({ background: { ...settings.background, startAtLogin: true } })
+                .then(() => toast({ title: 'Start at login is on', body: 'FuFu starts quietly in the tray when you log in and resumes your bots.', kind: 'ok' }))
+                .catch(fail('Could not turn on start at login'))
+            }
+          >
+            Start at login
+          </button>
+          <button
+            className="icon-btn small"
+            data-tip="Hide this hint"
+            onClick={() => {
+              setHideLoginHint(true);
+              try {
+                localStorage.setItem('fufu.botsLoginHint', '1');
+              } catch {
+                /* storage unavailable */
+              }
+            }}
+          >
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      )}
       {!bots.length ? (
         <Empty icon="bot" title="No bots yet">
           <div className="col" style={{ alignItems: 'center', gap: 12 }}>
@@ -601,7 +641,7 @@ function Signals({ v }: { v: BotView }) {
             {s.pending.map((p) => (
               <tr key={p.id + p.kind}>
                 <td>
-                  <b>{p.id}</b> {p.comment && <span className="faint">{p.comment}</span>}
+                  <b>{orderIdLabel(p.id)}</b> {p.comment && <span className="faint">{p.comment}</span>}
                 </td>
                 <td>
                   <span className={p.side === 1 ? 'up' : 'down'}>{p.side === 1 ? 'buy' : 'sell'}</span> {p.kind}
@@ -635,7 +675,7 @@ function Signals({ v }: { v: BotView }) {
               <tr key={k}>
                 <td className="faint">{fmtDateTime(f.t)}</td>
                 <td>
-                  <span className={f.side === 'buy' ? 'up' : 'down'}>{f.side}</span> · {f.kind} <b>{f.id}</b>
+                  <span className={f.side === 'buy' ? 'up' : 'down'}>{f.side}</span> · {f.kind} <b>{orderIdLabel(f.id)}</b>
                 </td>
                 <td className="r">
                   {fmtNum(f.qty, 6)} {base}
@@ -667,7 +707,7 @@ function Signals({ v }: { v: BotView }) {
                 <tr key={k}>
                   <td className="faint">{fmtDateTime(t.exitTime)}</td>
                   <td>
-                    <span className={t.dir === 1 ? 'up' : 'down'}>{t.dir === 1 ? 'Long' : 'Short'}</span> {t.entryId} → {t.exitId}
+                    <span className={t.dir === 1 ? 'up' : 'down'}>{t.dir === 1 ? 'Long' : 'Short'}</span> {t.entryId} → {orderIdLabel(t.exitId)}
                   </td>
                   <td className="r">
                     {fmtNum(t.entryPrice, 2)} → {fmtNum(t.exitPrice, 2)}
