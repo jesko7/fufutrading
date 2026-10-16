@@ -544,3 +544,13 @@
 .chart-module.picking .chart-host {
   cursor: crosshair;
 }
+
+.replay-report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.replay-report .rr-trades {
+  max-height: 240px;
+  overflow: auto;
+}

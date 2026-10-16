@@ -585,8 +585,20 @@ const S = {
     // live accounts are not affected and replay accounts are hidden from account lists
     const list = await page.evaluate(() => window.fufu.invoke('trading:list'));
     check(!list.some((a) => a.config.replay), 'replay accounts are not listed with live accounts');
+    // the session report lists the replay trade
+    await page.click('.replay-bar button[data-tip^="Session report"]');
+    await page.waitForSelector('.modal .replay-report', { timeout: 15000 });
+    const rr = await page.textContent('.modal .replay-report');
+    check(/Win rate/.test(rr || '') && /Trades/.test(rr || ''), `replay session report (${(rr || '').replace(/\s+/g, ' ').slice(0, 90)})`);
+    await wait(400);
+    await shot('21b-replay-report');
+    await page.keyboard.press('Escape');
     await page.click('.replay-bar button[data-tip^="Exit replay"]');
     await page.waitForSelector('.replay-bar', { state: 'detached', timeout: 10000 });
+    // the report appears again when leaving a replay with trades
+    await page.waitForSelector('.modal .replay-report', { timeout: 15000 });
+    check(true, 'leaving the replay shows the session report');
+    await page.keyboard.press('Escape');
     await page.waitForFunction(([id, last]) => window.__charts[id].bars().last >= last, [id, before.last], { timeout: 30000 });
     check(true, 'exit replay returns the chart to live data');
   },

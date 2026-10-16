@@ -24,6 +24,14 @@ Details:
 - Order books, depth, heatmap and time & sales show live data during a replay and say so.
   Historical order books aren't available.
 - Positions close when you restart the replay elsewhere or exit it.
+- **Session report:** the report button in the replay bar, or leaving a replay you traded in,
+  shows how the session went:
+  - result, win rate, profit factor, drawdown on closed trades and holding times
+  - buy & hold over the same period
+  - with at least three trades in one instrument, how your entries compare with 1,000
+    random twins (same sizes, holding times and costs at random times)
+
+  This shows whether your practice entries had an edge or were luck.
 
 ## Alerts
 

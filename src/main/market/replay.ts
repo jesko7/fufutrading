@@ -28,6 +28,7 @@ import { SYMBOL_SPECS, isSymbol, floorToStep, type Market, type SymbolId } from 
 import { FundingCache } from '../backtest/service';
 import { uid } from '../storage/jsonStore';
 import path from 'node:path';
+import { buildReplayReport, type ReplayReport, type ReplayReportInput } from './replayReport';
 
 export interface ReplayRef {
   session: string;
@@ -284,6 +285,8 @@ export class ReplaySession {
   readonly tracks = new Map<string, Track>();
   readonly feeds = new Set<ReplayFeed>();
   accounts: Partial<Record<Market, string>> = {};
+  /** Where this replay's trading began per account (trade count, equity, fees) — for the session report. */
+  marks: Partial<Record<Market, { tradeIdx: number; equity: number; fees: number }>> = {};
   private timer: NodeJS.Timeout | null = null;
   private lastTick = 0;
   private ctxTime = 0;
@@ -591,10 +594,19 @@ export class ReplaySession {
     }
   }
 
+  /** Remember where the replay's trading starts on an account (for the session report). */
+  markAccount(market: Market): void {
+    const id = this.accounts[market];
+    const rt = id ? this.svc.engine.accounts.get(id) : undefined;
+    if (!rt) return;
+    this.marks[market] = { tradeIdx: rt.trades.length, equity: rt.ledger.equity(rt.marks(this.ctx())) || rt.ledger.wallet, fees: rt.ledger.feesPaid };
+  }
+
   /** Restart from another point in time: series are rebuilt, open replay positions are closed. */
   jump(start: number): void {
     if (this.playing) this.setPlaying(false);
     this.flattenAccounts('replay restarted at another point');
+    for (const m of Object.keys(this.accounts) as Market[]) this.markAccount(m);
     for (const t of this.tracks.values()) t.listeners.clear();
     this.tracks.clear();
     this.feeds.clear();
@@ -704,22 +716,59 @@ export class ReplayService {
     for (const l of this.listeners) l(null, windowId);
   }
 
+  /** The session report of a window's replay (from its start or last jump to the cursor). */
+  async report(windowId: string): Promise<ReplayReport | null> {
+    const s = this.sessions.get(windowId);
+    if (!s) return null;
+    const ctx = s.ctx();
+    const accounts: ReplayReportInput['accounts'] = [];
+    for (const market of Object.keys(s.accounts) as Market[]) {
+      const id = s.accounts[market];
+      const rt = id ? this.engine.accounts.get(id) : undefined;
+      const m = s.marks[market];
+      if (!rt || !m) continue;
+      const c = rt.config.costs;
+      accounts.push({ market, trades: rt.trades.slice(m.tradeIdx), equityStart: m.equity, equityEnd: rt.ledger.equity(rt.marks(ctx)), feesPaid: rt.ledger.feesPaid - m.fees, costPerSide: c.takerFee + (c.slippage.model === 'fixedBps' ? c.slippage.bps / 1e4 : c.slippage.model === 'book' ? 1 / 1e4 : 0) });
+    }
+    return buildReplayReport(this.core, { from: s.start, to: s.cursor, accounts });
+  }
+
+  /** End a replay: close its positions, report on the session, then stop. */
+  async finish(windowId: string): Promise<ReplayReport | null> {
+    const s = this.sessions.get(windowId);
+    if (!s) return null;
+    s.flattenAccounts('replay ended');
+    let rep: ReplayReport | null = null;
+    try {
+      rep = await this.report(windowId);
+    } catch (e) {
+      this.core.log('warn', `replay report: ${(e as Error).message}`);
+    }
+    this.stop(windowId);
+    return rep;
+  }
+
   /** The window's replay paper account for a market (created on first use). */
   async account(windowId: string, market: Market): Promise<string> {
     const s = this.sessions.get(windowId);
     if (!s) throw new Error('Validation: no replay running in this window');
     const existing = s.accounts[market];
-    if (existing && this.engine.accounts.has(existing)) return existing;
+    if (existing && this.engine.accounts.has(existing)) {
+      if (!s.marks[market]) s.markAccount(market);
+      return existing;
+    }
     // reuse the window's replay account from earlier sessions
     for (const rt of this.engine.accounts.values()) {
       if (rt.config.replay && rt.config.market === market && rt.config.name === replayAccountName(windowId, market)) {
         s.accounts[market] = rt.config.id;
+        s.markAccount(market);
         s.push(true);
         return rt.config.id;
       }
     }
     const cfg = await this.engine.create({ name: replayAccountName(windowId, market), kind: 'manual', market, initialBalance: 10000, costPreset: market === 'futures' ? 'binance-futures' : 'binance-spot', futures: { defaultLeverage: 10 }, replay: true });
     s.accounts[market] = cfg.id;
+    s.markAccount(market);
     s.push(true);
     return cfg.id;
   }
@@ -740,6 +789,8 @@ export function registerReplay(core: AppCore, engine: TradingEngine): ReplayServ
   const svc = new ReplayService(core, engine);
   const r = core.router;
   r.handle('replay:start', ([p], ctx) => svc.start(ctx.windowId, Number(p?.start), p?.owner).view());
+  r.handle('replay:report', (_a, ctx) => svc.report(ctx.windowId));
+  r.handle('replay:finish', (_a, ctx) => svc.finish(ctx.windowId));
   r.handle('replay:stop', (_a, ctx) => {
     svc.stop(ctx.windowId);
     return true;

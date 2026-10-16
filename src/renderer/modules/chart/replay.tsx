@@ -16,6 +16,18 @@ import type { ChartModuleConfig } from '../../../shared/workspace';
 import type { ChartEngine } from '../../chart/engine';
 import type { BarStore } from '../../chart/barStore';
 import type { SeriesInfo, SeriesStatus } from '../../../shared/marketTypes';
+import type { ReplayReport } from '../../../main/market/replayReport';
+import { openReplayReport } from './replayReport';
+
+/** Leave the replay; when the user traded, show the session report. */
+function exitReplay(): void {
+  void api
+    .call<ReplayReport | null>('replay:finish')
+    .then((rep) => {
+      if (rep && rep.summary.count > 0) openReplayReport(rep);
+    })
+    .catch((e) => toast({ title: 'Replay', body: errorMessage(e), kind: 'error' }));
+}
 import { parseTimeframe, bucketEnd, isFixedDuration } from '../../../shared/timeframes';
 import { SYMBOL_SPECS } from '../../../shared/symbols';
 
@@ -178,7 +190,7 @@ export function useReplayForChart(moduleId: string, cfg: ChartModuleConfig): Cha
     },
     toggle: () => {
       if (picking) setPicking(false);
-      else if (view) void api.call('replay:stop').catch(fail('Replay'));
+      else if (view) exitReplay();
       else {
         setPicking(true);
         toast({ title: 'Bar replay', body: 'Click the bar to start the replay from (Esc cancels).', kind: 'info' });
@@ -267,7 +279,10 @@ function ReplayBar({ view, cfg, moduleId, onPick }: { view: ReplayView; cfg: Cha
         </span>
       )}
       <span className="replay-sep" />
-      <button className="icon-btn" onClick={() => void api.call('replay:stop').catch(fail('Replay'))} data-tip="Exit replay (back to real time)">
+      <button className="icon-btn" onClick={() => void api.call<ReplayReport | null>('replay:report').then((r) => r && openReplayReport(r)).catch(fail('Replay report'))} data-tip="Session report: your replay trades against buy & hold and random entries">
+        <Icon name="history" />
+      </button>
+      <button className="icon-btn" onClick={exitReplay} data-tip="Exit replay (back to real time); shows the session report if you traded">
         <Icon name="x" />
       </button>
       {speedMenu.anchor && (
