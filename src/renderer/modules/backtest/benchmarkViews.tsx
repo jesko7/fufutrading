@@ -2,7 +2,7 @@
 import { LineChart } from '../../components/LineChart';
 import { Icon } from '../../components/Icon';
 import { clsx, fmtPct } from '../../lib/format';
-import type { Greeks, RandomBenchmark, RandomModel, RandomStats } from '../../../engine/backtest/benchmarks';
+import type { Greeks, RandomBenchmark, RandomModel, RandomStats, TradeMonteCarlo } from '../../../engine/backtest/benchmarks';
 import type { BacktestRecord } from '../../../main/backtest/service';
 import { SYMBOL_SPECS } from '../../../shared/symbols';
 
@@ -160,12 +160,66 @@ export function RandomView({ rec, onRerun }: { rec: BacktestRecord; onRerun: () 
       </div>
       <ModelTable m={r.timing} title="Random timing" sub={`Same ${r.trades} trades (holding times, sizes, long/short mix, costs) at random times. Tests whether the entries are better than luck.`} />
       {r.direction && <ModelTable m={r.direction} title="Random direction" sub="The strategy's own entry and exit times and prices, with a coin flip for long or short. Tests whether the strategy picks the right side." />}
+      {rec.monteCarlo && <MonteCarloView mc={rec.monteCarlo} />}
       <ul className="rb-notes muted small">
         {r.notes.map((n, k) => (
           <li key={k}>{n}</li>
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Trade-order Monte Carlo: drawdown and return ranges to plan with. */
+function MonteCarloView({ mc }: { mc: TradeMonteCarlo }) {
+  const dd = (v: number) => fmtPct(-v, 1);
+  return (
+    <>
+      <div className="section-title">Trade-order Monte Carlo</div>
+      <div className="muted small" style={{ marginTop: -2, marginBottom: 4 }}>
+        The {mc.trades} trades replayed {mc.iterations.toLocaleString('en-US')} times, each with its profit relative to the equity before it: in random order (same result, a different path) and drawn with replacement (what the next {mc.trades} trades could look like).
+      </div>
+      <table className="table rb-table">
+        <thead>
+          <tr>
+            <th />
+            <th className="num">Backtest</th>
+            <th className="num">Median</th>
+            <th className="num">1 in 20 worse than</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Max drawdown, trades reordered</td>
+            <td className="num">
+              <b>{dd(mc.actualMaxDrawdownPct)}</b>
+            </td>
+            <td className="num">{dd(mc.shuffled.maxDrawdownPct.p50)}</td>
+            <td className="num down">{dd(mc.shuffled.maxDrawdownPct.p95)}</td>
+          </tr>
+          <tr>
+            <td>Max drawdown, trades resampled</td>
+            <td className="num muted">—</td>
+            <td className="num">{dd(mc.resampled.maxDrawdownPct.p50)}</td>
+            <td className="num down">{dd(mc.resampled.maxDrawdownPct.p95)}</td>
+          </tr>
+          <tr>
+            <td>Return, trades resampled</td>
+            <td className="num muted">—</td>
+            <td className={clsx('num', signCls(mc.resampled.returnPct.p50))}>{fmtPct(mc.resampled.returnPct.p50, 1)}</td>
+            <td className={clsx('num', signCls(mc.resampled.returnPct.p5))}>{fmtPct(mc.resampled.returnPct.p5, 1)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="mc-chips">
+        <span className={clsx('mc-chip', mc.resampled.probLossPct >= 25 ? 'down' : '')}>Chance of a loss {mc.resampled.probLossPct.toFixed(0)}%</span>
+        {mc.ddOver.map((d) => (
+          <span key={d.level} className={clsx('mc-chip', d.pct >= 20 ? 'down' : '')}>
+            Drawdown over {d.level}%: {d.pct.toFixed(0)}%
+          </span>
+        ))}
+      </div>
+    </>
   );
 }
 

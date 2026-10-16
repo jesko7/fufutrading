@@ -683,3 +683,68 @@ export function randomBenchmark(inp: RandomBenchmarkInput): RandomBenchmark | nu
   if (inp.openCount) notes.push(`${inp.openCount} open trade${inp.openCount > 1 ? 's are' : ' is'} marked to the last close.`);
   return { trades: K, iterations, checkpoints: J, overlapping, timing: tm, direction, curves, verdict: { level, title, text }, notes };
 }
+
+// ------------------------------------------------------------------ trade-order Monte Carlo
+
+export interface TradeMonteCarlo {
+  trades: number;
+  iterations: number;
+  /** The same trades in random order: the result is fixed, the path (drawdown) changes. */
+  shuffled: { maxDrawdownPct: Quantiles };
+  /** As many trades drawn with replacement from the strategy's trades: return and drawdown ranges. */
+  resampled: { returnPct: Quantiles; maxDrawdownPct: Quantiles; probLossPct: number };
+  /** Share of resampled runs whose drawdown exceeds 10 / 20 / 30 / 50 %. */
+  ddOver: { level: number; pct: number }[];
+  /** The backtest's own closed-trade drawdown, for comparison. */
+  actualMaxDrawdownPct: number;
+}
+
+/**
+ * Monte Carlo of the trade sequence. Each trade's P&L is taken relative to the equity before it,
+ * so position sizing carries over; runs compound these returns.
+ */
+export function tradeMonteCarlo(returns: number[], iterations = 2000, seed = 11): TradeMonteCarlo | null {
+  const n = returns.length;
+  if (n < 5) return null;
+  const rand = mulberry32(seed);
+  const path = (seq: ArrayLike<number>) => {
+    let eq = 1;
+    let peak = 1;
+    let mdd = 0;
+    for (let k = 0; k < seq.length; k++) {
+      eq *= 1 + seq[k];
+      if (eq > peak) peak = eq;
+      if (peak > 0) mdd = Math.max(mdd, (peak - eq) / peak);
+    }
+    return { ret: (eq - 1) * 100, dd: mdd * 100 };
+  };
+  const actual = path(returns);
+  const shufDd = new Float64Array(iterations);
+  const resRet = new Float64Array(iterations);
+  const resDd = new Float64Array(iterations);
+  const seq = Float64Array.from(returns);
+  const draw = new Float64Array(n);
+  for (let it = 0; it < iterations; it++) {
+    for (let k = n - 1; k > 0; k--) {
+      const r = Math.floor(rand() * (k + 1));
+      const t = seq[k];
+      seq[k] = seq[r];
+      seq[r] = t;
+    }
+    shufDd[it] = path(seq).dd;
+    for (let k = 0; k < n; k++) draw[k] = returns[Math.floor(rand() * n)];
+    const p = path(draw);
+    resRet[it] = p.ret;
+    resDd[it] = p.dd;
+  }
+  let losses = 0;
+  for (const v of resRet) if (v < 0) losses++;
+  return {
+    trades: n,
+    iterations,
+    shuffled: { maxDrawdownPct: quantiles(shufDd) },
+    resampled: { returnPct: quantiles(resRet), maxDrawdownPct: quantiles(resDd), probLossPct: (losses / iterations) * 100 },
+    ddOver: [10, 20, 30, 50].map((level) => ({ level, pct: (resDd.filter((d) => d > level).length / iterations) * 100 })),
+    actualMaxDrawdownPct: actual.dd,
+  };
+}

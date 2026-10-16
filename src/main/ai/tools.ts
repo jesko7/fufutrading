@@ -150,6 +150,14 @@ function summarizeMetrics(rec: BacktestRecord) {
         }
       : null,
     vsRandom: randomSummary(rec),
+    monteCarlo: rec.monteCarlo
+      ? {
+          reorderedMaxDrawdownPct: { median: r2(rec.monteCarlo.shuffled.maxDrawdownPct.p50), worst5pct: r2(rec.monteCarlo.shuffled.maxDrawdownPct.p95) },
+          resampledReturnPct: { p5: r2(rec.monteCarlo.resampled.returnPct.p5), median: r2(rec.monteCarlo.resampled.returnPct.p50), p95: r2(rec.monteCarlo.resampled.returnPct.p95) },
+          resampledMaxDrawdownPct: { median: r2(rec.monteCarlo.resampled.maxDrawdownPct.p50), worst5pct: r2(rec.monteCarlo.resampled.maxDrawdownPct.p95) },
+          chanceOfLossPct: r2(rec.monteCarlo.resampled.probLossPct),
+        }
+      : null,
   };
 }
 

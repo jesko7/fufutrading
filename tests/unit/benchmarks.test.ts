@@ -171,3 +171,21 @@ describe('random counterparts', () => {
     expect(randomBenchmark({ t, o, c, from: 0, to: n - 1, trades: [], equity: new Float64Array(n).fill(init), initialCapital: init, costPerSide: cost })).toBeNull();
   });
 });
+
+describe('trade-order Monte Carlo', () => {
+  it('keeps the result when reordering and widens the range when resampling', async () => {
+    const { tradeMonteCarlo } = await import('../../src/engine/backtest/benchmarks');
+    // ten +2% trades then five -3% trades: the backtest order has a late drawdown
+    const r = [...Array(10).fill(0.02), ...Array(5).fill(-0.03)];
+    const mc = tradeMonteCarlo(r, 1000, 3)!;
+    expect(mc.trades).toBe(15);
+    expect(mc.actualMaxDrawdownPct).toBeCloseTo((1 - 0.97 ** 5) * 100, 9);
+    // reordering never gives a deeper drawdown than all losses in a row, and on average a shallower one
+    expect(mc.shuffled.maxDrawdownPct.p95).toBeLessThanOrEqual(mc.actualMaxDrawdownPct + 1e-9);
+    expect(mc.shuffled.maxDrawdownPct.p50).toBeLessThan(mc.actualMaxDrawdownPct);
+    expect(mc.resampled.returnPct.p5).toBeLessThan(mc.resampled.returnPct.p95);
+    expect(mc.resampled.probLossPct).toBeGreaterThan(0);
+    expect(mc.ddOver.map((d) => d.level)).toEqual([10, 20, 30, 50]);
+    expect(tradeMonteCarlo([0.01, 0.02])).toBeNull();
+  });
+});

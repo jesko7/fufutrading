@@ -15,7 +15,7 @@ import type { ScriptService } from '../scripts/service';
 import { runContext } from '../scripts/service';
 import { DocStore, uid, readJson, writeJsonAtomic } from '../storage/jsonStore';
 import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
-import { randomBenchmark, type RandomBenchmark } from '../../engine/backtest/benchmarks';
+import { randomBenchmark, tradeMonteCarlo, type RandomBenchmark, type TradeMonteCarlo } from '../../engine/backtest/benchmarks';
 import { keyParts } from '../../engine/host';
 import { fromCandles } from '../../engine/data';
 import type { BrokerConfig } from '../../engine/backtest/broker';
@@ -79,12 +79,26 @@ export interface BacktestRecord {
   feeSensitivity: FeeSensitivityRow[] | null;
   /** The strategy against random counterparts (same trades at random times / directions). */
   random?: RandomBenchmark | null;
+  /** Monte Carlo of the trade sequence (shuffled and resampled). */
+  monteCarlo?: TradeMonteCarlo | null;
   warnings: string[];
   info: { bars: number; warmup: number; source: string; fills: string; funding: number; mark: boolean; ms: number; config: Record<string, unknown> };
   logs: { bar: number; time: number; level: string; msg: string }[];
 }
 
 export type Progress = (p: { phase: string; done?: number; total?: number; message?: string }) => void;
+
+/** Each closed trade's P&L relative to the equity just before it was entered. */
+export function tradeReturns(raw: StrategyRaw, equity: ArrayLike<number>, from: number): number[] {
+  const init = raw.initialCapital;
+  return raw.trades
+    .filter((t) => t.entryBar >= from)
+    .map((t) => {
+      const k = t.entryBar - from - 1;
+      const before = k >= 0 && Number.isFinite(equity[k]) && equity[k] > 0 ? equity[k] : init;
+      return t.profit / before;
+    });
+}
 
 /** Random counterparts of a backtest: same trades, sizes and costs at random times or directions. */
 export function randomCounterparts(raw: StrategyRaw, bars: BarSeries, from: number, equity: ArrayLike<number>, fill?: BarSeries | null, opts: { iterations?: number; seed?: number } = {}): RandomBenchmark | null {
@@ -428,6 +442,7 @@ export class BacktestService {
       rec.openTrades = result.strategy.openTrades;
       progress({ phase: 'Random counterparts' });
       rec.random = randomCounterparts(result.strategy, bars, tradeFrom, curves.equity, brokerCfg.fillData as BarSeries | undefined);
+      rec.monteCarlo = tradeMonteCarlo(tradeReturns(result.strategy, curves.equity, tradeFrom));
       if (req.feeSensitivity) {
         progress({ phase: 'Fee sensitivity' });
         const fees = [0, 0.0002, 0.0005, 0.001, 0.002];

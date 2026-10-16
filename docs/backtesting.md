@@ -81,6 +81,16 @@ of random returns, and how many twins the strategy beats on return, Sharpe, draw
 factor and win rate. Random twins enter and exit at bar opens. The strategy keeps its real
 limit and stop fills.
 
+**Trade-order Monte Carlo** (same tab) replays the strategy's trades 2,000 times, each with its
+profit relative to the equity before it:
+
+- **Reordered:** the same trades in random order. The result stays the same and the path
+  changes, which shows how much of the drawdown was the luck of the sequence.
+- **Resampled:** trades drawn with replacement. This shows the range of returns and drawdowns
+  the next run of trades could have.
+
+It reports the chance of a loss and how often drawdowns exceed 10, 20, 30 and 50%.
+
 ## Greeks
 
 The **Greeks** tab measures the strategy against buy & hold of the same coin, from daily

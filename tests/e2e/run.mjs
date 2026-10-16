@@ -346,6 +346,8 @@ const S = {
     const verdict = await page.textContent('.random-view .callout');
     const rbRows = await page.$$eval('.random-view .rb-table tbody tr', (r) => r.length);
     check(/random twins/.test(verdict || '') && rbRows >= 5, `random counterparts: ${(verdict || '').replace(/\s+/g, ' ').slice(0, 110)}`);
+    const mcText = await page.textContent('.random-view');
+    check(/Trade-order Monte Carlo/.test(mcText || '') && /Chance of a loss/.test(mcText || ''), 'trade-order Monte Carlo shown');
     await shot('12b-backtest-random');
     await page.click('.results .tabs .tab:has-text("Greeks")');
     await page.waitForSelector('.greek-card', { timeout: 10000 });
