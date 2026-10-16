@@ -567,3 +567,48 @@
   max-height: 240px;
   overflow: auto;
 }
+
+/* ---------------------------------------------------------------- crosshair "+" and back to latest */
+.chart-plus {
+  position: absolute;
+  z-index: 4;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  border: 1px solid var(--border-strong, var(--border));
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm, none);
+}
+.chart-plus:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.chart-latest {
+  position: absolute;
+  z-index: 4;
+  width: 28px;
+  height: 28px;
+  padding: 0 0 0 4px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  border: 1px solid var(--border-strong, var(--border));
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm, none);
+  animation: fade-in 0.15s ease-out;
+}
+.chart-latest:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}

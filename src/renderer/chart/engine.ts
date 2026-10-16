@@ -122,7 +122,27 @@ export class ChartEngine {
   private dirtyOver = true;
   private raf = 0;
   private mouse: { x: number; y: number; inside: boolean } = { x: -1, y: -1, inside: false };
-  private drag: null | { kind: 'pan' | 'priceAxis' | 'timeAxis' | 'paneSplit' | 'tradeLine' | 'bracket'; x0: number; y0: number; v0: number; v1?: number; pane?: Pane; id?: string; price?: number; splitIndex?: number; weights?: number[]; kindSub?: 'sl' | 'tp' } = null;
+  private drag: null | {
+    kind: 'pan' | 'priceAxis' | 'timeAxis' | 'paneSplit' | 'tradeLine' | 'bracket';
+    x0: number;
+    y0: number;
+    v0: number;
+    v1?: number;
+    pane?: Pane;
+    id?: string;
+    price?: number;
+    splitIndex?: number;
+    weights?: number[];
+    kindSub?: 'sl' | 'tp';
+    /** pan: undecided until the pointer moved a few pixels; 'x' scrolls time only, 'free' moves the price too. */
+    axis?: 'undecided' | 'x' | 'free';
+    /** pan: recent (time, offset) samples for momentum after release. */
+    trail?: [number, number][];
+  } = null;
+  /** Momentum scrolling after a flick (bars per ms, decaying). */
+  private glide: { v: number; last: number; raf: number } | null = null;
+  /** Smooth scroll to a right offset. */
+  private scrollAnim = 0;
   private ro: ResizeObserver;
   private destroyed = false;
   private needHistoryFired = false;
@@ -294,17 +314,73 @@ export class ChartEngine {
     this.magnet = on;
   }
 
-  /** Scroll so the latest bar is visible. */
-  scrollToLatest(): void {
-    this.rightOffset = 6;
-    this.invalidate();
+  /** Scroll so the latest bar is visible (animated); `fit` also turns auto-scaling back on. */
+  scrollToLatest(fit = false): void {
+    this.stopGlide();
+    if (fit) for (const p of this.panes) p.scale.auto = true;
+    cancelAnimationFrame(this.scrollAnim);
+    const from = this.rightOffset;
+    const to = 6;
+    const t0 = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / 280);
+      const e = 1 - Math.pow(1 - k, 3);
+      this.rightOffset = from + (to - from) * e;
+      this.invalidate();
+      this.cb.onViewChange?.();
+      if (k < 1 && !this.destroyed) this.scrollAnim = requestAnimationFrame(step);
+    };
+    if (Math.abs(to - from) < 0.5) {
+      this.rightOffset = to;
+      this.invalidate();
+      this.cb.onViewChange?.();
+    } else step();
+  }
+
+  /** True when the latest bar is scrolled out of view to the right. */
+  latestHidden(): boolean {
+    return this.rightOffset < -1;
   }
 
   resetView(): void {
+    this.stopGlide();
     this.barSpacing = 8;
     this.rightOffset = 6;
     for (const p of this.panes) p.scale.auto = true;
     this.invalidate();
+    this.cb.onViewChange?.();
+  }
+
+  private stopGlide(): void {
+    if (!this.glide) return;
+    cancelAnimationFrame(this.glide.raf);
+    this.glide = null;
+  }
+
+  /** Keep scrolling after a flick, slowing down like a physical scroll. */
+  private startGlide(v: number): void {
+    this.stopGlide();
+    const g = { v, last: performance.now(), raf: 0 };
+    this.glide = g;
+    const step = () => {
+      if (this.glide !== g || this.destroyed) return;
+      const now = performance.now();
+      const dt = Math.min(48, now - g.last);
+      g.last = now;
+      const before = this.rightOffset;
+      this.rightOffset += g.v * dt;
+      this.clampOffset();
+      g.v *= Math.exp(-dt / 325);
+      this.invalidate();
+      this.cb.onViewChange?.();
+      // stop when slow, or at the ends
+      if (Math.abs(g.v * this.barSpacing) < 0.02 || this.rightOffset === before) {
+        this.glide = null;
+        return;
+      }
+      g.raf = requestAnimationFrame(step);
+    };
+    g.raf = requestAnimationFrame(step);
   }
 
   /** Show a time range (used by replay/backtest navigation). */
@@ -969,6 +1045,8 @@ export class ChartEngine {
 
   private onDown(e: MouseEvent): void {
     this.over.focus();
+    this.stopGlide();
+    cancelAnimationFrame(this.scrollAnim);
     if (e.button !== 0) return;
     const { x, y } = this.local(e);
     if (this.pickBarMode && x < this.plotW && y < this.plotH) {
@@ -1010,7 +1088,7 @@ export class ChartEngine {
       this.invalidateOverlay();
       return;
     }
-    this.drag = { kind: 'pan', x0: x, y0: y, v0: this.rightOffset, v1: this.mainScale.min };
+    this.drag = { kind: 'pan', x0: x, y0: y, v0: this.rightOffset, v1: this.mainScale.min, axis: 'undecided', trail: [[performance.now(), this.rightOffset]] };
     this.over.style.cursor = 'grabbing';
   }
 
@@ -1028,15 +1106,30 @@ export class ChartEngine {
     this.mouse = { x, y, inside: true };
     switch (d.kind) {
       case 'pan': {
-        this.rightOffset = d.v0 + (x - d.x0) / this.barSpacing;
-        this.clampOffset();
         const main = this.mainScale;
-        if (!main.auto && Math.abs(y - d.y0) > 0) {
+        // decide the direction once the pointer has moved: a mostly vertical drag moves the
+        // price too (auto-scaling switches off); a horizontal one only scrolls time
+        if (d.axis === 'undecided' && Math.hypot(x - d.x0, y - d.y0) > 6) d.axis = Math.abs(y - d.y0) > Math.abs(x - d.x0) || !main.auto ? 'free' : 'x';
+        // a horizontal drag that turns clearly vertical later becomes free as well
+        if (d.axis === 'x' && Math.abs(y - d.y0) > 48 && Math.abs(y - d.y0) > Math.abs(x - d.x0) * 0.6) d.axis = 'free';
+        // grab and move: dragging right pulls older bars into view (fewer bars beyond the right edge)
+        this.rightOffset = d.v0 - (x - d.x0) / this.barSpacing;
+        this.clampOffset();
+        if (d.axis === 'free') {
+          if (main.auto) {
+            // start moving the price from where it is now
+            main.auto = false;
+            d.y0 = y;
+            d.v1 = main.min;
+          }
           const span = main.max - main.min;
           const delta = ((y - d.y0) / main.height) * span;
           main.min = d.v1! + delta;
           main.max = main.min + span;
         }
+        const trail = d.trail!;
+        trail.push([performance.now(), this.rightOffset]);
+        if (trail.length > 8) trail.shift();
         this.invalidate();
         this.cb.onViewChange?.();
         break;
@@ -1091,7 +1184,19 @@ export class ChartEngine {
     const d = this.drag;
     this.drag = null;
     if (!d) return;
-    if (d.kind === 'pan') this.over.style.cursor = 'crosshair';
+    if (d.kind === 'pan') {
+      this.over.style.cursor = 'crosshair';
+      // a flick keeps scrolling: velocity over the last ~80 ms
+      const trail = d.trail || [];
+      const now = performance.now();
+      const recent = trail.filter(([t]) => now - t < 80);
+      if (recent.length >= 2) {
+        const [t0, o0] = recent[0];
+        const [t1, o1] = recent[recent.length - 1];
+        const v = (o1 - o0) / Math.max(1, t1 - t0);
+        if (now - t1 < 40 && Math.abs(v * this.barSpacing) > 0.35) this.startGlide(v);
+      }
+    }
     if (d.kind === 'tradeLine' && d.id && d.price !== undefined && Math.abs(d.price - d.v0) > 1e-9) this.cb.onTradeLineDrag?.(d.id, roundTo(d.price, this.tick));
     if (d.kind === 'bracket' && d.id && d.price !== undefined) {
       const { y } = this.local(e);
@@ -1102,6 +1207,8 @@ export class ChartEngine {
 
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
+    this.stopGlide();
+    cancelAnimationFrame(this.scrollAnim);
     const { x, y } = this.local(e);
     if (x > this.plotW) {
       const pane = this.paneAt(y) || this.panes[0];
@@ -1117,8 +1224,10 @@ export class ChartEngine {
       this.cb.onViewChange?.();
       return;
     }
-    const factor = Math.exp(-e.deltaY / 400);
+    // touchpad pinch arrives as ctrl+wheel with small deltas: zoom faster per unit
+    const factor = Math.exp(-e.deltaY / (e.ctrlKey ? 120 : 400));
     this.setBarSpacing(this.barSpacing * factor, Math.min(x, this.plotW));
+    this.cb.onViewChange?.();
   }
 
   private onDblClick(e: MouseEvent): void {

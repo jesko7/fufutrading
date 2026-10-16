@@ -18,9 +18,9 @@ import { formatVolume } from '../../chart/scale';
 import { bus } from '../../lib/bus';
 import { usePersistentState } from '../../lib/hooks';
 import { DrawingToolbar, DrawingEditor } from './DrawingTools';
-import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, type PaneGeo } from './indicators';
+import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, openIndicatorSettings, addIndicator, type PaneGeo } from './indicators';
 import { useChartTrading } from './trading';
-import { useAccounts } from '../trading/accounts';
+import { useAccounts, openCreateAccount } from '../trading/accounts';
 import { useFootprint } from './footprint';
 import { useReplayForChart, ReplayButton } from './replay';
 import { useAlertLines } from '../alerts/chartLines';
@@ -98,6 +98,10 @@ export function ChartModule({ module }: ModuleProps) {
   const [status, setStatus] = useState<SeriesStatus>('loading');
   const [info, setInfo] = useState<SeriesInfo | null>(null);
   const [legend, setLegend] = useState<LegendState>({ index: -1, hover: false });
+  // the "+" at the crosshair price (orders, alert, line) and the "back to the latest bar" button
+  const [plus, setPlus] = useState<{ y: number; price: number } | null>(null);
+  const plusRef = useRef<{ hovered: boolean; timer: number }>({ hovered: false, timer: 0 });
+  const [latestHidden, setLatestHidden] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
   const [tool, setTool] = useState<DrawingType | null>(null);
   const [selectedDrawing, setSelectedDrawing] = useState<string | null>(null);
@@ -303,6 +307,14 @@ export function ChartModule({ module }: ModuleProps) {
       case 'indicators':
         openIndicatorPicker(module.id, cfg);
         break;
+      case 'addScript': {
+        // add a script once (e.g. candlestick patterns from the command palette), then open its settings
+        const id = String(arg);
+        const have = (cfg.indicators || []).find((x) => x.scriptId === id);
+        if (have) openIndicatorSettings(module.id, have.id);
+        else addIndicator(module.id, id);
+        break;
+      }
       case 'snapshot': {
         const url = e?.snapshot();
         if (url) void api.call('clipboard:image', url).then(() => toast({ title: 'Chart snapshot copied', kind: 'ok' }));
@@ -319,13 +331,26 @@ export function ChartModule({ module }: ModuleProps) {
   const callbacksRef = useRef<import('../../chart/engine').EngineCallbacks>({});
   callbacksRef.current = {
     onCrosshair: (c) => {
+      const pr = plusRef.current;
       if (!c) {
         setLegend({ index: -1, hover: false });
         bus.emit('crosshair', { time: null, from: module.id });
+        // keep the "+" while the pointer moves onto it
+        window.clearTimeout(pr.timer);
+        pr.timer = window.setTimeout(() => !plusRef.current.hovered && setPlus(null), 250);
         return;
       }
       setLegend({ index: c.index, hover: true });
       bus.emit('crosshair', { time: c.time, from: module.id });
+      const e = engRef.current;
+      if (c.pane === 0 && e && c.y < e.plotH && Number.isFinite(c.price) && !replay.picking) {
+        window.clearTimeout(pr.timer);
+        setPlus((p) => (p && Math.abs(p.y - c.y) < 0.5 ? p : { y: c.y, price: c.price }));
+      } else setPlus(null);
+    },
+    onViewChange: () => {
+      const hidden = !!engRef.current?.latestHidden();
+      setLatestHidden((h) => (h === hidden ? h : hidden));
     },
     onNeedHistory: () => {
       if (replay.active || !keyRef.current) return;
@@ -365,7 +390,7 @@ export function ChartModule({ module }: ModuleProps) {
           );
         }
       }
-      items.push(...trading.contextItems(price));
+      items.push(...trading.contextItems(price, lastClose()));
       items.push(
         { label: `Add alert at ${fmtNum(price, pd)}`, icon: 'bell', onClick: () => bus.emit('alerts:create', { symbol: cfg.symbol, market: cfg.market, price }, false) },
         { label: `Horizontal line at ${fmtNum(price, pd)}`, icon: 'hline', onClick: () => update({ drawings: [...(cfg.drawings || []), { id: `d${Date.now().toString(36)}`, type: 'hline', points: [{ t: info.time, p: price }], color: settings.accent, width: 1.5, dash: 'solid' }] }) },
@@ -378,6 +403,28 @@ export function ChartModule({ module }: ModuleProps) {
     },
   };
   const [ctxAnchor, setCtxAnchor] = useState<{ x: number; y: number } | null>(null);
+  const lastClose = () => {
+    const s = storeRef.current;
+    return s.length ? s.c[s.length - 1] : NaN;
+  };
+  /** The "+" menu: orders at the price for the chart's account, an alert, a horizontal line. */
+  const plusMenu = (price: number): MenuItemSpec[] => {
+    const pd = priceDecimals(cfg.symbol, cfg.market);
+    const items: MenuItemSpec[] = [...trading.contextItems(price, lastClose())];
+    if (!items.length)
+      items.push(
+        { title: 'Trade' },
+        trading.accountId && !trading.matches
+          ? { label: `${trading.accountName || 'The selected account'} trades ${cfg.market === 'futures' ? 'spot' : 'futures'}`, disabled: true }
+          : { label: 'New paper account to trade…', icon: 'plus', onClick: () => openCreateAccount(undefined, { market: cfg.market }) },
+        { sep: true },
+      );
+    items.push(
+      { label: `Add alert at ${fmtNum(price, pd)}`, icon: 'bell', onClick: () => bus.emit('alerts:create', { symbol: cfg.symbol, market: cfg.market, price }, false) },
+      { label: `Horizontal line at ${fmtNum(price, pd)}`, icon: 'hline', onClick: () => update({ drawings: [...(cfg.drawings || []), { id: `d${Date.now().toString(36)}`, type: 'hline', points: [{ t: Date.now(), p: price }], color: settings.accent, width: 1.5, dash: 'solid' }] }) },
+    );
+    return items;
+  };
   useEffect(() => {
     eng?.setCallbacks(callbacksRef.current);
   });
@@ -493,6 +540,34 @@ export function ChartModule({ module }: ModuleProps) {
               auto
             </button>
           </div>
+          {plus && eng && !replay.picking && (
+            <button
+              className="chart-plus"
+              style={{ left: eng.plotW - 22, top: plus.y - 9 }}
+              data-tip="Order, alert or line at this price"
+              onMouseEnter={() => {
+                plusRef.current.hovered = true;
+                window.clearTimeout(plusRef.current.timer);
+              }}
+              onMouseLeave={() => {
+                plusRef.current.hovered = false;
+                plusRef.current.timer = window.setTimeout(() => setPlus(null), 250);
+              }}
+              onClick={(ev) => {
+                const r = ev.currentTarget.getBoundingClientRect();
+                setCtxItems(plusMenu(plus.price));
+                setCtxAnchor({ x: r.right + 4, y: r.top });
+              }}
+            >
+              <Icon name="plus" size={12} />
+            </button>
+          )}
+          {latestHidden && eng && (
+            <button className="chart-latest" style={{ left: eng.plotW - 62, top: eng.plotH - 36 }} onClick={() => engRef.current?.scrollToLatest(true)} data-tip="Back to the latest bar (End)">
+              <Icon name="chevRight" size={13} />
+              <Icon name="chevRight" size={13} style={{ marginLeft: -8 }} />
+            </button>
+          )}
           {selectedDrawing && (cfg.drawings || []).some((d: Drawing) => d.id === selectedDrawing) && (
             <DrawingEditor
               drawing={(cfg.drawings as Drawing[]).find((d) => d.id === selectedDrawing)!}

@@ -442,9 +442,9 @@ export function PaneLegends({ moduleId, cfg, outputs, lives, index, store, updat
 
 // ------------------------------------------------------------------ picker
 
-const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Futures', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
+const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Patterns', 'Futures', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
 
-function addIndicator(moduleId: string, scriptId: string): void {
+export function addIndicator(moduleId: string, scriptId: string): void {
   const st = useApp.getState();
   const m = st.workspace?.modules[moduleId];
   if (!m) return;

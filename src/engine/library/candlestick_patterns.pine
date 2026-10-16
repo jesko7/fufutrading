@@ -1,0 +1,112 @@
+//@version=6
+// @name Candlestick Patterns
+// @category Patterns
+// @description Finds classic candlestick patterns and marks them on closed bars; choose which ones in the settings, with alerts per pattern. Reversals can require a prior trend. Adapted to 24/7 crypto, where a candle opens at the previous close (no gaps).
+indicator("Candlestick Patterns", shorttitle="Patterns", overlay=true)
+
+// ---- detection
+trendRule = input.string("SMA 50", "Prior trend for reversals", options=["SMA 50", "SMA 50 and SMA 200", "None"], group="Detection", tooltip="Bullish reversals need a downtrend before them, bearish ones an uptrend")
+bodyLen = input.int(14, "Average body length", minval=2, group="Detection", tooltip="Long and small bodies are measured against this average of body sizes")
+bullColor = input.color(color.teal, "Bullish", group="Detection", inline="c")
+bearColor = input.color(color.red, "Bearish", inline="c", group="Detection")
+neutralColor = input.color(color.gray, "Neutral", inline="c", group="Detection")
+
+// ---- which patterns to detect
+dEngulf = input.bool(true, "Engulfing (EG)", group="Patterns")
+dHammer = input.bool(true, "Hammer (H) / Hanging man (HM)", group="Patterns")
+dStar = input.bool(true, "Inverted hammer (IH) / Shooting star (SS)", group="Patterns")
+dMorning = input.bool(true, "Morning star (MS) / Evening star (ES)", group="Patterns")
+dSoldiers = input.bool(true, "Three white soldiers (3W) / Three black crows (3B)", group="Patterns")
+dHarami = input.bool(false, "Harami (HR)", group="Patterns")
+dPiercing = input.bool(false, "Piercing line (PL) / Dark cloud cover (DC)", group="Patterns")
+dTweezer = input.bool(false, "Tweezer bottom (TB) / top (TT)", group="Patterns")
+dMarubozu = input.bool(false, "Marubozu (MZ)", group="Patterns")
+dDoji = input.bool(false, "Doji (D)", group="Patterns")
+dDragonfly = input.bool(false, "Dragonfly (DD) / Gravestone doji (GD)", group="Patterns")
+dSpinning = input.bool(false, "Spinning top (ST)", group="Patterns")
+
+// ---- candle anatomy
+bodyHi = math.max(close, open)
+bodyLo = math.min(close, open)
+body = bodyHi - bodyLo
+bodyAvg = ta.ema(body, bodyLen)
+smallBody = body < bodyAvg
+longBody = body > bodyAvg
+upShadow = high - bodyHi
+dnShadow = bodyLo - low
+rng = high - low
+white = close > open
+black = close < open
+bodyMid = bodyLo + body / 2
+dojiBody = rng > 0 and body <= rng * 0.05
+sma50 = ta.sma(close, 50)
+sma200 = ta.sma(close, 200)
+downTrend = trendRule == "None" or (trendRule == "SMA 50" ? close < sma50 : close < sma50 and sma50 < sma200)
+upTrend = trendRule == "None" or (trendRule == "SMA 50" ? close > sma50 : close > sma50 and sma50 > sma200)
+// patterns are judged on closed candles only, so marks and alerts don't change while a bar forms
+ok = barstate.isconfirmed
+
+// ---- patterns
+bullEngulf = ok and dEngulf and downTrend and white and longBody and black[1] and smallBody[1] and close >= open[1] and open <= close[1] and (close > open[1] or open < close[1])
+bearEngulf = ok and dEngulf and upTrend and black and longBody and white[1] and smallBody[1] and close <= open[1] and open >= close[1] and (close < open[1] or open > close[1])
+hammerShape = smallBody and body > 0 and bodyLo > hl2 and dnShadow >= 2 * body and upShadow <= rng * 0.1
+hammer = ok and dHammer and downTrend and hammerShape
+hangingMan = ok and dHammer and upTrend and hammerShape
+starShape = smallBody and body > 0 and bodyHi < hl2 and upShadow >= 2 * body and dnShadow <= rng * 0.1
+invHammer = ok and dStar and downTrend and starShape
+shootingStar = ok and dStar and upTrend and starShape
+// stars: a long candle, a small one beyond its body (or at its close, as crypto has no gaps), then a long reversal
+morningStar = ok and dMorning and downTrend[2] and black[2] and longBody[2] and smallBody[1] and bodyHi[1] <= bodyLo[2] + bodyAvg * 0.1 and white and longBody and close > bodyMid[2]
+eveningStar = ok and dMorning and upTrend[2] and white[2] and longBody[2] and smallBody[1] and bodyLo[1] >= bodyHi[2] - bodyAvg * 0.1 and black and longBody and close < bodyMid[2]
+soldiers = ok and dSoldiers and white and white[1] and white[2] and longBody and longBody[1] and longBody[2] and close > close[1] and close[1] > close[2] and upShadow < body * 0.3 and upShadow[1] < body[1] * 0.3 and upShadow[2] < body[2] * 0.3
+crows = ok and dSoldiers and black and black[1] and black[2] and longBody and longBody[1] and longBody[2] and close < close[1] and close[1] < close[2] and dnShadow < body * 0.3 and dnShadow[1] < body[1] * 0.3 and dnShadow[2] < body[2] * 0.3
+bullHarami = ok and dHarami and downTrend[1] and black[1] and longBody[1] and white and smallBody and bodyHi <= bodyHi[1] and bodyLo >= bodyLo[1]
+bearHarami = ok and dHarami and upTrend[1] and white[1] and longBody[1] and black and smallBody and bodyHi <= bodyHi[1] and bodyLo >= bodyLo[1]
+piercing = ok and dPiercing and downTrend[1] and black[1] and longBody[1] and white and close > bodyMid[1] and close < open[1]
+darkCloud = ok and dPiercing and upTrend[1] and white[1] and longBody[1] and black and close < bodyMid[1] and close > open[1]
+tweezerBottom = ok and dTweezer and downTrend[1] and black[1] and white and not dojiBody and not dojiBody[1] and math.abs(low - low[1]) <= bodyAvg * 0.05
+tweezerTop = ok and dTweezer and upTrend[1] and white[1] and black and not dojiBody and not dojiBody[1] and math.abs(high - high[1]) <= bodyAvg * 0.05
+whiteMarubozu = ok and dMarubozu and white and longBody and upShadow <= body * 0.05 and dnShadow <= body * 0.05
+blackMarubozu = ok and dMarubozu and black and longBody and upShadow <= body * 0.05 and dnShadow <= body * 0.05
+dragonfly = ok and dDragonfly and dojiBody and upShadow <= rng * 0.1 and dnShadow >= rng * 0.6
+gravestone = ok and dDragonfly and dojiBody and dnShadow <= rng * 0.1 and upShadow >= rng * 0.6
+doji = ok and dDoji and dojiBody and upShadow > rng * 0.1 and dnShadow > rng * 0.1
+spinning = ok and dSpinning and not dojiBody and smallBody and upShadow >= rng * 0.31 and dnShadow >= rng * 0.31
+
+// ---- marks: bullish below the bar, bearish above, neutral above
+plotshape(bullEngulf, "Bullish engulfing", shape.labelup, location.belowbar, bullColor, text="EG", textcolor=color.white, size=size.tiny)
+plotshape(bearEngulf, "Bearish engulfing", shape.labeldown, location.abovebar, bearColor, text="EG", textcolor=color.white, size=size.tiny)
+plotshape(hammer, "Hammer", shape.labelup, location.belowbar, bullColor, text="H", textcolor=color.white, size=size.tiny)
+plotshape(hangingMan, "Hanging man", shape.labeldown, location.abovebar, bearColor, text="HM", textcolor=color.white, size=size.tiny)
+plotshape(invHammer, "Inverted hammer", shape.labelup, location.belowbar, bullColor, text="IH", textcolor=color.white, size=size.tiny)
+plotshape(shootingStar, "Shooting star", shape.labeldown, location.abovebar, bearColor, text="SS", textcolor=color.white, size=size.tiny)
+plotshape(morningStar, "Morning star", shape.labelup, location.belowbar, bullColor, text="MS", textcolor=color.white, size=size.tiny)
+plotshape(eveningStar, "Evening star", shape.labeldown, location.abovebar, bearColor, text="ES", textcolor=color.white, size=size.tiny)
+plotshape(soldiers, "Three white soldiers", shape.labelup, location.belowbar, bullColor, text="3W", textcolor=color.white, size=size.tiny)
+plotshape(crows, "Three black crows", shape.labeldown, location.abovebar, bearColor, text="3B", textcolor=color.white, size=size.tiny)
+plotshape(bullHarami, "Bullish harami", shape.labelup, location.belowbar, bullColor, text="HR", textcolor=color.white, size=size.tiny)
+plotshape(bearHarami, "Bearish harami", shape.labeldown, location.abovebar, bearColor, text="HR", textcolor=color.white, size=size.tiny)
+plotshape(piercing, "Piercing line", shape.labelup, location.belowbar, bullColor, text="PL", textcolor=color.white, size=size.tiny)
+plotshape(darkCloud, "Dark cloud cover", shape.labeldown, location.abovebar, bearColor, text="DC", textcolor=color.white, size=size.tiny)
+plotshape(tweezerBottom, "Tweezer bottom", shape.labelup, location.belowbar, bullColor, text="TB", textcolor=color.white, size=size.tiny)
+plotshape(tweezerTop, "Tweezer top", shape.labeldown, location.abovebar, bearColor, text="TT", textcolor=color.white, size=size.tiny)
+plotshape(whiteMarubozu, "White marubozu", shape.labelup, location.belowbar, bullColor, text="MZ", textcolor=color.white, size=size.tiny)
+plotshape(blackMarubozu, "Black marubozu", shape.labeldown, location.abovebar, bearColor, text="MZ", textcolor=color.white, size=size.tiny)
+plotshape(dragonfly, "Dragonfly doji", shape.labelup, location.belowbar, bullColor, text="DD", textcolor=color.white, size=size.tiny)
+plotshape(gravestone, "Gravestone doji", shape.labeldown, location.abovebar, bearColor, text="GD", textcolor=color.white, size=size.tiny)
+plotshape(doji, "Doji", shape.labeldown, location.abovebar, neutralColor, text="D", textcolor=color.white, size=size.tiny)
+plotshape(spinning, "Spinning top", shape.labeldown, location.abovebar, neutralColor, text="ST", textcolor=color.white, size=size.tiny)
+
+// ---- alerts
+anyBull = bullEngulf or hammer or invHammer or morningStar or soldiers or bullHarami or piercing or tweezerBottom or whiteMarubozu or dragonfly
+anyBear = bearEngulf or hangingMan or shootingStar or eveningStar or crows or bearHarami or darkCloud or tweezerTop or blackMarubozu or gravestone
+alertcondition(anyBull, "Any bullish pattern", "Bullish candlestick pattern on {{ticker}}")
+alertcondition(anyBear, "Any bearish pattern", "Bearish candlestick pattern on {{ticker}}")
+alertcondition(bullEngulf, "Bullish engulfing", "Bullish engulfing on {{ticker}}")
+alertcondition(bearEngulf, "Bearish engulfing", "Bearish engulfing on {{ticker}}")
+alertcondition(hammer, "Hammer", "Hammer on {{ticker}}")
+alertcondition(shootingStar, "Shooting star", "Shooting star on {{ticker}}")
+alertcondition(morningStar, "Morning star", "Morning star on {{ticker}}")
+alertcondition(eveningStar, "Evening star", "Evening star on {{ticker}}")
+alertcondition(soldiers, "Three white soldiers", "Three white soldiers on {{ticker}}")
+alertcondition(crows, "Three black crows", "Three black crows on {{ticker}}")

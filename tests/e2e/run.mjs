@@ -906,6 +906,45 @@ const S = {
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, before], { timeout: 5000 });
     check(true, 'drawing deleted after unlocking');
     await page.evaluate((aid) => window.fufu.invoke('alerts:delete', aid), la?.id);
+    // the "+" beside the price axis follows the crosshair: orders, an alert or a line at that price
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
+    await page.waitForSelector('.chart-plus', { timeout: 5000 });
+    await page.click('.chart-plus');
+    await page.waitForSelector('.menu-item:has-text("Horizontal line at")', { timeout: 5000 });
+    const plusItems = await page.$$eval('.menu-item', (e) => e.map((x) => (x.textContent || '').trim()));
+    check(plusItems.some((t) => /Add alert at/.test(t)) && plusItems.some((t) => /Buy|Sell|paper account|trades/.test(t)), `"+" offers trading, an alert and a line (${plusItems.join(' | ').slice(0, 140)})`);
+    const n0 = await page.evaluate((id) => window.__charts[id].drawings().length, id);
+    await page.click('.menu-item:has-text("Horizontal line at")');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
+    check(true, 'horizontal line added from the "+" menu');
+    // drag into the past: a button brings the chart back to the latest bar
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.55);
+    await page.mouse.down();
+    for (let k = 1; k <= 12; k++) await page.mouse.move(box.x + box.width * (0.2 + k * 0.05), box.y + box.height * 0.55);
+    await page.mouse.up();
+    await page.waitForSelector('.chart-latest', { timeout: 5000 });
+    await shot('49-chart-navigation');
+    await page.click('.chart-latest');
+    await page.waitForSelector('.chart-latest', { state: 'detached', timeout: 5000 });
+    check(true, 'dragged into the past and back to the latest bar with one click');
+    // candlestick patterns from the command palette; running it again opens the pattern choice
+    const palette = async (q) => {
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('.palette input');
+      await page.fill('.palette input', q);
+      await wait(150);
+      await page.keyboard.press('Enter');
+    };
+    await palette('candlestick patterns');
+    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Patterns/.test(r.textContent || '') && !r.querySelector('.spinner')), null, { timeout: 30000 });
+    const pErr = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
+    check(!pErr.length, `candlestick patterns run on the chart ${pErr.length ? JSON.stringify(pErr) : ''}`);
+    await palette('candlestick patterns');
+    await page.waitForSelector('.modal:has-text("Engulfing (EG)")', { timeout: 10000 });
+    const choice = await page.textContent('.modal');
+    check(/Spinning top/.test(choice || '') && /Prior trend/.test(choice || ''), 'pattern settings: choose the patterns and the trend filter');
+    await shot('50-candlestick-patterns');
+    await page.keyboard.press('Escape');
   },
   async derivatives() {
     console.log('scenario: derivatives');

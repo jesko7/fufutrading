@@ -71,6 +71,9 @@ export function useChartTrading(cfg: ChartModuleConfig, replay: { active: boolea
 
   return {
     accountId,
+    /** The selected account trades this chart's market. */
+    matches,
+    accountName: acct?.config.name,
     lines,
     executions,
     onDrag: (id: string, price: number) => {
@@ -94,9 +97,10 @@ export function useChartTrading(cfg: ChartModuleConfig, replay: { active: boolea
       if (!accountId) return;
       void api.call('trading:setBrackets', accountId, cfg.symbol, { [kind]: price }).catch(err(`${kind === 'sl' ? 'Stop loss' : 'Take profit'} not set`));
     },
-    contextItems: (price: number): MenuItemSpec[] => {
+    /** Orders at `price`: limit below/stop above the market `lastPrice` for buys, the reverse for sells. */
+    contextItems: (price: number, lastPrice?: number): MenuItemSpec[] => {
       if (!acct || !matches || !accountId) return [];
-      const last = acct.positions.find((p) => p.symbol === cfg.symbol)?.mark || price;
+      const last = lastPrice && lastPrice > 0 ? lastPrice : acct.positions.find((p) => p.symbol === cfg.symbol)?.mark || price;
       const usd = useApp.getState().settings.trading.quickQtyUsd;
       const spec = SYMBOL_SPECS[cfg.symbol][cfg.market];
       const qty = floorToStep(usd / price, spec.stepSize);

@@ -104,6 +104,7 @@ export function buildActions(): Action[] {
     { id: 'tf.up', label: 'Chart: next timeframe', group: 'Chart', keys: 'alt+]', icon: 'chevUp', run: () => stepTf(1) },
     { id: 'tf.down', label: 'Chart: previous timeframe', group: 'Chart', keys: 'alt+[', icon: 'chevDown', run: () => stepTf(-1) },
     { id: 'chart.indicators', label: 'Chart: add indicator / strategy', group: 'Chart', keys: '/', icon: 'flow', run: () => chartCmd('indicators') },
+    { id: 'chart.patterns', label: 'Chart: candlestick patterns (choose which to detect)', group: 'Chart', icon: 'candles', run: () => chartCmd('addScript', 'builtin:candlestick_patterns') },
     { id: 'chart.reset', label: 'Chart: reset view', group: 'Chart', keys: 'alt+r', icon: 'refresh', run: () => chartCmd('reset') },
     { id: 'chart.log', label: 'Chart: toggle log scale', group: 'Chart', keys: 'alt+l', icon: 'log', run: () => setChart({ scale: focusedChart()?.config.scale === 'log' ? 'linear' : 'log' }) },
     { id: 'chart.pct', label: 'Chart: toggle percentage scale', group: 'Chart', keys: 'alt+5', icon: 'percent', run: () => setChart({ scale: focusedChart()?.config.scale === 'percent' ? 'linear' : 'percent' }) },

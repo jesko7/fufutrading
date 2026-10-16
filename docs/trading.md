@@ -20,7 +20,9 @@ custom:
 
 Orders: market, limit, stop, stop-limit, take-profit and trailing stop, reduce-only and
 post-only, with attached stop-loss / take-profit brackets. On charts you can place orders from
-the right-click menu, and drag orders, SL/TP and position brackets.
+the "+" beside the price axis (it follows the crosshair: a limit or stop order at that price,
+depending on which side of the market it is) or the right-click menu, and drag orders, SL/TP
+and position brackets.
 
 - **Limit orders** that can fill right away take liquidity from the live order book up to the
   limit price. The rest waits in the book (GTC), is canceled (IOC), or the whole order is
