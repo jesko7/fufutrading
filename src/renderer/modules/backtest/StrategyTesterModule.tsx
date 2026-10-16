@@ -137,6 +137,8 @@ export function StrategyTesterModule({ module }: ModuleProps) {
   useEffect(() => {
     if (cfg.autorun && cfg.autorun !== lastAuto.current) {
       lastAuto.current = cfg.autorun;
+      // a run requested from elsewhere (builder, editor, legend, AI) opens on the summary
+      if (cfg.tab && cfg.tab !== 'overview') setCfg({ tab: 'overview' });
       setTimeout(run, 50);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
