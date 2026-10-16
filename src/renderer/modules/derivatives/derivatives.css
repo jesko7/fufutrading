@@ -115,3 +115,23 @@
 .split-bar.empty .down-bg {
   background: var(--panel-3, var(--border));
 }
+.deriv-history .dh-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.deriv-history .dh-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+}
+.deriv-history .dh-dot {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}

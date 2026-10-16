@@ -11,6 +11,7 @@ import { Spinner, SymbolPicker } from '../../components/ui';
 import { clsx, fmtCompact, fmtNum, fmtPct, fmtTime, fmtDuration } from '../../lib/format';
 import { SYMBOL_SPECS, priceDecimals, type SymbolId } from '../../../shared/symbols';
 import type { DerivativesSnapshot } from '../../../shared/derivatives';
+import { PositioningHistory, type RangeId } from './history';
 import './derivatives.css';
 
 function Spark({ points, color = 'var(--accent)', height = 34, zero }: { points: [number, number][]; color?: string; height?: number; zero?: number }) {
@@ -73,7 +74,7 @@ function SplitBar({ a, b, la, lb }: { a: number; b: number; la: string; lb: stri
 const pctStr = (v: number, d = 2) => (Number.isFinite(v) ? fmtPct(v, d) : '—');
 
 export function DerivativesModule({ module }: ModuleProps) {
-  const cfg = module.config as { symbol?: SymbolId };
+  const cfg = module.config as { symbol?: SymbolId; range?: RangeId };
   const symbol: SymbolId = cfg.symbol || 'BTCUSDT';
   const set = (p: Record<string, unknown>) => useApp.getState().setModuleConfig(module.id, p);
   const d = useTopicValue<DerivativesSnapshot>('derivatives', { symbol }, [symbol]);
@@ -188,6 +189,7 @@ export function DerivativesModule({ module }: ModuleProps) {
               ))}
             </div>
           </div>
+          <PositioningHistory symbol={symbol} range={cfg.range || '30d'} onRange={(r) => set({ range: r })} />
         </>
       )}
     </div>

@@ -12,6 +12,7 @@ import { CandleStore, binanceKlineSource } from './storage/candleStore';
 import { MarketHub } from './market/hub';
 import { SeriesService, type SeriesHandle } from './market/series';
 import { FundingCache } from './market/funding';
+import { isMetric } from '../shared/metrics';
 import { WorkspaceService, type WorkspaceOp } from './workspaces';
 import { WindowManager } from './windows';
 import { createShortcuts, getAutostart, setAutostart } from './desktop';
@@ -182,6 +183,7 @@ export class AppCore {
     const r = this.router;
     r.topic('series', async (params: SeriesSpec & { bars?: number; replay?: { session: string; epoch: number } }, push) => {
       assertInstrument(params.symbol, params.market);
+      if (params.metric !== undefined && (!isMetric(params.metric) || params.market !== 'futures')) throw new Error('Validation: unsupported futures data series');
       const { series, release } = params.replay ? this.acquireReplay(params, params.replay) : this.series.acquire(params, { bars: params.bars });
       await series.ready;
       push({ type: 'snapshot', ...series.snapshot() });

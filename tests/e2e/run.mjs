@@ -873,6 +873,12 @@ const S = {
     check(true, 'open interest history drawn');
     await wait(1500);
     await shot('29b-derivatives');
+    // positioning history from the futures data series (price vs open interest, ratios, funding)
+    await page.waitForFunction(() => (document.querySelector('.deriv-history')?.getAttribute('data-loaded') || '').split(' ').length === 5, null, { timeout: 120000, polling: 500 });
+    await page.evaluate(() => document.querySelector('.deriv-history')?.scrollIntoView());
+    await wait(1500);
+    check((await page.$$eval('.deriv-history canvas', (c) => c.length)) === 3, 'positioning history: price vs open interest, long/short ratios and funding');
+    await shot('29d-positioning-history');
     // open interest as script data: the TradingView-style built-in reads BINANCE:<symbol>.P_OI
     await page.locator('button:has-text("Indicators")').first().click();
     await page.waitForSelector('.picker-row', { timeout: 15000 });
