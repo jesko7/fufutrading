@@ -13,6 +13,7 @@ import { parseTimeframe, tfDurationMs, bucketEnd, isFixedDuration } from '../../
 import { Icon, CoinIcon } from '../../components/Icon';
 import { SymbolPicker, TimeframePicker, Menu, usePopover, Popover, Segmented, NumberField, Toggle, promptDialog, type MenuItemSpec } from '../../components/ui';
 import { clsx, fmtNum, fmtPct, fmtDateTime } from '../../lib/format';
+import { priceLevelAt, type AlertLine } from '../../../shared/alerts';
 import { formatVolume } from '../../chart/scale';
 import { bus } from '../../lib/bus';
 import { usePersistentState } from '../../lib/hooks';
@@ -114,7 +115,14 @@ export function ChartModule({ module }: ModuleProps) {
     engRef.current = e;
     setEng(e);
     // test/diagnostics hook: last bar time and count of each chart
-    ((window as any).__charts ||= {})[module.id] = { bars: () => { const b = storeRef.current; return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null }; }, footprint: () => e.footprint?.bars.size ?? 0 };
+    ((window as any).__charts ||= {})[module.id] = {
+      bars: () => {
+        const b = storeRef.current;
+        return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null };
+      },
+      footprint: () => e.footprint?.bars.size ?? 0,
+      drawings: () => ((useApp.getState().workspace?.modules[module.id]?.config.drawings || []) as Drawing[]).map((d) => ({ id: d.id, type: d.type, locked: !!d.locked, hidden: !!d.hidden })),
+    };
     const onTheme = () => e.setTheme(chartTheme(useApp.getState().settings));
     window.addEventListener('fufu-theme', onTheme);
     return () => {
@@ -351,6 +359,7 @@ export function ChartModule({ module }: ModuleProps) {
             { label: 'Duplicate', icon: 'copy', onClick: () => update({ drawings: [...(cfg.drawings as Drawing[]), { ...JSON.parse(JSON.stringify(d)), id: `d${Date.now().toString(36)}`, points: d.points.map((p) => ({ t: p.t, p: p.p * 1.002 })) }] }) },
             { label: 'Copy', icon: 'copy', hint: 'Paste on any chart', onClick: () => (drawingClipboard = [JSON.parse(JSON.stringify(d))]) },
             { label: 'Bring to front', icon: 'layers', onClick: () => update({ drawings: [...(cfg.drawings as Drawing[]).filter((x) => x.id !== d.id), d] }) },
+            ...lineAlertItems(d, cfg),
             { label: 'Delete', icon: 'trash', danger: true, disabled: d.locked, onClick: () => update({ drawings: (cfg.drawings as Drawing[]).filter((x) => x.id !== d.id) }) },
             { sep: true },
           );
@@ -712,6 +721,26 @@ function useCompareAndMtf(eng: ChartEngine | null, cfg: ChartModuleConfig, dataV
 }
 
 /** Keep a BarStore in sync with a series subscription; calls onChange (rAF-throttled). */
+/** "Add alert" items for line drawings: a trendline alert follows the line, a horizontal line is a price level. */
+function lineAlertItems(d: Drawing, cfg: ChartModuleConfig): MenuItemSpec[] {
+  const [a, b] = d.points;
+  if (d.type === 'hline' && a) return [{ label: 'Add alert on this line…', icon: 'bell', onClick: () => bus.emit('alerts:create', { symbol: cfg.symbol, market: cfg.market, price: a.p }, false) }];
+  if (!(d.type === 'trend' || d.type === 'ray' || d.type === 'extended') || !a || !b || a.t === b.t) return [];
+  // a segment ends at its later point; rays continue in their direction, extended lines both ways
+  const extend: AlertLine['extend'] = d.type === 'trend' || (d.type === 'ray' && b.t < a.t) ? 'none' : 'right';
+  const line: AlertLine = { t1: a.t, p1: a.p, t2: b.t, p2: b.p, log: cfg.scale === 'log', extend };
+  const level = priceLevelAt({ level: a.p, line }, Date.now());
+  return [
+    {
+      label: 'Add alert on this line…',
+      icon: 'bell',
+      hint: extend === 'none' ? 'until its end' : undefined,
+      disabled: level === null,
+      onClick: () => bus.emit('alerts:new', { kind: 'price', symbol: cfg.symbol, market: cfg.market, patch: { condition: 'crosses', level: level ?? a.p, line } }, false),
+    },
+  ];
+}
+
 export function subscribeBars(spec: { symbol: SymbolId; market: Market; tf: string }, store: BarStore, onChange: () => void): () => void {
   let raf = 0;
   const changed = () => {

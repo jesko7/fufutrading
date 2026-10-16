@@ -12,7 +12,8 @@ const SHORT: Record<PriceAlert['condition'], string> = { crossesAbove: '↑', cr
 export function useAlertLines(symbol: SymbolId, market: Market): { lines: TradeLine[]; onDrag: (id: string, price: number) => boolean; onCancel: (id: string) => boolean } {
   const data = useAlerts();
   const warn = getComputedStyle(document.documentElement).getPropertyValue('--warn').trim() || '#f5a524';
-  const alerts = useMemo(() => (data?.alerts || []).filter((a): a is PriceAlert => a.kind === 'price' && a.enabled && a.symbol === symbol && a.market === market), [data, symbol, market]);
+  // trendline alerts follow their drawing, so they get no horizontal marker
+  const alerts = useMemo(() => (data?.alerts || []).filter((a): a is PriceAlert => a.kind === 'price' && !a.line && a.enabled && a.symbol === symbol && a.market === market), [data, symbol, market]);
   const lines = useMemo<TradeLine[]>(() => {
     const out: TradeLine[] = [];
     for (const a of alerts) {

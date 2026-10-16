@@ -30,12 +30,39 @@ interface AlertBase {
   error?: string;
 }
 
+/**
+ * A trendline the alert level follows (alerts on chart drawings, like TradingView's): two points
+ * (time, price), straight in log space when drawn on a log chart. `extend: 'none'` ends at the
+ * later point (a segment), 'right' continues into the future (rays, extended lines).
+ */
+export interface AlertLine {
+  t1: number;
+  p1: number;
+  t2: number;
+  p2: number;
+  log?: boolean;
+  extend: 'right' | 'none';
+}
+
 export interface PriceAlert extends AlertBase {
   kind: 'price';
   condition: CrossCondition | 'enterChannel' | 'exitChannel';
+  /** The level (for a trendline: its price when the alert was saved). */
   level: number;
   /** Upper bound for channel conditions. */
   level2?: number;
+  /** Follow a trendline instead of a fixed level. */
+  line?: AlertLine;
+}
+
+/** The alert level at time `t`: the fixed level, or the trendline's price (null when the segment has ended). */
+export function priceLevelAt(a: Pick<PriceAlert, 'level' | 'line'>, t: number): number | null {
+  const L = a.line;
+  if (!L) return a.level;
+  if (L.extend === 'none' && t > Math.max(L.t1, L.t2)) return null;
+  if (L.t2 === L.t1) return L.p2;
+  const f = (t - L.t1) / (L.t2 - L.t1);
+  return L.log && L.p1 > 0 && L.p2 > 0 ? L.p1 * Math.pow(L.p2 / L.p1, f) : L.p1 + (L.p2 - L.p1) * f;
 }
 
 export interface MoveAlert extends AlertBase {
@@ -167,6 +194,7 @@ export function describeAlert(a: Alert): string {
   const ins = instrumentLabel(a.symbol, a.market);
   switch (a.kind) {
     case 'price':
+      if (a.line) return `${ins} ${COND[a.condition]} the trendline ${num(a.line.p1)} → ${num(a.line.p2)}${a.line.extend === 'right' ? ' (extended)' : ''}`;
       if (a.condition === 'enterChannel' || a.condition === 'exitChannel') return `${ins} ${COND[a.condition]} ${num(a.level)} – ${num(a.level2 ?? a.level)}`;
       return `${ins} ${COND[a.condition]} ${num(a.level)}`;
     case 'move':

@@ -16,7 +16,7 @@ import { DocStore, uid, readJson, writeJsonAtomic } from './storage/jsonStore';
 import { applyPatch } from '../engine/patch';
 import type { ScriptResult } from '../engine/types';
 import type { TradeTick } from '../shared/live';
-import { alertTitle, describeAlert, instrumentLabel, renderMessage, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
+import { alertTitle, describeAlert, instrumentLabel, priceLevelAt, renderMessage, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
 import { isSymbol, type Market, type SymbolId } from '../shared/symbols';
 import { parseTimeframe } from '../shared/timeframes';
 import { webhookBody, webhookUrlError } from '../shared/alerts';
@@ -125,6 +125,20 @@ export class AlertService {
     a.cooldownSec = Math.max(0, Math.min(86400, Math.round(+a.cooldownSec || 0)));
     switch (a.kind) {
       case 'price':
+        if (a.line) {
+          const l = a.line;
+          if (![l.t1, l.t2, l.p1, l.p2].every(Number.isFinite) || !(l.p1 > 0 && l.p2 > 0) || l.t1 === l.t2) throw new Error('Validation: the trendline needs two points at different times');
+          if (a.condition === 'enterChannel' || a.condition === 'exitChannel') throw new Error('Validation: trendline alerts fire when the price crosses or is above/below the line');
+          l.extend = l.extend === 'none' ? 'none' : 'right';
+          if (l.extend === 'none') {
+            const end = Math.max(l.t1, l.t2);
+            if (end <= Date.now()) throw new Error('Validation: this trendline ends in the past; extend it to the right (ray or extended line)');
+            a.expiresAt = Math.min(a.expiresAt || end, end);
+          }
+          a.level = priceLevelAt(a, Date.now()) ?? a.level;
+          break;
+        }
+        delete a.line;
         if (!(a.level > 0)) throw new Error('Validation: enter a price level');
         if ((a.condition === 'enterChannel' || a.condition === 'exitChannel') && !(a.level2 && a.level2 > a.level)) throw new Error('Validation: the channel needs an upper level above the lower one');
         break;
@@ -247,13 +261,15 @@ export class AlertService {
     for (const id of e.alerts) {
       const a = this.store.get(id);
       if (!a || !a.enabled) continue;
-      if (a.kind === 'price') this.evalPrice(a, prev, p);
+      if (a.kind === 'price') this.evalPrice(a, prev, p, tr.t);
       else if (a.kind === 'move') this.evalMove(a, e.samples, p, tr.t);
     }
   }
 
-  private evalPrice(a: PriceAlert, prev: number, p: number): void {
-    const L = a.level;
+  private evalPrice(a: PriceAlert, prev: number, p: number, t: number): void {
+    // a trendline moves with time; the trades are milliseconds apart, so one level serves both
+    const L = priceLevelAt(a, t);
+    if (L === null) return;
     let hit = false;
     switch (a.condition) {
       case 'crossesAbove':
@@ -282,7 +298,7 @@ export class AlertService {
         break;
       }
     }
-    if (hit) this.fire(a, `${instrumentLabel(a.symbol, a.market)} ${describeAlert(a).split(' ').slice(1).join(' ')} — now ${fmtPrice(p)}`, { price: p, value: p });
+    if (hit) this.fire(a, `${instrumentLabel(a.symbol, a.market)} ${describeAlert(a).split(' ').slice(1).join(' ')}${a.line ? ` at ${fmtPrice(L)}` : ''} — now ${fmtPrice(p)}`, { price: p, value: p });
   }
 
   private evalMove(a: MoveAlert, samples: { t: number; p: number }[], p: number, t: number): void {

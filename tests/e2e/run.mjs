@@ -862,6 +862,51 @@ const S = {
     check(rows > 0, `cached data listed (${rows} rows)`);
     await shot('30-data');
   },
+  async drawings() {
+    console.log('scenario: drawings');
+    const id = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
+    const before = await page.evaluate((id) => window.__charts[id].drawings().length, id);
+    const box = await page.locator('.chart-host').first().boundingBox();
+    // a ray with two clicks (it continues to the right, so an alert can follow it)
+    await page.locator('button[data-tip^="Ray"]').first().click();
+    const a = { x: box.x + box.width * 0.35, y: box.y + box.height * 0.62 };
+    const b = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.42 };
+    await page.mouse.click(a.x, a.y);
+    await page.mouse.click(b.x, b.y);
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, before], { timeout: 5000 });
+    const d = (await page.evaluate((id) => window.__charts[id].drawings(), id)).at(-1);
+    check(d.type === 'ray', 'ray drawn with two clicks');
+    await shot('47-drawing');
+    // right-click on the line: alert that follows it
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    await page.mouse.click(mid.x, mid.y, { button: 'right' });
+    await page.click('.menu-item:has-text("Add alert on this line")');
+    await page.waitForSelector('.alert-editor .ae-row:has-text("Trendline")', { timeout: 10000 });
+    check(true, 'the alert editor opens on the trendline');
+    await wait(500);
+    await shot('48-trendline-alert');
+    await page.click('.modal button:has-text("Create alert")');
+    await page.waitForSelector('.modal', { state: 'detached', timeout: 10000 });
+    const alerts = await page.evaluate(() => window.fufu.invoke('alerts:list'));
+    const la = alerts.find((x) => x.kind === 'price' && x.line);
+    check(!!la && la.line.extend === 'right' && la.level > 0, `trendline alert saved (${la ? `${la.line.p1.toFixed(0)} → ${la.line.p2.toFixed(0)}, now at ${la.level.toFixed(0)}` : 'missing'})`);
+    // lock, duplicate and delete through the context menu
+    await page.mouse.click(mid.x, mid.y, { button: 'right' });
+    await page.click('.menu-item:has-text("Lock")');
+    await page.waitForFunction((id) => window.__charts[id].drawings().at(-1).locked, id, { timeout: 5000 });
+    await page.mouse.click(mid.x, mid.y, { button: 'right' });
+    check(await page.isVisible('.menu-item.disabled:has-text("Delete")'), 'a locked drawing cannot be deleted');
+    await page.click('.menu-item:has-text("Duplicate")');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 2, [id, before], { timeout: 5000 });
+    check(true, 'drawing duplicated');
+    await page.mouse.click(mid.x, mid.y, { button: 'right' });
+    await page.click('.menu-item:has-text("Unlock")');
+    await page.mouse.click(mid.x, mid.y, { button: 'right' });
+    await page.click('.menu-item:has-text("Delete")');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, before], { timeout: 5000 });
+    check(true, 'drawing deleted after unlocking');
+    await page.evaluate((aid) => window.fufu.invoke('alerts:delete', aid), la?.id);
+  },
   async derivatives() {
     console.log('scenario: derivatives');
     await page.keyboard.press('Control+k');

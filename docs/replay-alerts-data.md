@@ -40,6 +40,10 @@ indicator's menu ("Add alert…"):
 
 - **Price level:** crosses (above/below/either), is above/below, enters/exits a channel.
   Price alerts are drawn on charts. Drag the line to move the level.
+- **Trendline:** right-click a trend line, ray or extended line and choose "Add alert on this
+  line…" (or a horizontal line for a price level). The level follows the line over time,
+  straight in log space when it was drawn on a log chart. An alert on a segment ends at the
+  segment's last point.
 - **Price move:** up/down/either X% within N minutes.
 - **Indicator:** a plot crosses or is above/below a value, the price or another plot,
   evaluated on bar close or intrabar.

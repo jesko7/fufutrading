@@ -4,8 +4,8 @@ import { toast } from '../../state/store';
 import { Modal, openModal, NumberField, Toggle, Select, Segmented, SymbolPicker, TimeframePicker, Spinner } from '../../components/ui';
 import { useScripts, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
-import { describeAlert, newAlert, webhookUrlError, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
-import { clsx } from '../../lib/format';
+import { describeAlert, newAlert, priceLevelAt, webhookUrlError, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import { clsx, fmtNum, fmtDateTime } from '../../lib/format';
 import type { Market, SymbolId } from '../../../shared/symbols';
 import { SYMBOL_SPECS, roundToTick, priceDecimals } from '../../../shared/symbols';
 
@@ -212,24 +212,42 @@ function PriceFields({ a, set }: { a: PriceAlert; set: (p: Partial<PriceAlert>) 
   }, [last]);
   const channel = a.condition === 'enterChannel' || a.condition === 'exitChannel';
   const tick = SYMBOL_SPECS[a.symbol][a.market].tickSize;
+  const pd = priceDecimals(a.symbol, a.market);
+  const conditions = [
+    { value: 'crosses' as const, label: 'Crosses' },
+    { value: 'crossesAbove' as const, label: 'Crosses above' },
+    { value: 'crossesBelow' as const, label: 'Crosses below' },
+    { value: 'above' as const, label: 'Is above' },
+    { value: 'below' as const, label: 'Is below' },
+    ...(a.line
+      ? []
+      : [
+          { value: 'enterChannel' as const, label: 'Enters channel' },
+          { value: 'exitChannel' as const, label: 'Exits channel' },
+        ]),
+  ];
+  const lineNow = a.line ? priceLevelAt(a, Date.now()) : null;
   return (
     <>
       <div className="ae-row">
         <span className="ae-label">Condition</span>
-        <Select
-          value={a.condition}
-          onChange={(c) => set({ condition: c, level2: c === 'enterChannel' || c === 'exitChannel' ? a.level2 || +(a.level * 1.01).toFixed(2) : a.level2 })}
-          options={[
-            { value: 'crosses', label: 'Crosses' },
-            { value: 'crossesAbove', label: 'Crosses above' },
-            { value: 'crossesBelow', label: 'Crosses below' },
-            { value: 'above', label: 'Is above' },
-            { value: 'below', label: 'Is below' },
-            { value: 'enterChannel', label: 'Enters channel' },
-            { value: 'exitChannel', label: 'Exits channel' },
-          ]}
-        />
+        <Select value={a.condition} onChange={(c) => set({ condition: c, level2: c === 'enterChannel' || c === 'exitChannel' ? a.level2 || +(a.level * 1.01).toFixed(2) : a.level2 })} options={conditions} />
       </div>
+      {a.line ? (
+        <div className="ae-row">
+          <span className="ae-label">Trendline</span>
+          <span data-tip={`From ${fmtDateTime(a.line.t1)} to ${fmtDateTime(a.line.t2)}${a.line.log ? ' · straight on a log scale' : ''}`}>
+            {fmtNum(a.line.p1, pd)} → {fmtNum(a.line.p2, pd)}
+            <span className="faint">
+              {' '}
+              · now {lineNow === null ? 'ended' : fmtNum(lineNow, pd)} · {a.line.extend === 'none' ? 'until its end' : 'extended right'}
+            </span>
+          </span>
+          <button className="btn small ghost" onClick={() => set({ line: undefined, level: +(lineNow ?? a.level).toFixed(pd) })} data-tip="Turn this into an alert on a fixed price">
+            Fixed price
+          </button>
+        </div>
+      ) : (
       <div className="ae-row">
         <span className="ae-label">{channel ? 'From' : 'Price'}</span>
         <NumberField value={a.level || null} onChange={(v) => set({ level: v })} step={tick * 100} decimals={priceDecimals(a.symbol, a.market)} style={{ width: 160 }} />
@@ -245,6 +263,7 @@ function PriceFields({ a, set }: { a: PriceAlert; set: (p: Partial<PriceAlert>) 
           </button>
         )}
       </div>
+      )}
     </>
   );
 }

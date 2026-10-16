@@ -13,6 +13,9 @@ const background = argv.includes('--background');
 
 if (process.env.FUFU_USER_DATA) app.setPath('userData', process.env.FUFU_USER_DATA);
 app.setName('FuFu Trading');
+// the interface is English with 24-hour times: native date fields and number formatting follow it
+// rather than the OS locale (which showed e.g. "tt.mm.jjjj" placeholders and "1.234" next to "1,234")
+app.commandLine.appendSwitch('lang', 'en-GB');
 if (process.platform === 'win32') app.setAppUserModelId('dev.jesko7.fufutrading');
 
 let core: AppCore | null = null;

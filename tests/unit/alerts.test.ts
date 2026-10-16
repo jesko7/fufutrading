@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AlertService } from '../../src/main/alerts';
 import { LocalBook } from '../../src/main/market/orderbook';
-import { newAlert, describeAlert, type Alert, type AlertEvent } from '../../src/shared/alerts';
+import { newAlert, describeAlert, priceLevelAt, type Alert, type AlertEvent, type PriceAlert } from '../../src/shared/alerts';
 import type { TapeListener } from '../../src/main/market/tape';
 
 let dir = '';
@@ -126,6 +126,39 @@ describe('alert engine', () => {
     await vi.advanceTimersByTimeAsync(2500);
     expect(fired).toHaveLength(1);
     expect(fired[0].message).toMatch(/imbalance.*now 80\.0%/);
+    svc.shutdown();
+  });
+
+  it('follows a trendline: the level moves with time, linear or in log space', () => {
+    const H = 3_600_000;
+    const now = Date.now();
+    // a rising line: 100 one hour ago, 110 one hour from now → 105 now
+    const line = { t1: now - H, p1: 100, t2: now + H, p2: 110, extend: 'right' as const };
+    expect(priceLevelAt({ level: 0, line }, now)).toBeCloseTo(105, 9);
+    expect(priceLevelAt({ level: 0, line }, now + 3 * H)).toBeCloseTo(120, 9);
+    // on a log chart the line is straight in log space: the geometric mean in the middle
+    expect(priceLevelAt({ level: 0, line: { ...line, log: true } }, now)).toBeCloseTo(Math.sqrt(100 * 110), 9);
+    // a segment ends at its later point
+    expect(priceLevelAt({ level: 0, line: { ...line, extend: 'none' } }, now + 2 * H)).toBeNull();
+    const svc = new AlertService(fakeCore() as any, { library: { get: () => undefined } } as any);
+    const a = svc.save(mk('price', { condition: 'crossesAbove', level: 0, line, frequency: 'once' }));
+    expect(describeAlert(a)).toBe('BTC/USDT crosses above the trendline 100 → 110 (extended)');
+    expect((a as PriceAlert).level).toBeCloseTo(105, 1);
+    // 104 is below the line now, 106 above it; an hour later the line is at 110, so 106 is below
+    trade(104, now);
+    trade(106, now + 1000);
+    expect(fired).toHaveLength(1);
+    expect(fired[0].message).toMatch(/trendline 100 → 110 \(extended\) at 105(\.\d+)? — now 106/);
+    const b = svc.save(mk('price', { condition: 'crossesAbove', level: 0, line, frequency: 'once' }));
+    trade(106, now + H);
+    trade(109.5, now + H + 1000);
+    expect(fired).toHaveLength(1);
+    trade(110.5, now + H + 2000);
+    expect(fired).toHaveLength(2);
+    expect(fired[1].alertId).toBe(b.id);
+    // a segment that already ended can't be watched; channels don't apply to lines
+    expect(() => svc.save(mk('price', { line: { t1: now - 2 * H, p1: 100, t2: now - H, p2: 101, extend: 'none' } }))).toThrow(/ends in the past/);
+    expect(() => svc.save(mk('price', { condition: 'enterChannel', line }))).toThrow(/crosses or is above\/below/);
     svc.shutdown();
   });
 

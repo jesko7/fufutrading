@@ -89,7 +89,9 @@ export function Menu({ anchor, items, onClose, align, width }: { anchor: Anchor;
           <div
             key={i}
             className={clsx('menu-item', it.danger && 'danger', it.disabled && 'disabled')}
+            aria-disabled={it.disabled || undefined}
             onClick={() => {
+              if (it.disabled) return;
               onClose();
               it.onClick?.();
             }}
