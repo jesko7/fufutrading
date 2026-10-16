@@ -23,6 +23,8 @@ import type { ScriptLanguage, ScriptResult } from '../../engine/types';
 import { isSymbol, type Market, type SymbolId } from '../../shared/symbols';
 import { parseTimeframe, tfDurationMs } from '../../shared/timeframes';
 import { COST_PRESETS } from '../../shared/trading/presets';
+import type { CandleSeries } from '../../shared/candles';
+import type { MetricKind } from '../../shared/metrics';
 
 export interface AiToolDeps {
   core: AppCore;
@@ -806,15 +808,34 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'futures_snapshot',
       readOnly: true,
       description:
-        "Positioning in the Binance perpetual right now: open interest (value and 1h/24h change), the predicted funding rate, the 7-day average funding annualised and the last fundings, long/short ratios of all accounts and of top traders' positions, and the taker buy/sell ratio. Use it to understand crowding and sentiment (for example high positive funding with rising open interest means crowded longs). Historical series of these aren't available to scripts.",
+        "Positioning in the Binance perpetual right now and over the last 30 days: open interest (value, 1h/24h/30d change and where it stands in its 30-day range), the predicted funding rate, the 7-day average annualised, the last fundings and their 30-day range, long/short ratios of all accounts and of top traders' positions (now and 30-day range), and the taker buy/sell ratio. Percentiles say how extreme today is (95 = higher than 95% of the last 30 days). Use it to understand crowding and sentiment (for example high positive funding with rising open interest means crowded longs). Scripts can use the full history of these series: BINANCE:<symbol>.P_OI, _OI_USD, _LSR, _TOP_LSR, _TOP_POS and _FUNDING with request.security.",
       inputSchema: { type: 'object', properties: { symbol: INSTRUMENT_SCHEMA.symbol } },
       async run(args) {
         if (!deps.derivatives) throw new Error('futures data is not available');
         const symbol = String(args.symbol || 'BTCUSDT').toUpperCase() as SymbolId;
         if (!isSymbol(symbol)) throw new Error('symbol must be BTCUSDT, ETHUSDT or SOLUSDT');
         const s = await deps.derivatives.once(symbol);
+        // the last 30 days of the same series scripts use
+        const now = Date.now();
+        const hist = async (metric: MetricKind, tf: string) => deps.core.series.metricHistory({ symbol, tf, metric }, now - 30 * 86_400_000, now).catch(() => null);
+        const [oiH, lsrH, topH, fundH] = await Promise.all([hist('oiusd', '1h'), hist('lsr', '1h'), hist('toppos', '1h'), hist('funding', '8h')]);
+        const range = (h: CandleSeries | null, scale = 1, digits = 2) => {
+          if (!h || !h.length) return null;
+          const c = Array.from(h.c.subarray(0, h.length), (x) => x * scale);
+          const last = c[c.length - 1];
+          const sorted = [...c].sort((a, b) => a - b);
+          const round = (x: number) => (digits === 4 ? r4(x) : r2(x));
+          return { now: round(last), mean: round(c.reduce((a, b) => a + b, 0) / c.length), min: round(sorted[0]), max: round(sorted[sorted.length - 1]), percentileNow: Math.round((sorted.filter((x) => x <= last).length / sorted.length) * 100) };
+        };
+        const oiRange = range(oiH, 1e-9);
         return {
           symbol,
+          history30d: {
+            openInterestValueBnUsdt: oiRange && oiH ? { ...oiRange, changePct: r2((oiH.c[oiH.length - 1] / oiH.c[0] - 1) * 100) } : null,
+            fundingPctPer8h: range(fundH, 1, 4),
+            longShortRatio: range(lsrH),
+            topTradersPositionRatio: range(topH),
+          },
           openInterest: s.openInterest ? { valueUsdt: Math.round(s.openInterest.value), contracts: r2(s.openInterest.qty), change1hPct: r2(s.openInterest.change1hPct), change24hPct: r2(s.openInterest.change24hPct) } : null,
           funding: s.funding ? { predictedPct: r4(s.funding.rate * 100), nextFunding: new Date(s.funding.next).toISOString(), avg7dAnnualPct: r2(s.funding7dAnnualPct), lastPct: s.fundingHistory.slice(-6).map((f) => r4(f.rate * 100)) } : null,
           longShort: s.longShort ? { accountsLongPct: r2(s.longShort.long * 100), ratio: r2(s.longShort.ratio), topTradersLongPct: r2(s.longShort.topLong * 100), topTradersRatio: r2(s.longShort.topRatio) } : null,

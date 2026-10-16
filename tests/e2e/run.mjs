@@ -807,6 +807,9 @@ const S = {
     const fr = await call('run_script', { id: 'builtin:funding_rate', symbol: 'ETHUSDT', market: 'futures', tf: '1h', bars: 1000 });
     const frLast = fr.result.plots?.find((p) => p.title === 'Funding')?.last?.slice(-1)[0];
     check(fr.result.ok && Math.abs(frLast) > 0 && Math.abs(frLast) < 1, `Funding Rate indicator on BINANCE:ETHUSDT.P_FUNDING (last ${frLast}% per 8 h)`);
+    const fs30 = await call('futures_snapshot', { symbol: 'BTCUSDT' });
+    const h30 = fs30.result.history30d;
+    check(typeof h30?.openInterestValueBnUsdt?.changePct === 'number' && h30?.fundingPctPer8h?.percentileNow >= 0 && h30?.longShortRatio?.max >= h30?.longShortRatio?.min, `futures snapshot with 30-day positioning (OI ${h30?.openInterestValueBnUsdt?.changePct}% in 30 d, funding at the ${h30?.fundingPctPer8h?.percentileNow}th percentile)`);
     const saved = await call('get_backtest', { id: bt.result.recordId });
     check(saved.result.ok && saved.result.metrics?.vsRandom && saved.result.request?.tf === '4h', `Claude can read a saved backtest (${saved.result.label})`);
     // Claude prepares a paper bot: the dialog opens prefilled, the bot is set up with the strategy

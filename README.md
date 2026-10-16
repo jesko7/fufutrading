@@ -57,10 +57,12 @@ an AI assistant that builds and tests strategies inside the app.
 - **Bots:** strategies trade their own accounts on every bar close, mirror their stops and
   targets, explain every action, pause themselves on errors or risk guards (drawdown, daily
   loss, losing streak), and keep running in the tray.
-- **Derivatives data:** open interest, funding history, long/short ratios, taker flow and a live
-  liquidation feed. Open interest, the long/short ratios and funding rates also work as script
-  data, through TradingView-style tickers (`BINANCE:BTCUSDT.P_OI`, `…_FUNDING`), without
-  lookahead, in backtests, replays, bots and the strategy builder.
+- **Derivatives data:** open interest, funding history, long/short ratios, taker flow, a live
+  liquidation feed and a positioning history (price against open interest, ratios and funding
+  over 7 days to a year). Open interest, the long/short ratios and funding rates also work as
+  script data, through TradingView-style tickers (`BINANCE:BTCUSDT.P_OI`, `…_FUNDING`), without
+  lookahead, in backtests, replays, bots and the strategy builder. Exact volume delta (CVD) comes
+  from Binance's taker volume.
 - **Replay:** bar replay with adjustable speed, stepping and replay trading. Strictly no future
   data, at real data resolution. A session report compares your replay trades with buy & hold
   and random entries.
