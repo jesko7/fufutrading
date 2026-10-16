@@ -16,7 +16,7 @@ import type { ManagedSeries } from '../market/series';
 import type { BotStepResult } from '../../engine/host';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import { fromPacked } from '../../engine/data';
-import { planBot, BOT_TAG, type BotPlan } from '../../shared/trading/botPlan';
+import { planBot, type BotPlan } from '../../shared/trading/botPlan';
 import type { BotConfig, BotGuards, BotRunState, BotView, AccountEvent, ClosedTrade } from '../../shared/trading/types';
 import { SYMBOL_SPECS, isSymbol, type SymbolId } from '../../shared/symbols';
 import { parseTimeframe, tfDurationMs, bucketStart, bucketEnd, type Timeframe } from '../../shared/timeframes';

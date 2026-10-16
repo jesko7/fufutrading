@@ -86,7 +86,6 @@ export class LiveScript {
   ) {}
 
   async start(): Promise<void> {
-    const core = this.svc.core;
     if (!isSymbol(this.p.spec?.symbol) || (this.p.spec.market !== 'spot' && this.p.spec.market !== 'futures')) throw new Error('Validation: invalid instrument');
     if (!parseTimeframe(this.p.spec.tf)) throw new Error('Validation: invalid timeframe');
     this.loadCode();

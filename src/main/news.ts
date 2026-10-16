@@ -113,7 +113,7 @@ export class NewsService {
   private fetching: Promise<void> | null = null;
   lastFetch = 0;
 
-  constructor(private core: AppCore) {
+  constructor(core: AppCore) {
     this.file = path.join(core.paths.userData, 'news-feeds.json');
     this.cacheFile = path.join(core.paths.userData, 'news-cache.json');
     const saved = readJson<NewsFeed[] | null>(this.file, null);

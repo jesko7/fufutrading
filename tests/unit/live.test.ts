@@ -5,9 +5,6 @@ import { parseTimeframe, SEC, MIN } from '../../src/shared/timeframes';
 
 const T0 = Date.UTC(2026, 9, 12, 12, 0, 0);
 
-function kline(t: number, o: number, h: number, l: number, c: number, v: number, ms = SEC): BaseKline {
-  return { t, T: t + ms - 1, o, h, l, c, v, qv: v * c, n: 1, tbv: v / 2 };
-}
 
 /** Reference: aggregate all trades of a bucket directly. */
 function reference(trades: TradeTick[], tfMs: number) {

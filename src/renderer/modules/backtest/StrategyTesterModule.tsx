@@ -6,18 +6,17 @@
  * and side-by-side comparison.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, errorMessage } from '../../api';
+import { api } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { Icon } from '../../components/Icon';
-import { Menu, usePopover, Popover, SymbolPicker, TimeframePicker, NumberField, Select, Toggle, Tabs, Spinner, Empty, Segmented, promptDialog, confirmDialog } from '../../components/ui';
+import { Menu, usePopover, Popover, SymbolPicker, TimeframePicker, Select, Tabs, Spinner, Empty, Segmented, promptDialog, confirmDialog } from '../../components/ui';
 import { LineChart } from '../../components/LineChart';
 import { clsx, fmtNum, fmtPct, fmtUsd, fmtSignedUsd, fmtDateTime, fmtDate, MONTHS, fmtDuration } from '../../lib/format';
 import { bus } from '../../lib/bus';
 import { useScripts, openScriptInEditor, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
-import { COST_PRESETS } from '../../../shared/trading/presets';
-import { SYMBOL_SPECS, type Market, type SymbolId } from '../../../shared/symbols';
+import { SYMBOL_SPECS } from '../../../shared/symbols';
 import { newId, type ChartModuleConfig, type IndicatorInstance } from '../../../shared/workspace';
 import type { BacktestRecord, BacktestRequest } from '../../../main/backtest/service';
 import type { TradeStats } from '../../../engine/backtest/metrics';

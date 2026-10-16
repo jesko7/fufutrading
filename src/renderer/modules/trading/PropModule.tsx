@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp } from '../../state/store';
 import { Icon } from '../../components/Icon';
