@@ -10,6 +10,7 @@ import type { AccountSnapshot, ClosedTrade, Fill, AccountEvent } from '../../../
 import { SYMBOL_SPECS, priceDecimals, qtyDecimals } from '../../../shared/symbols';
 import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtDuration, fmtTime } from '../../lib/format';
 import { describeOrderUi } from './util';
+import { bus } from '../../lib/bus';
 import { useReplayView } from '../chart/replay';
 import './trading.css';
 
@@ -398,6 +399,13 @@ export function Trades({ trades, accountId, accountName }: { trades: ClosedTrade
             </div>
             <button className="btn tiny ghost" onClick={() => exportTradesCsv(trades, journal, accountName || 'account')} data-tip="Export the trades with journal notes (CSV)">
               <Icon name="download" size={12} /> CSV
+            </button>
+            <button
+              className="btn tiny ghost"
+              data-tip="Claude reviews your trades, notes and setups and coaches you"
+              onClick={() => bus.emit('ai:open', { prompt: `Review my trading on the paper account “${accountName || 'account'}” (id ${accountId}): what works, what doesn't, and three concrete things to change. Use my journal notes and setup tags.`, mode: 'ask', send: true }, false)}
+            >
+              <Icon name="spark" size={12} /> Review with AI
             </button>
           </>
         )}

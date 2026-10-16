@@ -13,6 +13,8 @@ import { runContext } from '../scripts/service';
 import type { BacktestService, BacktestRecord, BacktestRequest } from '../backtest/service';
 import type { OptimizerService, OptimizeRequest } from '../backtest/optimizer';
 import type { DerivativesService } from '../market/derivatives';
+import type { TradingEngine } from '../trading/engine';
+import type { JournalService } from '../trading/journal';
 import type { McpTool } from './mcp';
 import { pineFunctionReference } from '../../engine/docs';
 import { fromPacked } from '../../engine/data';
@@ -28,6 +30,8 @@ export interface AiToolDeps {
   backtests: BacktestService;
   optimizer: OptimizerService;
   derivatives?: DerivativesService;
+  trading?: TradingEngine;
+  journal?: JournalService;
   docsDir: string;
 }
 
@@ -754,6 +758,47 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
         };
       },
       card: (_a, r) => ({ kind: 'market', title: `Market: ${r?.instrument}`, data: r || {} }),
+    },
+    {
+      name: 'review_trades',
+      readOnly: true,
+      description:
+        "The user's own paper trading for coaching: an account's closed trades with journal notes, setup tags and plan ratings, statistics per setup and per side, holding times of winners vs losers, and how trades opened within 30 minutes after a loss did (tilt). Without accountId it lists the accounts. Be specific and kind; base every observation on these numbers.",
+      inputSchema: { type: 'object', properties: { accountId: { type: 'string', description: 'Paper account id (omit to list accounts)' }, last: { type: 'number', description: 'How many recent trades to include (default 60)' } } },
+      async run(args) {
+        const eng = deps.trading;
+        if (!eng) throw new Error('trading is not available');
+        if (!args.accountId) return { accounts: eng.list().filter((a) => !a.config.archived).map((a) => ({ id: a.config.id, name: a.config.name, market: a.config.market, kind: a.config.kind, equity: r2(a.equity) })) };
+        const rt = eng.get(String(args.accountId));
+        const journal = deps.journal?.get(rt.config.id) || {};
+        const key = (t: (typeof rt.trades)[number]) => `${t.id}:${t.closedAt}`;
+        const trades = rt.trades;
+        const stats = (ts: typeof trades) => {
+          const w = ts.filter((t) => t.pnl > 0);
+          const gp = w.reduce((s, t) => s + t.pnl, 0);
+          const gl = -ts.filter((t) => t.pnl <= 0).reduce((s, t) => s + t.pnl, 0);
+          return { trades: ts.length, winRatePct: ts.length ? r2((w.length / ts.length) * 100) : null, netPnl: r2(gp - gl), avgPnl: ts.length ? r2((gp - gl) / ts.length) : null, profitFactor: gl > 0 ? r2(gp / gl) : gp > 0 ? 'inf' : null };
+        };
+        const byTag = new Map<string, typeof trades>();
+        for (const t of trades) for (const g of journal[key(t)]?.tags?.length ? journal[key(t)].tags : ['(untagged)']) byTag.set(g, [...(byTag.get(g) || []), t]);
+        const hold = (ts: typeof trades) => (ts.length ? Math.round(ts.reduce((s, t) => s + (t.closedAt - t.openedAt), 0) / ts.length / 60000) : null);
+        const afterLoss = trades.filter((t, k) => k > 0 && trades[k - 1].pnl < 0 && t.openedAt - trades[k - 1].closedAt < 30 * 60000);
+        const n = Math.max(5, Math.min(200, Number(args.last) || 60));
+        const snap = rt.snapshot(eng.ctxFor(rt.config.id));
+        return {
+          account: { id: rt.config.id, name: rt.config.name, market: rt.config.market, kind: rt.config.kind, initialBalance: rt.config.initialBalance, equity: r2(snap.equity), realizedPnl: r2(snap.realizedPnl), feesPaid: r2(snap.feesPaid), prop: rt.config.prop ? `${rt.config.prop.firm} ${rt.config.prop.program} ${rt.config.prop.phase}` : undefined },
+          overall: stats(trades),
+          bySide: { long: stats(trades.filter((t) => t.side === 1)), short: stats(trades.filter((t) => t.side === -1)) },
+          bySetup: Object.fromEntries([...byTag.entries()].map(([g, ts]) => [g, stats(ts)])),
+          holdingMinutes: { winners: hold(trades.filter((t) => t.pnl > 0)), losers: hold(trades.filter((t) => t.pnl <= 0)) },
+          within30minAfterALoss: stats(afterLoss),
+          recentTrades: trades.slice(-n).map((t) => {
+            const e = journal[key(t)];
+            return { symbol: t.symbol, side: t.side === 1 ? 'long' : 'short', opened: new Date(t.openedAt).toISOString().slice(0, 16), minutes: Math.round((t.closedAt - t.openedAt) / 60000), pnl: r2(t.pnl), returnPct: r2(t.returnPct), exit: t.exitReason, tags: e?.tags, rating: e?.rating, note: e?.note };
+          }),
+        };
+      },
+      card: (_a, r) => ({ kind: 'list', title: r?.account ? `Reviewed ${r.overall.trades} trades of “${r.account.name}”` : `Looked at ${r?.accounts?.length ?? 0} accounts`, data: {} }),
     },
     {
       name: 'futures_snapshot',

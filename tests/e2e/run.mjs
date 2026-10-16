@@ -758,6 +758,12 @@ const S = {
     console.log('    ' + rb.result.runs.map((r) => `${r.label}: ${r.error || `${r.returnPct}% (B&H ${r.buyHoldPct}%)`}`).join(' | '));
     const hist = await page.evaluate(() => window.fufu.invoke('backtests:list'));
     check(!hist.some((h) => h.label === 'robustness'), 'robustness runs stay out of the Strategy Tester history');
+    const accts = await call('review_trades', {});
+    check(Array.isArray(accts.result.accounts), `Claude lists paper accounts for a review (${accts.result.accounts.length})`);
+    if (accts.result.accounts.length) {
+      const rv = await call('review_trades', { accountId: accts.result.accounts[0].id });
+      check(!!rv.result.overall && !!rv.result.bySide && 'within30minAfterALoss' in rv.result, `trade review data (${rv.result.overall.trades} trades)`);
+    }
     const saved = await call('get_backtest', { id: bt.result.recordId });
     check(saved.result.ok && saved.result.metrics?.vsRandom && saved.result.request?.tf === '4h', `Claude can read a saved backtest (${saved.result.label})`);
     // Claude prepares a paper bot: the dialog opens prefilled, the bot is set up with the strategy
