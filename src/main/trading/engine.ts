@@ -159,8 +159,15 @@ export class TradingEngine {
 
   private onAccountEvent(rt: AccountRuntime, e: AccountEvent): void {
     for (const l of this.eventListeners) l(rt.config.id, e);
-    const important = e.kind === 'liquidation' || e.kind === 'marginCall' || (e.kind === 'rule' && /breach|passed|restricted|limit/i.test(e.message)) || e.kind === 'error';
-    const fillNote = e.kind === 'fill' && (rt.config.kind === 'bot' || e.data?.source === 'bracket');
+    let important = e.kind === 'liquidation' || e.kind === 'marginCall' || (e.kind === 'rule' && /breach|passed|restricted|limit/i.test(e.message)) || e.kind === 'error';
+    let fillNote = e.kind === 'fill' && (rt.config.kind === 'bot' || e.data?.source === 'bracket');
+    // bot accounts follow the bot notification settings (globally and per bot)
+    if (rt.config.kind === 'bot') {
+      const n = this.core.settings.notifications;
+      const on = rt.config.bot?.notify !== false;
+      fillNote &&= on && n.botTrades !== false;
+      important &&= on && n.botProblems !== false;
+    }
     if (important || fillNote) {
       this.core.notify(`${rt.config.name}`, e.message);
       this.core.router.broadcast('toast', { title: rt.config.name, body: e.message, kind: e.kind === 'liquidation' || e.kind === 'error' ? 'error' : e.kind === 'marginCall' || e.kind === 'rule' ? 'warn' : 'ok' });

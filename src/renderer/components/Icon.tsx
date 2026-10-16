@@ -14,6 +14,7 @@ const P: Record<string, string> = {
   grid: 'M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z M13 13h7v7h-7z',
   notebook: 'M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6z M6 3v18 M3 7h3 M3 12h3 M3 17h3 M10 8h6 M10 12h6',
   bell: 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4z M10 20a2 2 0 0 0 4 0',
+  bellOff: 'M8.5 6.5A6 6 0 0 1 18 11v4.5 M6 11v5l-2 2h13 M10 20a2 2 0 0 0 4 0 M3 3l18 18',
   news: 'M4 5h13v14H6a2 2 0 0 1-2-2z M17 9h3v8a2 2 0 0 1-2 2 M7 9h7 M7 12h7 M7 15h4',
   spark: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z',
   bot: 'M5 9h14v10H5z M12 4v5 M9 13h.01 M15 13h.01 M9 16h6 M3 13v3 M21 13v3 M12 4h0',

@@ -151,6 +151,10 @@
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   background: color-mix(in srgb, var(--accent) 9%, var(--panel-2));
 }
+.operand.pattern {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+}
 .operand.value {
   font-variant-numeric: tabular-nums;
 }

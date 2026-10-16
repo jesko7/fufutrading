@@ -253,6 +253,15 @@ function BotDetail({ id, tab, setTab }: { id: string; tab: BotTab; setTab: (t: B
           </div>
         </div>
         <span className="spacer" />
+        {c && (
+          <button
+            className={clsx('icon-btn', c.notify === false && 'muted-bell')}
+            onClick={() => void api.call('bots:configure', id, { notify: c.notify === false }).catch(fail('Not changed'))}
+            data-tip={c.notify === false ? "Notifications about this bot are off (its log keeps everything). Click to turn them on." : "Notifications about this bot's trades and problems are on. Click to mute this bot."}
+          >
+            <Icon name={c.notify === false ? 'bellOff' : 'bell'} size={15} />
+          </button>
+        )}
         {status === 'running' && (
           <button className="btn" disabled={busy} onClick={() => void act(() => api.call('bots:pause', id), 'Could not pause')} data-tip="Stop evaluating; orders and positions stay as they are">
             <Icon name="pause" size={14} /> Pause

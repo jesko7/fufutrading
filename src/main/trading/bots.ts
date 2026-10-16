@@ -523,8 +523,10 @@ export class BotService {
     b.status = 'paused';
     b.lastError = `Risk guard: ${reason}. Position closed, bot paused.`;
     rt.event('rule', `Bot risk guard: ${reason} — position closed, bot paused`, { bot: true }, now);
-    this.core.notify(rt.config.name, `Bot paused by its risk guard: ${reason}`);
-    this.core.router.broadcast('toast', { title: `${rt.config.name}: risk guard`, body: `${reason}. Position closed, bot paused.`, kind: 'warn' });
+    if (this.notifyAbout(b)) {
+      this.core.notify(rt.config.name, `Bot paused by its risk guard: ${reason}`);
+      this.core.router.broadcast('toast', { title: `${rt.config.name}: risk guard`, body: `${reason}. Position closed, bot paused.`, kind: 'warn' });
+    }
     this.engine.persist(id);
     this.engine.recalc();
     this.changed(id);
@@ -577,6 +579,11 @@ export class BotService {
   }
 
   /** Pause the bot with an error (script error, repeated order failures, liquidation). */
+  /** Whether a bot's problems (pauses after errors or risk guards) are notified: the global setting and the bot's own switch. */
+  private notifyAbout(b: BotConfig): boolean {
+    return b.notify !== false && this.core.settings.notifications.botProblems !== false;
+  }
+
   fail(id: string, message: string, scriptError = false): void {
     const rt = this.engine.accounts.get(id);
     const b = rt?.config.bot;
@@ -587,8 +594,10 @@ export class BotService {
     // resting entries could open new positions while nobody watches; exits keep protecting the position
     for (const o of rt.orders.filter((x) => x.source === 'bot' && !x.reduceOnly)) rt.cancelOrder(o.id, Date.now(), 'bot paused after an error');
     rt.event('error', `${scriptError ? 'Strategy error' : 'Bot error'}: ${message}`, { bot: true });
-    this.core.notify(rt.config.name, `Bot paused: ${message}`);
-    this.core.router.broadcast('toast', { title: `${rt.config.name}: bot paused`, body: message, kind: 'error' });
+    if (this.notifyAbout(b)) {
+      this.core.notify(rt.config.name, `Bot paused: ${message}`);
+      this.core.router.broadcast('toast', { title: `${rt.config.name}: bot paused`, body: message, kind: 'error' });
+    }
     this.engine.persist(id);
     this.engine.recalc();
     this.changed(id);
@@ -606,6 +615,7 @@ export class BotService {
       patch = { ...patch, guards: { maxDrawdownPct: pos(g.maxDrawdownPct), maxDailyLossPct: pos(g.maxDailyLossPct), maxConsecutiveLosses: pos(g.maxConsecutiveLosses) ? Math.round(Number(g.maxConsecutiveLosses)) : undefined } };
     }
     if (patch.paramTitles) patch = { ...patch, paramTitles: Object.fromEntries(Object.entries(patch.paramTitles).map(([k, v]) => [String(k), String(v).slice(0, 80)])) };
+    if (patch.notify !== undefined) patch = { ...patch, notify: !!patch.notify };
     if (running && structural.some((k) => patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(cur![k]))) throw new Error('Validation: stop the bot before changing its strategy, instrument or sizing');
     const base: BotConfig = cur || { scriptId: '', language: 'pine', params: {}, symbol: 'BTCUSDT', market: rt.config.market, tf: '15m', chartType: 'candles', status: 'stopped', sizing: { mode: 'percentEquity', value: 10 }, autostart: true };
     const next: BotConfig = { ...base, ...patch, market: rt.config.market, status: base.status, state: base.state };

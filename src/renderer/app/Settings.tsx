@@ -170,6 +170,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               <Row label="Sound">
                 <Toggle value={s.notifications.sound} onChange={(v) => upd({ notifications: { ...s.notifications, sound: v } })} />
               </Row>
+              <Row label="Bot trades" hint="A notification whenever a bot's order fills. Each bot can also be muted with the bell in the Bots module.">
+                <Toggle value={s.notifications.botTrades !== false} onChange={(v) => upd({ notifications: { ...s.notifications, botTrades: v } })} />
+              </Row>
+              <Row label="Bot problems" hint="A bot pausing itself (strategy errors, risk guards) and liquidations or margin calls on bot accounts.">
+                <Toggle value={s.notifications.botProblems !== false} onChange={(v) => upd({ notifications: { ...s.notifications, botProblems: v } })} />
+              </Row>
             </>
           )}
           {sec === 'about' && info && (

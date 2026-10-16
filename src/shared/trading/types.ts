@@ -85,6 +85,8 @@ export interface BotConfig {
   state?: BotRunState;
   /** Risk guards: close the position and pause the bot when one trips (0 / undefined = off). */
   guards?: BotGuards;
+  /** Notifications and toasts about this bot (its event log keeps everything); default on. */
+  notify?: boolean;
 }
 
 export interface BotGuards {

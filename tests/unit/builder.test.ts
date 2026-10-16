@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import path from 'node:path';
 import { runPine, analyzePine, securityRequests, compileCached } from '../../src/engine/pine';
 import { runPython, initPython, type PyInitOptions } from '../../src/engine/python/host';
-import { TEMPLATES, generate, validate, defaultInd, type BuilderModel, type IndKind } from '../../src/shared/builder';
+import { TEMPLATES, PATTERN_LABEL, condText, generate, validate, defaultInd, type BuilderModel, type IndKind, type PatternId } from '../../src/shared/builder';
 import type { BarSeries } from '../../src/engine/types';
 import { bars, aggregateBars, ctx } from '../helpers/bars';
 
@@ -17,6 +17,23 @@ const PY: PyInitOptions = {
 // a noisy trending series so every template trades
 const data: BarSeries = bars(3000, (i) => 100 + Math.sin(i / 23) * 9 + Math.sin(i / 7) * 3 + Math.sin(i / 131) * 15 + i * 0.004);
 const htf = aggregateBars(data, 240);
+// a random walk with real-looking candles (bodies and wicks of varying size) for the pattern conditions
+const real: BarSeries = (() => {
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) - 0.5;
+  const b = bars(3000);
+  let p = 100;
+  for (let i = 0; i < b.length; i++) {
+    const o = p;
+    const c = o * (1 + rnd() * 0.02);
+    b.o[i] = o;
+    b.c[i] = c;
+    b.h[i] = Math.max(o, c) * (1 + Math.abs(rnd()) * 0.01);
+    b.l[i] = Math.min(o, c) * (1 - Math.abs(rnd()) * 0.01);
+    p = c;
+  }
+  return b;
+})();
 
 /** Futures statistics keys get a chart-timeframe series that moves; higher timeframes the 4h bars. */
 const isStat = (key: string) => /:(oi|oiusd|lsr|toplsr|toppos|funding)$/.test(key);
@@ -81,6 +98,28 @@ describe('strategy builder code generation', () => {
     const py = await runPython(PY, { code: pyCode, data, ctx, inputs: {}, security: pySecurity(pyCode) });
     expect(py.need).toEqual([]);
     expect(py.result.ok, py.result.error?.message).toBe(true);
+  }, 120000);
+
+  it('turns candlestick patterns into conditions in both languages, with the same trades', async () => {
+    const patterns = Object.keys(PATTERN_LABEL) as PatternId[];
+    const m: BuilderModel = {
+      ...TEMPLATES[0].model,
+      long: { enabled: true, when: { op: 'or', conds: patterns.map((p) => ({ left: { kind: 'pattern' as const, pattern: p }, cmp: 'occurs' as const, right: { kind: 'value' as const, v: 0 } })) } },
+    };
+    expect(validate(m)).toEqual([]);
+    expect(condText(m.long.when.conds[0])).toBe('Bullish engulfing appears');
+    const pine = generate({ ...m, language: 'pine' });
+    // the candle anatomy is declared once for all patterns
+    expect(pine.match(/c_body = /g)?.length).toBe(1);
+    const rp = runPine(pine, { data: real, ctx, inputs: {} });
+    expect(rp.ok, rp.error?.message).toBe(true);
+    const py = await runPython(PY, { code: generate({ ...m, language: 'python' }), data: real, ctx, inputs: {} });
+    expect(py.result.ok, py.result.error?.message).toBe(true);
+    const entries = (r: typeof rp) => r.strategy!.trades.map((t) => t.entryBar);
+    expect(entries(rp).length).toBeGreaterThan(2);
+    expect(entries(py.result)).toEqual(entries(rp));
+    // patterns belong on the left; "appears" needs one
+    expect(validate({ ...m, long: { enabled: true, when: { op: 'and', conds: [{ left: { kind: 'price', field: 'close' }, cmp: 'above', right: { kind: 'pattern', pattern: 'doji' } }] } } })[0]).toMatch(/left side/);
   }, 120000);
 
   it('reports invalid models', () => {

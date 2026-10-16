@@ -283,3 +283,6 @@
   align-items: center;
   flex: none;
 }
+.icon-btn.muted-bell {
+  color: var(--text-3);
+}

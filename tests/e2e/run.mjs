@@ -527,6 +527,13 @@ const S = {
     await shot('20-bot-running');
     const items = await page.$$eval('.bot-item', (r) => r.length);
     check(items === 1, 'bot listed in the sidebar');
+    // mute this bot's notifications with the bell (works while it runs)
+    await page.click('.bot-head button[data-tip^="Notifications about this bot"]');
+    await page.waitForFunction(async () => (await window.fufu.invoke('trading:list')).some((a) => a.config.bot && a.config.bot.notify === false), null, { timeout: 10000, polling: 300 });
+    await page.waitForSelector('.bot-head .muted-bell', { timeout: 10000 });
+    check(true, 'bot muted with the bell (its log keeps everything)');
+    await page.click('.bot-head .muted-bell');
+    await page.waitForFunction(async () => (await window.fufu.invoke('trading:list')).some((a) => a.config.bot && a.config.bot.notify === true), null, { timeout: 10000, polling: 300 });
   },
   async botlive() {
     console.log('scenario: botlive (1s bars, a strategy that trades every other bar)');

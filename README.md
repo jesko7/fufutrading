@@ -30,7 +30,8 @@ an AI assistant that builds and tests strategies inside the app.
   - built-in library, favorites, import/export
   - editor with autocomplete, diagnostics and lookahead/repaint warnings
   - bar inspector, Python debugger
-  - a flowchart **Strategy Builder** that generates editable code
+  - a flowchart **Strategy Builder** that generates editable code (indicators, price,
+    candlestick patterns and futures positioning as conditions)
 - **Backtesting:**
   - no bar limit, on cached Binance history
   - realistic Binance costs, funding and mark-price liquidations
@@ -119,7 +120,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives prop builder help light
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives prop builder help light
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

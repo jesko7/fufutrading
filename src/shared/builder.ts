@@ -8,9 +8,27 @@
 export type IndKind = 'sma' | 'ema' | 'rsi' | 'macd' | 'macdSignal' | 'macdHist' | 'bbUpper' | 'bbBasis' | 'bbLower' | 'atr' | 'stochK' | 'stochD' | 'highest' | 'lowest' | 'vwap' | 'volume' | 'volumeSma' | 'supertrend' | 'oi' | 'oiSma' | 'oiChange' | 'lsr' | 'topPos' | 'funding';
 export type PriceField = 'close' | 'open' | 'high' | 'low';
 
-export type Operand = { kind: 'price'; field: PriceField } | { kind: 'value'; v: number } | { kind: 'ind'; ind: IndKind; len?: number; len2?: number; len3?: number; mult?: number; src?: PriceField; offset?: number };
+/** Candlestick patterns as conditions ("Bullish engulfing appears"); shapes as in the Candlestick Patterns indicator. */
+export type PatternId = 'bullEngulf' | 'bearEngulf' | 'hammer' | 'shootingStar' | 'morningStar' | 'eveningStar' | 'soldiers' | 'crows' | 'bullHarami' | 'bearHarami' | 'doji';
 
-export type Cmp = 'crossAbove' | 'crossBelow' | 'above' | 'below';
+export const PATTERN_LABEL: Record<PatternId, string> = {
+  bullEngulf: 'Bullish engulfing',
+  bearEngulf: 'Bearish engulfing',
+  hammer: 'Hammer',
+  shootingStar: 'Shooting star',
+  morningStar: 'Morning star',
+  eveningStar: 'Evening star',
+  soldiers: 'Three white soldiers',
+  crows: 'Three black crows',
+  bullHarami: 'Bullish harami',
+  bearHarami: 'Bearish harami',
+  doji: 'Doji',
+};
+
+export type Operand = { kind: 'price'; field: PriceField } | { kind: 'value'; v: number } | { kind: 'ind'; ind: IndKind; len?: number; len2?: number; len3?: number; mult?: number; src?: PriceField; offset?: number } | { kind: 'pattern'; pattern: PatternId };
+
+/** 'occurs' is the comparison of a pattern on the left (the right side is ignored). */
+export type Cmp = 'crossAbove' | 'crossBelow' | 'above' | 'below' | 'occurs';
 
 export interface Cond {
   left: Operand;
@@ -209,19 +227,22 @@ export function pineTf(tf: string): string {
 function operandKey(o: Operand): string {
   if (o.kind === 'price') return o.field;
   if (o.kind === 'value') return `v${o.v}`;
+  if (o.kind === 'pattern') return `pat_${o.pattern}`;
   return [o.ind, o.len, o.len2, o.len3, o.mult, o.src, o.offset].filter((x) => x !== undefined).join('_').replace(/\./g, 'p');
 }
 
 export function operandLabel(o: Operand): string {
   if (o.kind === 'price') return o.field[0].toUpperCase() + o.field.slice(1);
   if (o.kind === 'value') return String(o.v);
+  if (o.kind === 'pattern') return PATTERN_LABEL[o.pattern];
   const args = [o.len, o.len2, o.len3, o.mult].filter((x) => x !== undefined);
   return `${IND_LABEL[o.ind]}${args.length ? `(${args.join(', ')})` : ''}${o.offset ? ` [${o.offset}]` : ''}`;
 }
 
-const CMP_TEXT: Record<Cmp, string> = { crossAbove: 'crosses above', crossBelow: 'crosses below', above: 'is above', below: 'is below' };
+const CMP_TEXT: Record<Cmp, string> = { crossAbove: 'crosses above', crossBelow: 'crosses below', above: 'is above', below: 'is below', occurs: 'appears' };
 
 export function condText(c: Cond): string {
+  if (c.left.kind === 'pattern') return `${operandLabel(c.left)} appears`;
   return `${operandLabel(c.left)} ${CMP_TEXT[c.cmp]} ${operandLabel(c.right)}`;
 }
 
@@ -235,7 +256,11 @@ export function validate(m: BuilderModel): string[] {
   if (!m.long.enabled && !m.short.enabled) out.push('Enable long or short entries.');
   if (m.long.enabled && !m.long.when.conds.length) out.push('Add at least one long entry condition.');
   if (m.short.enabled && !m.short.when.conds.length) out.push('Add at least one short entry condition.');
-  for (const c of allConds(m)) if (c.left.kind === 'value' && c.right.kind === 'value') out.push(`"${condText(c)}" compares two constants.`);
+  for (const c of allConds(m)) {
+    if (c.left.kind === 'value' && c.right.kind === 'value') out.push(`"${condText(c)}" compares two constants.`);
+    if (c.right.kind === 'pattern') out.push(`Put the pattern "${operandLabel(c.right)}" on the left side of its condition.`);
+    if (c.cmp === 'occurs' && c.left.kind !== 'pattern') out.push(`"appears" needs a candlestick pattern on the left.`);
+  }
   if (!(m.risk.sizePct > 0 && m.risk.sizePct <= 100)) out.push('Position size must be between 0 and 100% of equity.');
   return out;
 }
@@ -247,6 +272,37 @@ interface Decl {
   pine: string[];
   inputs: string[];
 }
+
+/** Candle anatomy shared by the pattern conditions (declared once). */
+const PINE_ANATOMY = [
+  'c_hi = math.max(close, open)',
+  'c_lo = math.min(close, open)',
+  'c_body = c_hi - c_lo',
+  'c_avg = ta.ema(c_body, 14)',
+  'c_small = c_body < c_avg',
+  'c_long = c_body > c_avg',
+  'c_up = high - c_hi',
+  'c_dn = c_lo - low',
+  'c_rng = high - low',
+  'c_white = close > open',
+  'c_black = close < open',
+  'c_mid = c_lo + c_body / 2',
+];
+
+/** Pattern shapes (no trend condition: combine them with your own) — mirror the Candlestick Patterns indicator. */
+const PINE_PATTERN: Record<PatternId, string> = {
+  bullEngulf: 'c_white and c_long and c_black[1] and c_small[1] and close >= open[1] and open <= close[1] and (close > open[1] or open < close[1])',
+  bearEngulf: 'c_black and c_long and c_white[1] and c_small[1] and close <= open[1] and open >= close[1] and (close < open[1] or open > close[1])',
+  hammer: 'c_small and c_body > 0 and c_lo > hl2 and c_dn >= 2 * c_body and c_up <= c_rng * 0.1',
+  shootingStar: 'c_small and c_body > 0 and c_hi < hl2 and c_up >= 2 * c_body and c_dn <= c_rng * 0.1',
+  morningStar: 'c_black[2] and c_long[2] and c_small[1] and c_hi[1] <= c_lo[2] + c_avg * 0.1 and c_white and c_long and close > c_mid[2]',
+  eveningStar: 'c_white[2] and c_long[2] and c_small[1] and c_lo[1] >= c_hi[2] - c_avg * 0.1 and c_black and c_long and close < c_mid[2]',
+  soldiers: 'c_white and c_white[1] and c_white[2] and c_long and c_long[1] and c_long[2] and close > close[1] and close[1] > close[2] and c_up < c_body * 0.3 and c_up[1] < c_body[1] * 0.3 and c_up[2] < c_body[2] * 0.3',
+  crows: 'c_black and c_black[1] and c_black[2] and c_long and c_long[1] and c_long[2] and close < close[1] and close[1] < close[2] and c_dn < c_body * 0.3 and c_dn[1] < c_body[1] * 0.3 and c_dn[2] < c_body[2] * 0.3',
+  bullHarami: 'c_black[1] and c_long[1] and c_white and c_small and c_hi <= c_hi[1] and c_lo >= c_lo[1]',
+  bearHarami: 'c_white[1] and c_long[1] and c_black and c_small and c_hi <= c_hi[1] and c_lo >= c_lo[1]',
+  doji: 'c_rng > 0 and c_body <= c_rng * 0.05',
+};
 
 /** The perpetual's statistic as a series (declared once). */
 function pineFutures(suffix: string, decls: Map<string, Decl>): string {
@@ -262,6 +318,11 @@ function pineOperand(o: Operand, decls: Map<string, Decl>): string {
   const key = operandKey(o);
   const name = `x_${key}`;
   if (decls.has(key)) return name;
+  if (o.kind === 'pattern') {
+    if (!decls.has('anatomy')) decls.set('anatomy', { key: 'anatomy', pine: ['// candle anatomy for the pattern conditions', ...PINE_ANATOMY], inputs: [] });
+    decls.set(key, { key, pine: [`${name} = ${PINE_PATTERN[o.pattern]}`], inputs: [] });
+    return name;
+  }
   const fut = FUT_SUFFIX[o.ind] ? pineFutures(FUT_SUFFIX[o.ind]!, decls) : '';
   const inputs: string[] = [];
   const inp = (suffix: string, v: number | undefined, title: string, float = false) => {
@@ -350,6 +411,7 @@ function pineOperand(o: Operand, decls: Map<string, Decl>): string {
 
 function pineCond(c: Cond, decls: Map<string, Decl>): string {
   const a = pineOperand(c.left, decls);
+  if (c.left.kind === 'pattern') return a;
   const b = pineOperand(c.right, decls);
   switch (c.cmp) {
     case 'crossAbove':
@@ -441,6 +503,36 @@ function operandFromKey(key: string, m: BuilderModel): Operand | null {
 
 // ------------------------------------------------------------------ Python
 
+/** Candle anatomy for the pattern conditions (NumPy, declared once in init). */
+const PY_ANATOMY = [
+  '        # candle anatomy for the pattern conditions',
+  '        o, h, l, c = self.data.open, self.data.high, self.data.low, self.data.close',
+  '        sh = lambda a, k: np.concatenate([np.full(k, np.nan), np.asarray(a, dtype=float)[:-k]])',
+  '        c_hi, c_lo = np.maximum(o, c), np.minimum(o, c)',
+  '        c_body = c_hi - c_lo',
+  '        c_avg = np.asarray(ta.ema(c_body, 14), dtype=float)',
+  '        c_small, c_long = c_body < c_avg, c_body > c_avg',
+  '        c_up, c_dn, c_rng = h - c_hi, c_lo - l, h - l',
+  '        c_white, c_black = c > o, c < o',
+  '        c_mid = c_lo + c_body / 2',
+  '        hl2 = (h + l) / 2',
+];
+
+/** The same shapes as PINE_PATTERN; `sh(x, k) > 0.5` is x k bars ago for true/false arrays. */
+const PY_PATTERN: Record<PatternId, string> = {
+  bullEngulf: 'c_white & c_long & (sh(c_black, 1) > 0.5) & (sh(c_small, 1) > 0.5) & (c >= sh(o, 1)) & (o <= sh(c, 1)) & ((c > sh(o, 1)) | (o < sh(c, 1)))',
+  bearEngulf: 'c_black & c_long & (sh(c_white, 1) > 0.5) & (sh(c_small, 1) > 0.5) & (c <= sh(o, 1)) & (o >= sh(c, 1)) & ((c < sh(o, 1)) | (o > sh(c, 1)))',
+  hammer: 'c_small & (c_body > 0) & (c_lo > hl2) & (c_dn >= 2 * c_body) & (c_up <= c_rng * 0.1)',
+  shootingStar: 'c_small & (c_body > 0) & (c_hi < hl2) & (c_up >= 2 * c_body) & (c_dn <= c_rng * 0.1)',
+  morningStar: '(sh(c_black, 2) > 0.5) & (sh(c_long, 2) > 0.5) & (sh(c_small, 1) > 0.5) & (sh(c_hi, 1) <= sh(c_lo, 2) + c_avg * 0.1) & c_white & c_long & (c > sh(c_mid, 2))',
+  eveningStar: '(sh(c_white, 2) > 0.5) & (sh(c_long, 2) > 0.5) & (sh(c_small, 1) > 0.5) & (sh(c_lo, 1) >= sh(c_hi, 2) - c_avg * 0.1) & c_black & c_long & (c < sh(c_mid, 2))',
+  soldiers: 'c_white & (sh(c_white, 1) > 0.5) & (sh(c_white, 2) > 0.5) & c_long & (sh(c_long, 1) > 0.5) & (sh(c_long, 2) > 0.5) & (c > sh(c, 1)) & (sh(c, 1) > sh(c, 2)) & (c_up < c_body * 0.3) & (sh(c_up, 1) < sh(c_body, 1) * 0.3) & (sh(c_up, 2) < sh(c_body, 2) * 0.3)',
+  crows: 'c_black & (sh(c_black, 1) > 0.5) & (sh(c_black, 2) > 0.5) & c_long & (sh(c_long, 1) > 0.5) & (sh(c_long, 2) > 0.5) & (c < sh(c, 1)) & (sh(c, 1) < sh(c, 2)) & (c_dn < c_body * 0.3) & (sh(c_dn, 1) < sh(c_body, 1) * 0.3) & (sh(c_dn, 2) < sh(c_body, 2) * 0.3)',
+  bullHarami: '(sh(c_black, 1) > 0.5) & (sh(c_long, 1) > 0.5) & c_white & c_small & (c_hi <= sh(c_hi, 1)) & (c_lo >= sh(c_lo, 1))',
+  bearHarami: '(sh(c_white, 1) > 0.5) & (sh(c_long, 1) > 0.5) & c_black & c_small & (c_hi <= sh(c_hi, 1)) & (c_lo >= sh(c_lo, 1))',
+  doji: '(c_rng > 0) & (c_body <= c_rng * 0.05)',
+};
+
 /** The perpetual's statistic aligned to the chart bars (declared once). */
 function pyFutures(suffix: string, decls: Map<string, Decl>): string {
   const key = `src${suffix}`;
@@ -455,6 +547,11 @@ function pyOperand(o: Operand, decls: Map<string, Decl>, params: string[]): stri
   const key = operandKey(o);
   const name = `self.x_${key}`;
   if (decls.has(key)) return name;
+  if (o.kind === 'pattern') {
+    if (!decls.has('anatomy')) decls.set('anatomy', { key: 'anatomy', pine: PY_ANATOMY, inputs: [] });
+    decls.set(key, { key, pine: [`        ${name} = self.I(np.asarray(${PY_PATTERN[o.pattern]}, dtype=float), "${PATTERN_LABEL[o.pattern]}", plot=False)`], inputs: [] });
+    return name;
+  }
   const fut = FUT_SUFFIX[o.ind] ? pyFutures(FUT_SUFFIX[o.ind]!, decls) : '';
   const p = (suffix: string, v: number | undefined, title: string, float = false) => {
     const id = `p_${key}_${suffix}`;
@@ -535,6 +632,7 @@ function pyOperand(o: Operand, decls: Map<string, Decl>, params: string[]): stri
 
 function pyCond(c: Cond, decls: Map<string, Decl>, params: string[]): string {
   const a = pyOperand(c.left, decls, params);
+  if (c.left.kind === 'pattern') return `${a}[-1] > 0.5`;
   const b = pyOperand(c.right, decls, params);
   const last = (x: string, o: Operand) => (o.kind === 'value' ? x : `${x}[-1]`);
   switch (c.cmp) {

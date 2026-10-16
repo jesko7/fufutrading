@@ -24,7 +24,8 @@ export interface AppSettings {
   ai: { model: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; thinking: boolean; mode: 'build' | 'plan'; claudePath: string; maxTurns: number };
   python: { runtime: 'auto' | 'pyodide' | 'system'; pythonPath: string };
   trading: { confirmMarketOrders: boolean; defaultAccountId: string | null; quickQtyUsd: number };
-  notifications: { desktop: boolean; sound: boolean };
+  /** botTrades: a bot's fills; botProblems: a bot pausing (errors, risk guards) and liquidations or margin calls on bot accounts. */
+  notifications: { desktop: boolean; sound: boolean; botTrades: boolean; botProblems: boolean };
   shortcuts: Record<string, string>;
   news: { sources: string[]; refreshMinutes: number };
   onboarded: boolean;
@@ -53,7 +54,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ai: { model: 'opus', effort: 'high', thinking: true, mode: 'build', claudePath: '', maxTurns: 40 },
   python: { runtime: 'auto', pythonPath: '' },
   trading: { confirmMarketOrders: false, defaultAccountId: null, quickQtyUsd: 1000 },
-  notifications: { desktop: true, sound: true },
+  notifications: { desktop: true, sound: true, botTrades: true, botProblems: true },
   shortcuts: {},
   news: { sources: ['coindesk', 'cointelegraph', 'decrypt', 'bitcoinmagazine', 'theblock'], refreshMinutes: 5 },
   onboarded: false,

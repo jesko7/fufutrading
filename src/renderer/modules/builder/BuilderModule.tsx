@@ -9,10 +9,11 @@ import { clsx } from '../../lib/format';
 import { useSize } from '../../lib/hooks';
 import { openModule } from '../../app/moduleOps';
 import { openScriptInEditor, loadScripts, type AnalyzeResult } from '../scripts/client';
-import { TEMPLATES, IND_LABEL, defaultInd, emptyGroup, generate, operandLabel, validate, type BuilderModel, type Cmp, type Cond, type Group, type IndKind, type Operand, type PriceField } from '../../../shared/builder';
+import { TEMPLATES, IND_LABEL, PATTERN_LABEL, defaultInd, emptyGroup, generate, operandLabel, validate, type BuilderModel, type Cmp, type Cond, type Group, type IndKind, type Operand, type PatternId, type PriceField } from '../../../shared/builder';
 import './builder.css';
 
-const CMP_LABEL: Record<Cmp, string> = { crossAbove: 'crosses above', crossBelow: 'crosses below', above: 'is above', below: 'is below' };
+const CMP_LABEL: Record<Cmp, string> = { crossAbove: 'crosses above', crossBelow: 'crosses below', above: 'is above', below: 'is below', occurs: 'appears' };
+const COMPARISONS = (Object.keys(CMP_LABEL) as Cmp[]).filter((x) => x !== 'occurs');
 
 const fail = (title: string) => (e: unknown) => toast({ title, body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' });
 
@@ -265,9 +266,22 @@ function GroupEditor({ g, onChange, empty }: { g: Group; onChange: (g: Group) =>
       {!g.conds.length && empty && <div className="faint small">{empty}</div>}
       {g.conds.map((c, k) => (
         <div key={k} className="flow-cond">
-          <OperandButton o={c.left} onChange={(o) => setCond(k, { ...c, left: o })} />
-          <Select value={c.cmp} onChange={(cmp) => setCond(k, { ...c, cmp })} options={(Object.keys(CMP_LABEL) as Cmp[]).map((x) => ({ value: x, label: CMP_LABEL[x] }))} />
-          <OperandButton o={c.right} onChange={(o) => setCond(k, { ...c, right: o })} />
+          <OperandButton
+            o={c.left}
+            allowPattern
+            onChange={(o) =>
+              // a pattern simply appears; leaving a pattern restores a comparison with an indicator
+              setCond(k, o.kind === 'pattern' ? { left: o, cmp: 'occurs', right: c.right } : { left: o, cmp: c.cmp === 'occurs' ? 'crossAbove' : c.cmp, right: c.cmp === 'occurs' ? defaultInd('ema') : c.right })
+            }
+          />
+          {c.left.kind === 'pattern' ? (
+            <span className="faint">appears</span>
+          ) : (
+            <>
+              <Select value={c.cmp} onChange={(cmp) => setCond(k, { ...c, cmp })} options={COMPARISONS.map((x) => ({ value: x, label: CMP_LABEL[x] }))} />
+              <OperandButton o={c.right} onChange={(o) => setCond(k, { ...c, right: o })} />
+            </>
+          )}
           <button className="icon-btn small" onClick={() => onChange({ ...g, conds: g.conds.filter((_, i) => i !== k) })} data-tip="Remove">
             <Icon name="x" size={12} />
           </button>
@@ -288,7 +302,7 @@ const IND_GROUPS: { label: string; kinds: IndKind[] }[] = [
   { label: 'Futures positioning', kinds: ['oi', 'oiSma', 'oiChange', 'lsr', 'topPos', 'funding'] },
 ];
 
-function OperandButton({ o, onChange }: { o: Operand; onChange: (o: Operand) => void }) {
+function OperandButton({ o, onChange, allowPattern }: { o: Operand; onChange: (o: Operand) => void; allowPattern?: boolean }) {
   const pop = usePopover();
   return (
     <>
@@ -301,13 +315,20 @@ function OperandButton({ o, onChange }: { o: Operand; onChange: (o: Operand) => 
             <Segmented
               size="sm"
               value={o.kind}
-              onChange={(k) => onChange(k === 'price' ? { kind: 'price', field: 'close' } : k === 'value' ? { kind: 'value', v: 50 } : defaultInd('ema'))}
+              onChange={(k) => onChange(k === 'price' ? { kind: 'price', field: 'close' } : k === 'value' ? { kind: 'value', v: 50 } : k === 'pattern' ? { kind: 'pattern', pattern: 'bullEngulf' } : defaultInd('ema'))}
               options={[
                 { value: 'ind', label: 'Indicator' },
                 { value: 'price', label: 'Price' },
                 { value: 'value', label: 'Value' },
+                ...(allowPattern ? [{ value: 'pattern' as const, label: 'Pattern' }] : []),
               ]}
             />
+            {o.kind === 'pattern' && (
+              <label className="set-row" data-tip="Candlestick shapes as in the Candlestick Patterns indicator; add a trend condition for reversals">
+                <span>Pattern</span>
+                <Select value={o.pattern} onChange={(p: PatternId) => onChange({ kind: 'pattern', pattern: p })} options={(Object.keys(PATTERN_LABEL) as PatternId[]).map((p) => ({ value: p, label: PATTERN_LABEL[p] }))} />
+              </label>
+            )}
             {o.kind === 'price' && (
               <label className="set-row">
                 <span>Price</span>
