@@ -5,7 +5,7 @@
  * ones. Only documented, supported functions are emitted.
  */
 
-export type IndKind = 'sma' | 'ema' | 'rsi' | 'macd' | 'macdSignal' | 'macdHist' | 'bbUpper' | 'bbBasis' | 'bbLower' | 'atr' | 'stochK' | 'stochD' | 'highest' | 'lowest' | 'vwap' | 'volume' | 'volumeSma' | 'supertrend';
+export type IndKind = 'sma' | 'ema' | 'rsi' | 'macd' | 'macdSignal' | 'macdHist' | 'bbUpper' | 'bbBasis' | 'bbLower' | 'atr' | 'stochK' | 'stochD' | 'highest' | 'lowest' | 'vwap' | 'volume' | 'volumeSma' | 'supertrend' | 'oi' | 'oiSma' | 'oiChange' | 'lsr' | 'topPos';
 export type PriceField = 'close' | 'open' | 'high' | 'low';
 
 export type Operand = { kind: 'price'; field: PriceField } | { kind: 'value'; v: number } | { kind: 'ind'; ind: IndKind; len?: number; len2?: number; len3?: number; mult?: number; src?: PriceField; offset?: number };
@@ -54,7 +54,15 @@ export const IND_LABEL: Record<IndKind, string> = {
   volume: 'Volume',
   volumeSma: 'Volume SMA',
   supertrend: 'Supertrend line',
+  oi: 'Open interest',
+  oiSma: 'Open interest SMA',
+  oiChange: 'Open interest change %',
+  lsr: 'Long/short ratio',
+  topPos: 'Top traders long/short (positions)',
 };
+
+/** Futures positioning operands read Binance's statistics of the perpetual (BINANCE:<symbol>.P_OI …). */
+const FUT_SUFFIX: Partial<Record<IndKind, '_OI' | '_LSR' | '_TOP_POS'>> = { oi: '_OI', oiSma: '_OI', oiChange: '_OI', lsr: '_LSR', topPos: '_TOP_POS' };
 
 /** Default parameters for an indicator operand. */
 export function defaultInd(ind: IndKind): Operand {
@@ -81,7 +89,10 @@ export function defaultInd(ind: IndKind): Operand {
     case 'lowest':
       return { kind: 'ind', ind, len: 20, offset: 1 };
     case 'volumeSma':
+    case 'oiSma':
       return { kind: 'ind', ind, len: 20 };
+    case 'oiChange':
+      return { kind: 'ind', ind, len: 12 };
     case 'supertrend':
       return { kind: 'ind', ind, len: 10, mult: 3 };
     default:
@@ -150,6 +161,29 @@ export const TEMPLATES: { id: string; label: string; model: BuilderModel }[] = [
       risk: { stopPct: 5, takePct: null, trailPct: null, sizePct: 100 },
     },
   },
+  {
+    id: 'oi',
+    label: 'Breakout with rising open interest',
+    model: {
+      name: 'OI breakout (builder)',
+      language: 'pine',
+      long: {
+        enabled: true,
+        when: {
+          op: 'and',
+          conds: [
+            { left: { kind: 'price', field: 'close' }, cmp: 'above', right: { kind: 'ind', ind: 'highest', len: 20, offset: 1 } },
+            { left: { kind: 'ind', ind: 'oiChange', len: 12 }, cmp: 'above', right: { kind: 'value', v: 1 } },
+          ],
+        },
+      },
+      short: { enabled: false, when: emptyGroup() },
+      exitLong: { op: 'or', conds: [{ left: { kind: 'price', field: 'close' }, cmp: 'below', right: { kind: 'ind', ind: 'lowest', len: 10, offset: 1 } }] },
+      exitShort: emptyGroup(),
+      filter: { enabled: false, tf: '1D', len: 50 },
+      risk: { stopPct: 4, takePct: null, trailPct: null, sizePct: 100 },
+    },
+  },
 ];
 
 // ------------------------------------------------------------------ helpers
@@ -213,12 +247,21 @@ interface Decl {
   inputs: string[];
 }
 
+/** The perpetual's statistic as a series (declared once). */
+function pineFutures(suffix: string, decls: Map<string, Decl>): string {
+  const key = `src${suffix}`;
+  const name = `fut${suffix.toLowerCase()}`;
+  if (!decls.has(key)) decls.set(key, { key, pine: [`${name} = request.security(syminfo.prefix + ":" + syminfo.ticker + "${suffix}", timeframe.period, close)`], inputs: [] });
+  return name;
+}
+
 function pineOperand(o: Operand, decls: Map<string, Decl>): string {
   if (o.kind === 'price') return o.field;
   if (o.kind === 'value') return String(o.v);
   const key = operandKey(o);
   const name = `x_${key}`;
   if (decls.has(key)) return name;
+  const fut = FUT_SUFFIX[o.ind] ? pineFutures(FUT_SUFFIX[o.ind]!, decls) : '';
   const inputs: string[] = [];
   const inp = (suffix: string, v: number | undefined, title: string, float = false) => {
     const id = `i_${key}_${suffix}`;
@@ -287,6 +330,17 @@ function pineOperand(o: Operand, decls: Map<string, Decl>): string {
       lines.push(`[${name}, ${name}_dir] = ta.supertrend(${f}, ${p})`);
       break;
     }
+    case 'oi':
+    case 'lsr':
+    case 'topPos':
+      lines.push(`${name} = ${fut}`);
+      break;
+    case 'oiSma':
+      lines.push(`${name} = ta.sma(${fut}, ${inp('len', o.len, 'Open interest average length')})`);
+      break;
+    case 'oiChange':
+      lines.push(`${name} = (${fut} / ${fut}[${inp('len', o.len, 'Open interest change lookback (bars)')}] - 1) * 100`);
+      break;
   }
   decls.set(key, { key, pine: lines, inputs });
   return name;
@@ -385,12 +439,21 @@ function operandFromKey(key: string, m: BuilderModel): Operand | null {
 
 // ------------------------------------------------------------------ Python
 
+/** The perpetual's statistic aligned to the chart bars (declared once). */
+function pyFutures(suffix: string, decls: Map<string, Decl>): string {
+  const key = `src${suffix}`;
+  const name = `self.fut${suffix.toLowerCase()}`;
+  if (!decls.has(key)) decls.set(key, { key, pine: [`        ${name} = self.data.security(self.data.symbol + ".P${suffix}")`], inputs: [] });
+  return name;
+}
+
 function pyOperand(o: Operand, decls: Map<string, Decl>, params: string[]): string {
   if (o.kind === 'price') return `self.data.${o.field}`;
   if (o.kind === 'value') return String(o.v);
   const key = operandKey(o);
   const name = `self.x_${key}`;
   if (decls.has(key)) return name;
+  const fut = FUT_SUFFIX[o.ind] ? pyFutures(FUT_SUFFIX[o.ind]!, decls) : '';
   const p = (suffix: string, v: number | undefined, title: string, float = false) => {
     const id = `p_${key}_${suffix}`;
     params.push(`    ${id} = ${float ? 'input.float' : 'input.int'}(${v}, "${title}"${float ? ', step=0.1' : ', min=1'})`);
@@ -449,6 +512,19 @@ function pyOperand(o: Operand, decls: Map<string, Decl>, params: string[]): stri
     case 'supertrend':
       reg(`ta.supertrend(${p('mult', o.mult, 'Supertrend factor', true)}, ${p('len', o.len, 'Supertrend ATR length')})[0]`, true);
       break;
+    case 'oi':
+    case 'lsr':
+    case 'topPos':
+      reg(fut, false);
+      break;
+    case 'oiSma':
+      reg(`ta.sma(${fut}, ${p('len', o.len, 'Open interest average length')})`, false);
+      break;
+    case 'oiChange': {
+      const n = p('len', o.len, 'Open interest change lookback (bars)');
+      reg(`(${fut} / np.concatenate([np.full(${n}, np.nan), ${fut}[:-${n}]]) - 1) * 100`, false);
+      break;
+    }
   }
   decls.set(key, { key, pine: lines, inputs: [] });
   return name;

@@ -18,10 +18,20 @@ const PY: PyInitOptions = {
 const data: BarSeries = bars(3000, (i) => 100 + Math.sin(i / 23) * 9 + Math.sin(i / 7) * 3 + Math.sin(i / 131) * 15 + i * 0.004);
 const htf = aggregateBars(data, 240);
 
+/** Futures statistics keys get a chart-timeframe series that moves; higher timeframes the 4h bars. */
+const isStat = (key: string) => /:(oi|oiusd|lsr|toplsr|toppos)$/.test(key);
+
 function securityFor(code: string): Record<string, BarSeries> {
   const out: Record<string, BarSeries> = {};
-  for (const r of securityRequests(compileCached(code), {}, ctx)) out[r.key] = htf;
+  for (const r of securityRequests(compileCached(code), {}, ctx)) out[r.key] = isStat(r.key) ? data : htf;
   return out;
+}
+
+/** What a generated Python strategy requests (its futures statistics on the chart timeframe). */
+function pySecurity(code: string, filterTf?: string): Record<string, BarSeries> {
+  const sec: Record<string, BarSeries> = filterTf ? { [`spot:BTCUSDT:${filterTf}:candles`]: htf } : {};
+  for (const [suffix, kind] of [['.P_OI"', 'oi'], ['.P_LSR"', 'lsr'], ['.P_TOP_POS"', 'toppos']]) if (code.includes(suffix)) sec[`futures:BTCUSDT:${ctx.tf}:${kind}`] = data;
+  return sec;
 }
 
 beforeAll(async () => {
@@ -45,8 +55,7 @@ describe('strategy builder code generation', () => {
 
     it(`"${t.label}" runs and trades in Python`, async () => {
       const code = generate({ ...t.model, filter: { ...t.model.filter, len: 3 }, language: 'python' });
-      const sec: Record<string, BarSeries> = t.model.filter.enabled ? { [`spot:BTCUSDT:${t.model.filter.tf}:candles`]: htf } : {};
-      const r = await runPython(PY, { code, data, ctx, inputs: {}, security: sec });
+      const r = await runPython(PY, { code, data, ctx, inputs: {}, security: pySecurity(code, t.model.filter.enabled ? t.model.filter.tf : undefined) });
       expect(r.need).toEqual([]);
       expect(r.result.ok, r.result.error?.message).toBe(true);
       expect(r.result.strategy!.trades.length).toBeGreaterThan(2);
@@ -54,7 +63,7 @@ describe('strategy builder code generation', () => {
   }
 
   it('generates every indicator kind in both languages', async () => {
-    const kinds: IndKind[] = ['sma', 'ema', 'rsi', 'macd', 'macdSignal', 'macdHist', 'bbUpper', 'bbBasis', 'bbLower', 'atr', 'stochK', 'stochD', 'highest', 'lowest', 'vwap', 'volume', 'volumeSma', 'supertrend'];
+    const kinds: IndKind[] = ['sma', 'ema', 'rsi', 'macd', 'macdSignal', 'macdHist', 'bbUpper', 'bbBasis', 'bbLower', 'atr', 'stochK', 'stochD', 'highest', 'lowest', 'vwap', 'volume', 'volumeSma', 'supertrend', 'oi', 'oiSma', 'oiChange', 'lsr', 'topPos'];
     const m: BuilderModel = {
       ...TEMPLATES[0].model,
       long: { enabled: true, when: { op: 'or', conds: kinds.map((k) => ({ left: defaultInd(k), cmp: 'above' as const, right: { kind: 'value' as const, v: 1e12 } })) } },
@@ -63,8 +72,14 @@ describe('strategy builder code generation', () => {
     const pine = generate({ ...m, language: 'pine' });
     const a = analyzePine(pine);
     expect(a.ok, a.error?.message).toBe(true);
-    expect(runPine(pine, { data, ctx, inputs: {} }).ok).toBe(true);
-    const py = await runPython(PY, { code: generate({ ...m, language: 'python' }), data, ctx, inputs: {} });
+    // the futures statistics are declared once each, whatever uses them
+    expect(pine.match(/_OI", timeframe\.period/g)?.length).toBe(1);
+    expect(securityRequests(compileCached(pine), {}, ctx).map((r) => r.key).sort()).toEqual(['futures:BTCUSDT:1m:lsr', 'futures:BTCUSDT:1m:oi', 'futures:BTCUSDT:1m:toppos']);
+    const rp = runPine(pine, { data, ctx, inputs: {}, security: securityFor(pine) });
+    expect(rp.ok, rp.error?.message).toBe(true);
+    const pyCode = generate({ ...m, language: 'python' });
+    const py = await runPython(PY, { code: pyCode, data, ctx, inputs: {}, security: pySecurity(pyCode) });
+    expect(py.need).toEqual([]);
     expect(py.result.ok, py.result.error?.message).toBe(true);
   }, 120000);
 
