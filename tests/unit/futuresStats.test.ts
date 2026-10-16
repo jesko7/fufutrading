@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CandleSeries } from '../../src/shared/candles';
-import { METRIC_STEP, metricBars, parseMetricsCsv, revealMetric, splitMetricSuffix } from '../../src/shared/metrics';
+import { METRIC_STEP, fundingSamples, metricBars, parseMetricsCsv, revealMetric, splitMetricSuffix } from '../../src/shared/metrics';
+import { FundingCache } from '../../src/main/market/funding';
 import { parseTimeframe } from '../../src/shared/timeframes';
 import { CandleStore, type KlineSource } from '../../src/main/storage/candleStore';
 import { MetricSeries, type MetricClock } from '../../src/main/market/metricSeries';
@@ -215,7 +216,7 @@ describe('futures statistics: live series', () => {
     let recent = samples(now - 30 * MIN, now - 2 * MIN, (t) => t / METRIC_STEP);
     let tick: (() => void) | null = null;
     const clock: MetricClock = { kind: 'live', now: () => now, ready: async () => {}, recent: () => recent, listen: (cb) => ((tick = cb), () => (tick = null)), status: () => 'live', release: () => {} };
-    const ser = new MetricSeries({ symbol: 'BTCUSDT', market: 'futures', tf: '5m', chartType: 'candles', metric: 'oi' }, clock, store, () => {}, 300);
+    const ser = new MetricSeries({ symbol: 'BTCUSDT', market: 'futures', tf: '5m', chartType: 'candles', metric: 'oi' }, clock, (a, b) => store.get('metrics', 'futures', 'BTCUSDT', '5m', a, b), () => {}, 300);
     await ser.ready;
     expect(ser.status).toBe('live');
     const lastBar = () => ({ t: ser.out.t[ser.out.length - 1], c: ser.out.c[ser.out.length - 1] });
@@ -237,5 +238,75 @@ describe('futures statistics: live series', () => {
     await Promise.resolve();
     expect(updates[updates.length - 1]).toBe(ser.out.length - 1);
     ser.dispose();
+  });
+});
+
+describe('funding rates as data', () => {
+  const H8 = 8 * HOUR;
+
+  it('settlements in % at the second, negative rates kept, usable at the settlement', () => {
+    const a = Date.UTC(2026, 0, 1);
+    // Binance stamps settlements a few milliseconds after the hour
+    const raw = fundingSamples([a + 1, a + H8 + 2, a + 2 * H8, a + 2 * H8 + 5], [0.0001, -0.00025, 0, 0.0003]);
+    expect(Array.from(raw.t.subarray(0, raw.length))).toEqual([a, a + H8, a + 2 * H8]);
+    expect(Array.from(raw.o.subarray(0, raw.length))).toEqual([0.01, -0.025, 0]);
+    expect(splitMetricSuffix('BTCUSDT.P_FUNDING')).toEqual(['BTCUSDT.P', 'funding']);
+    // the 08:00 settlement closes the 07:00–08:00 bar, so a strategy can use it at 08:00
+    const h1 = metricBars(raw, 'funding', tf('1h'));
+    const k = h1.lowerBound(a + H8 - HOUR);
+    expect(h1.t[k]).toBe(a + H8 - HOUR);
+    expect(h1.c[k]).toBeCloseTo(-0.025, 12);
+    expect(h1.o[k]).toBeCloseTo(0.01, 12);
+    // zero is a value, not a gap
+    expect(h1.c[h1.length - 1]).toBe(0);
+    // nothing before the settlement time
+    expect(metricBars(raw, 'funding', tf('1h'), a + H8 - 1).length).toBe(1);
+  });
+
+  it('request.security keys and a Pine run of the Funding Rate indicator', () => {
+    const code = fs.readFileSync(path.resolve(__dirname, '../../src/engine/library/funding_rate.pine'), 'utf8');
+    const ctx: RunContext = { symbol: 'ETHUSDT', market: 'spot', tf: '1h', chartType: 'candles', mintick: 0.01, base: 'ETH', quote: 'USDT' };
+    const reqs = securityRequests(compileCached(code), {}, ctx);
+    expect(reqs.map((r) => r.key)).toEqual(['futures:ETHUSDT:1h:funding']);
+    const a = Date.UTC(2026, 0, 1);
+    const chart = new CandleSeries(48);
+    for (let i = 0; i < 48; i++) chart.push(a + i * HOUR, 100, 101, 99, 100, 1);
+    const f = metricBars(fundingSamples([a - H8, a, a + H8, a + 2 * H8, a + 3 * H8, a + 4 * H8], [0.0001, 0.0002, -0.0001, 0.0006, 0.0001, 0.0001]), 'funding', tf('1h'));
+    const r = runPine(code, { data: fromCandles(chart, '1h'), ctx, inputs: {}, security: { [reqs[0].key]: fromCandles(f, '1h') } });
+    expect(r.error).toBeUndefined();
+    const plot = r.plots.find((p) => p.title === 'Funding')!;
+    // between settlements the last rate holds; it changes at the bar that closes on a settlement
+    expect(plot.values[5]).toBeCloseTo(0.02, 10);
+    expect(plot.values[7]).toBeCloseTo(-0.01, 10);
+    expect(plot.values[15]).toBeCloseTo(0.06, 10);
+    // the extreme alert fires on the 0.06% settlement
+    expect(r.alerts[0].values[15]).toBe(1);
+  });
+
+  it('the funding cache downloads only what is missing', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fufu-funding-'));
+    const calls: [number, number][] = [];
+    const a = Date.UTC(2026, 0, 1);
+    let now = a + 10 * DAY;
+    const rest = {
+      fundingRates: async (_s: string, start?: number, end?: number) => {
+        calls.push([start!, end!]);
+        const out: { t: number; rate: number; markPrice: number }[] = [];
+        for (let t = Math.ceil(start! / H8) * H8; t <= end! && t <= now; t += H8) out.push({ t: t + 3, rate: 0.0001, markPrice: NaN });
+        return out;
+      },
+    };
+    const fc = new FundingCache(dir, rest, () => now);
+    const r1 = await fc.get('BTCUSDT', a, a + 5 * DAY);
+    expect(r1.t.length).toBe(15);
+    expect(calls.length).toBe(1);
+    await fc.get('BTCUSDT', a + DAY, a + 4 * DAY);
+    expect(calls.length).toBe(1);
+    // later: only the new tail is fetched
+    now = a + 20 * DAY;
+    const r3 = await fc.get('BTCUSDT', a, a + 8 * DAY);
+    expect(calls.length).toBe(2);
+    expect(calls[1][0]).toBe(a + 5 * DAY);
+    expect(r3.t.length).toBe(24);
   });
 });

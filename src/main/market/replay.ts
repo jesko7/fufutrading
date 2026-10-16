@@ -25,9 +25,8 @@ import { CandleSeries } from '../../shared/candles';
 import { barPath } from '../../shared/trading/matching';
 import { parseTimeframe, tfDurationMs, intervalMs, bucketStart, bucketEnd, type Timeframe } from '../../shared/timeframes';
 import { SYMBOL_SPECS, isSymbol, floorToStep, type Market, type SymbolId } from '../../shared/symbols';
-import { FundingCache } from '../backtest/service';
+import type { FundingCache } from './funding';
 import { uid } from '../storage/jsonStore';
-import path from 'node:path';
 import { buildReplayReport, type ReplayReport, type ReplayReportInput } from './replayReport';
 
 export interface ReplayRef {
@@ -647,7 +646,7 @@ export class ReplayService {
     readonly core: AppCore,
     readonly engine: TradingEngine,
   ) {
-    this.fundingCache = new FundingCache(path.join(core.paths.data, 'funding'), core);
+    this.fundingCache = core.funding;
     engine.replayCtx = (id) => {
       for (const s of this.sessions.values()) if (Object.values(s.accounts).includes(id)) return s.ctx();
       return null;

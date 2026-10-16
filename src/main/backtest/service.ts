@@ -9,11 +9,11 @@
  *  - optional fee-sensitivity reruns, analytics, and a persistent run history.
  */
 import path from 'node:path';
-import fs from 'node:fs';
 import type { AppCore } from '../core';
 import type { ScriptService } from '../scripts/service';
 import { runContext } from '../scripts/service';
-import { DocStore, uid, readJson, writeJsonAtomic } from '../storage/jsonStore';
+import { DocStore, uid } from '../storage/jsonStore';
+import type { FundingCache } from '../market/funding';
 import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
 import { randomBenchmark, tradeMonteCarlo, type RandomBenchmark, type TradeMonteCarlo } from '../../engine/backtest/benchmarks';
 import { keyParts } from '../../engine/host';
@@ -164,48 +164,6 @@ function downsample(m: Metrics['curves']): BacktestRecord['curves'] {
   return { t, equity, drawdownPct: dd, buyHold: bh };
 }
 
-/** Historical funding events per symbol, cached with coverage ranges. */
-export class FundingCache {
-  constructor(
-    private dir: string,
-    private core: AppCore,
-  ) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  async get(symbol: SymbolId, from: number, to: number): Promise<{ t: Float64Array; rate: Float64Array }> {
-    const file = path.join(this.dir, `${symbol}.json`);
-    const doc = readJson<{ ranges: [number, number][]; events: [number, number][] }>(file, { ranges: [], events: [] });
-    const covered = doc.ranges.some(([a, b]) => a <= from && b >= Math.min(to, Date.now() - 60000));
-    if (!covered) {
-      const map = new Map(doc.events.map(([t, r]) => [t, r]));
-      let start = from;
-      for (let guard = 0; guard < 100 && start < to; guard++) {
-        const rows = await this.core.hub.rest.fundingRates(symbol, start, to, 1000);
-        for (const r of rows) map.set(r.t, r.rate);
-        if (rows.length < 1000) break;
-        start = rows[rows.length - 1].t + 1;
-      }
-      doc.events = [...map.entries()].sort((a, b) => a[0] - b[0]);
-      doc.ranges = mergeRanges([...doc.ranges, [from, Math.min(to, Date.now() - 60000)]]);
-      writeJsonAtomic(file, doc);
-    }
-    const ev = doc.events.filter(([t]) => t >= from && t <= to);
-    return { t: Float64Array.from(ev.map((e) => e[0])), rate: Float64Array.from(ev.map((e) => e[1])) };
-  }
-}
-
-function mergeRanges(r: [number, number][]): [number, number][] {
-  const s = r.filter(([a, b]) => b > a).sort((a, b) => a[0] - b[0]);
-  const out: [number, number][] = [];
-  for (const x of s) {
-    const last = out[out.length - 1];
-    if (last && x[0] <= last[1]) last[1] = Math.max(last[1], x[1]);
-    else out.push([x[0], x[1]]);
-  }
-  return out;
-}
-
 export class BacktestService {
   private store: DocStore<BacktestRecord>;
   private funding: FundingCache;
@@ -215,7 +173,7 @@ export class BacktestService {
     private scripts: ScriptService,
   ) {
     this.store = new DocStore<BacktestRecord>(path.join(core.paths.userData, 'backtests'));
-    this.funding = new FundingCache(path.join(core.paths.data, 'funding'), core);
+    this.funding = core.funding;
     this.register();
   }
 

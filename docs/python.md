@@ -104,7 +104,8 @@ Registered series are plotted on the chart unless `plot=False`.
   Futures statistics take TradingView's suffixes: `'BTCUSDT.P_OI'` (open interest, contracts),
   `'_OI_USD'` (its value in USDT), `'_LSR'` (long/short account ratio), `'_TOP_LSR'` and
   `'_TOP_POS'` (top traders' accounts and positions). They are 5-minute samples since
-  September 2020, and each one counts from the next 5-minute mark (no lookahead). See the
+  September 2020, and each one counts from the next 5-minute mark (no lookahead).
+  `'_FUNDING'` gives the funding rate in % per funding interval at each settlement. See the
   Pine guide for details. Example: `oi = data.security('BTCUSDT.P_OI', '1h')`.
 
 ## Inputs

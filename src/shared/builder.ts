@@ -5,7 +5,7 @@
  * ones. Only documented, supported functions are emitted.
  */
 
-export type IndKind = 'sma' | 'ema' | 'rsi' | 'macd' | 'macdSignal' | 'macdHist' | 'bbUpper' | 'bbBasis' | 'bbLower' | 'atr' | 'stochK' | 'stochD' | 'highest' | 'lowest' | 'vwap' | 'volume' | 'volumeSma' | 'supertrend' | 'oi' | 'oiSma' | 'oiChange' | 'lsr' | 'topPos';
+export type IndKind = 'sma' | 'ema' | 'rsi' | 'macd' | 'macdSignal' | 'macdHist' | 'bbUpper' | 'bbBasis' | 'bbLower' | 'atr' | 'stochK' | 'stochD' | 'highest' | 'lowest' | 'vwap' | 'volume' | 'volumeSma' | 'supertrend' | 'oi' | 'oiSma' | 'oiChange' | 'lsr' | 'topPos' | 'funding';
 export type PriceField = 'close' | 'open' | 'high' | 'low';
 
 export type Operand = { kind: 'price'; field: PriceField } | { kind: 'value'; v: number } | { kind: 'ind'; ind: IndKind; len?: number; len2?: number; len3?: number; mult?: number; src?: PriceField; offset?: number };
@@ -59,10 +59,11 @@ export const IND_LABEL: Record<IndKind, string> = {
   oiChange: 'Open interest change %',
   lsr: 'Long/short ratio',
   topPos: 'Top traders long/short (positions)',
+  funding: 'Funding rate %',
 };
 
 /** Futures positioning operands read Binance's statistics of the perpetual (BINANCE:<symbol>.P_OI …). */
-const FUT_SUFFIX: Partial<Record<IndKind, '_OI' | '_LSR' | '_TOP_POS'>> = { oi: '_OI', oiSma: '_OI', oiChange: '_OI', lsr: '_LSR', topPos: '_TOP_POS' };
+const FUT_SUFFIX: Partial<Record<IndKind, '_OI' | '_LSR' | '_TOP_POS' | '_FUNDING'>> = { oi: '_OI', oiSma: '_OI', oiChange: '_OI', lsr: '_LSR', topPos: '_TOP_POS', funding: '_FUNDING' };
 
 /** Default parameters for an indicator operand. */
 export function defaultInd(ind: IndKind): Operand {
@@ -333,6 +334,7 @@ function pineOperand(o: Operand, decls: Map<string, Decl>): string {
     case 'oi':
     case 'lsr':
     case 'topPos':
+    case 'funding':
       lines.push(`${name} = ${fut}`);
       break;
     case 'oiSma':
@@ -515,6 +517,7 @@ function pyOperand(o: Operand, decls: Map<string, Decl>, params: string[]): stri
     case 'oi':
     case 'lsr':
     case 'topPos':
+    case 'funding':
       reg(fut, false);
       break;
     case 'oiSma':

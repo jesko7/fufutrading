@@ -359,8 +359,8 @@ export class ScriptService {
       await series.ready;
       await series.complete;
       if (series.status === 'error') throw new Error(series.info.error || 'Data unavailable');
-      const out = series.out;
-      return out.pack(0, Math.max(0, out.length - 1));
+      // closed bars by time: the last bar of sparse data (funding every 8 hours) may have closed long ago
+      return series.out.pack(0, series.closedLength(this.core.hub.clock.now()));
     } finally {
       release();
     }

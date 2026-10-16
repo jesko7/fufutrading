@@ -1,0 +1,16 @@
+//@version=6
+// @name Funding Rate
+// @category Futures
+// @description Binance perpetual funding rate at each settlement (% of the position per funding interval, every 8 hours for BTC, ETH and SOL; since 2019). Positive: longs pay shorts. Optionally annualized.
+indicator("Funding Rate", format=format.percent, precision=4)
+sym = input.symbol("", "Symbol (empty: chart symbol)")
+annual = input.bool(false, "Annualized (3 fundings a day)")
+extreme = input.float(0.05, "Extreme level (% per interval)", minval=0, step=0.01)
+f = request.security((sym == "" ? syminfo.prefix + ":" + syminfo.ticker : sym) + "_FUNDING", timeframe.period, close)
+k = annual ? 3 * 365 : 1
+plot(f * k, "Funding", f >= 0 ? color.new(color.teal, 20) : color.new(color.red, 20), style=plot.style_columns)
+hline(0, "Zero", color.gray)
+hline(extreme * k, "Extreme", color.new(color.orange, 30), linestyle=hline.style_dashed)
+hline(-extreme * k, "Extreme (negative)", color.new(color.orange, 30), linestyle=hline.style_dashed)
+alertcondition(ta.crossover(f, extreme), "Funding extreme", "Funding rose above the extreme level: longs are crowded")
+alertcondition(ta.crossunder(f, -extreme), "Funding negative extreme", "Funding fell below the negative extreme: shorts are crowded")

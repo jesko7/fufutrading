@@ -263,7 +263,7 @@ class SeriesView:
 
 
 # futures statistics ticker suffixes (longest first), see shared/metrics.ts
-_METRIC_SUFFIXES = [('_OI_USD', 'oiusd'), ('_TOP_LSR', 'toplsr'), ('_TOP_POS', 'toppos'), ('_LSR', 'lsr'), ('_OI', 'oi')]
+_METRIC_SUFFIXES = [('_OI_USD', 'oiusd'), ('_TOP_LSR', 'toplsr'), ('_TOP_POS', 'toppos'), ('_FUNDING', 'funding'), ('_LSR', 'lsr'), ('_OI', 'oi')]
 
 
 class Bars:
@@ -314,7 +314,8 @@ class Bars:
         `symbol` is 'BTCUSDT', 'ETHUSDT' or 'SOLUSDT' (add '.P' for the perpetual); `market`
         'spot' or 'futures'. Futures statistics take a suffix, like TradingView's open interest
         symbols: 'BTCUSDT.P_OI' (open interest, contracts), '_OI_USD' (its value), '_LSR'
-        (long/short account ratio), '_TOP_LSR' / '_TOP_POS' (top traders' accounts / positions).
+        (long/short account ratio), '_TOP_LSR' / '_TOP_POS' (top traders' accounts / positions),
+        '_FUNDING' (funding rate in % per funding interval, at each settlement).
         """
         sym = (symbol or self.symbol or '').upper().replace('/', '').replace('BINANCE:', '')
         metric = None

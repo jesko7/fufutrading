@@ -804,6 +804,9 @@ const S = {
     });
     const pyLast = pyOi.result.plots?.[0]?.last?.slice(-1)[0];
     check(pyOi.result.ok && pyLast > 1000, `Python reads open interest with data.security('BTCUSDT.P_OI') (last ${pyLast})`);
+    const fr = await call('run_script', { id: 'builtin:funding_rate', symbol: 'ETHUSDT', market: 'futures', tf: '1h', bars: 1000 });
+    const frLast = fr.result.plots?.find((p) => p.title === 'Funding')?.last?.slice(-1)[0];
+    check(fr.result.ok && Math.abs(frLast) > 0 && Math.abs(frLast) < 1, `Funding Rate indicator on BINANCE:ETHUSDT.P_FUNDING (last ${frLast}% per 8 h)`);
     const saved = await call('get_backtest', { id: bt.result.recordId });
     check(saved.result.ok && saved.result.metrics?.vsRandom && saved.result.request?.tf === '4h', `Claude can read a saved backtest (${saved.result.label})`);
     // Claude prepares a paper bot: the dialog opens prefilled, the bot is set up with the strategy

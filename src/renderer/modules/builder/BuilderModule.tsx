@@ -285,7 +285,7 @@ const IND_GROUPS: { label: string; kinds: IndKind[] }[] = [
   { label: 'Momentum', kinds: ['rsi', 'macd', 'macdSignal', 'macdHist', 'stochK', 'stochD'] },
   { label: 'Volatility', kinds: ['bbUpper', 'bbBasis', 'bbLower', 'atr'] },
   { label: 'Volume', kinds: ['volume', 'volumeSma'] },
-  { label: 'Futures positioning', kinds: ['oi', 'oiSma', 'oiChange', 'lsr', 'topPos'] },
+  { label: 'Futures positioning', kinds: ['oi', 'oiSma', 'oiChange', 'lsr', 'topPos', 'funding'] },
 ];
 
 function OperandButton({ o, onChange }: { o: Operand; onChange: (o: Operand) => void }) {

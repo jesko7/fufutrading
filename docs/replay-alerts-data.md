@@ -74,7 +74,8 @@ per alert.
   that, cached like candles. Scripts use them as `BINANCE:BTCUSDT.P_OI` and so on (see the
   Pine guide). A sample counts from the next 5-minute mark, because Binance publishes it 2–3
   minutes after measuring it. Backtests, replays and bots therefore see what a live trader
-  saw. The Data Manager can prefetch them.
+  saw. The Data Manager can prefetch them. Funding rates work the same way
+  (`BINANCE:BTCUSDT.P_FUNDING`), one value per settlement.
 - **Footprints** use Binance aggregate trades with their aggressor side (from the maker flag).
   They are cached per day and only the newest days are kept.
 - **Time:** bar closes follow Binance's server clock. The app measures its offset, so a

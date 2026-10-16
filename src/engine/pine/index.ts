@@ -73,7 +73,7 @@ export interface SecurityRequest {
 /**
  * Parse a TradingView-style ticker into a supported Binance instrument: BTCUSDT (spot, or the
  * chart's market without a prefix), BTCUSDT.P / BTCUSDTPERP (perpetual), #HA (Heikin-Ashi) and the
- * futures statistics suffixes _OI, _OI_USD, _LSR, _TOP_LSR, _TOP_POS (always the perpetual).
+ * futures data suffixes _OI, _OI_USD, _LSR, _TOP_LSR, _TOP_POS and _FUNDING (always the perpetual).
  */
 export function resolveTicker(ticker: string, ctx: RunContext): { symbol: SymbolId; market: 'spot' | 'futures'; ha: boolean; metric: MetricKind | null } {
   let t = String(ticker || '').trim().toUpperCase();

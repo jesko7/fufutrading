@@ -12,11 +12,12 @@ import { LiveAggregator, type BaseKline, type TradeTick } from '../../shared/liv
 import { type SeriesSpec, type SeriesSnapshot, type SeriesUpdate, type SeriesStatus, type SeriesInfo, seriesKey } from '../../shared/marketTypes';
 import { baseIntervalFor, bucketStart, bucketEnd, intervalMs, parseTimeframe, timeForBarsBack, tfDurationMs, type Timeframe, DAY, HOUR, MIN } from '../../shared/timeframes';
 import { SYMBOL_SPECS, type SymbolId } from '../../shared/symbols';
-import { METRICS_EPOCH, METRIC_STEP, metricBars, type MetricKind } from '../../shared/metrics';
+import { METRICS, METRIC_STEP, fundingSamples, metricBars, type MetricKind } from '../../shared/metrics';
 import type { CandleStore } from '../storage/candleStore';
 import type { MarketHub } from './hub';
 import type { TapeListener } from './tape';
-import { MetricPoller, MetricSeries, replayMetricClock, type MetricClock } from './metricSeries';
+import { MetricPoller, MetricSeries, replayMetricClock, type MetricClock, type MetricLoader } from './metricSeries';
+import type { FundingCache } from './funding';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
 
@@ -314,12 +315,13 @@ function sameTf(a: Timeframe, b: Timeframe): boolean {
 export class SeriesService {
   private map = new Map<string, ManagedSeries | MetricSeries>();
   private disposeTimers = new Map<string, NodeJS.Timeout>();
-  private pollers = new Map<SymbolId, MetricPoller>();
+  private pollers = new Map<string, MetricPoller>();
 
   constructor(
     private hub: MarketHub,
     private store: CandleStore,
     private log: Logger,
+    private funding: FundingCache,
   ) {}
 
   defaultBars(spec: SeriesSpec): number {
@@ -331,12 +333,48 @@ export class SeriesService {
     return 2000;
   }
 
-  /** The live clock of futures statistics: one poller per symbol while series use it. */
-  private metricClock(symbol: SymbolId): MetricClock {
-    let p = this.pollers.get(symbol);
+  /** Raw samples of a futures statistic: the 5-minute statistics cache or the funding history. */
+  private metricLoader(symbol: SymbolId, metric: MetricKind, onProgress?: (p: { done: number; total: number; phase: string }) => void): MetricLoader {
+    if (METRICS[metric].source === 'funding')
+      return async (from, to) => {
+        const f = await this.funding.get(symbol, from, to - 1);
+        return fundingSamples(f.t, f.rate);
+      };
+    return (from, to) => this.store.get('metrics', 'futures', symbol, '5m', from, to, onProgress);
+  }
+
+  /**
+   * The live clock of futures statistics or funding rates: one poller per symbol and source while
+   * series use it. Statistics are polled every 30 s and become usable at 5-minute marks; funding
+   * settles on the hour, so it is polled just after every hour (and every 5 minutes).
+   */
+  private metricClock(symbol: SymbolId, metric: MetricKind): MetricClock {
+    const source = METRICS[metric].source;
+    const key = `${symbol}:${source}`;
+    let p = this.pollers.get(key);
     if (!p) {
-      p = new MetricPoller(this.hub.rest, () => this.hub.clock.now(), symbol, this.log);
-      this.pollers.set(symbol, p);
+      const rest = this.hub.rest;
+      const now = () => this.hub.clock.now();
+      p =
+        source === 'funding'
+          ? new MetricPoller({
+              name: `${symbol} funding rates`,
+              fetch: async (t) => {
+                const rows = await rest.fundingRates(symbol, t - 2 * 86_400_000, t + 60_000, 100);
+                return fundingSamples(
+                  rows.map((r) => r.t),
+                  rows.map((r) => r.rate),
+                );
+              },
+              now,
+              log: this.log,
+              pollMs: 5 * 60_000,
+              markMs: 3_600_000,
+              markOffsetMs: 5_000,
+              pollAtMark: true,
+            })
+          : new MetricPoller({ name: `${symbol} futures statistics`, fetch: (t) => rest.futuresStats(symbol, t - 45 * 60_000, t + 60_000), now, log: this.log, pollMs: 30_000, markMs: METRIC_STEP, markOffsetMs: 250, pollAtMark: false });
+      this.pollers.set(key, p);
     }
     const poller = p;
     poller.refs++;
@@ -353,7 +391,7 @@ export class SeriesService {
         released = true;
         if (--poller.refs > 0) return;
         poller.stop();
-        if (this.pollers.get(symbol) === poller) this.pollers.delete(symbol);
+        if (this.pollers.get(key) === poller) this.pollers.delete(key);
       },
     };
   }
@@ -370,8 +408,8 @@ export class SeriesService {
     if (!s) {
       const bars = opts.bars || this.defaultBars(spec);
       if (spec.metric) {
-        const clock = opts.feed ? replayMetricClock(opts.feed) : this.metricClock(spec.symbol);
-        s = new MetricSeries(spec, clock, this.store, this.log, bars, opts.keySuffix || '');
+        const clock = opts.feed ? replayMetricClock(opts.feed) : this.metricClock(spec.symbol, spec.metric);
+        s = new MetricSeries(spec, clock, this.metricLoader(spec.symbol, spec.metric), this.log, bars, opts.keySuffix || '');
       } else {
         const feed = opts.feed || liveFeed(this.hub, spec);
         s = new ManagedSeries(spec, feed, this.store, this.log, bars, opts.keySuffix || '');
@@ -441,12 +479,13 @@ export class SeriesService {
     return s;
   }
 
-  /** Futures statistics bars for analysis (backtests): closed bars of the samples usable by `to`. */
+  /** Futures statistics / funding bars for analysis (backtests): closed bars of the samples usable by `to`. */
   async metricHistory(spec: { symbol: SymbolId; tf: string; metric: MetricKind }, from: number, to: number, onProgress?: (p: { done: number; total: number; phase: string }) => void): Promise<CandleSeries> {
     const tf = parseTimeframe(spec.tf);
     if (!tf) throw new Error(`Invalid timeframe ${spec.tf}`);
+    const m = METRICS[spec.metric];
     const b = Math.min(to, this.hub.clock.now());
-    const raw = await this.store.get('metrics', 'futures', spec.symbol, '5m', Math.max(METRICS_EPOCH, bucketStart(tf, from) - METRIC_STEP), b, onProgress);
+    const raw = await this.metricLoader(spec.symbol, spec.metric, onProgress)(Math.max(m.epoch, bucketStart(tf, from) - m.stepMs), b);
     let s = metricBars(raw, spec.metric, tf, b);
     if (s.length && bucketEnd(tf, s.t[s.length - 1]) > b) s = s.slice(0, s.length - 1);
     return s;

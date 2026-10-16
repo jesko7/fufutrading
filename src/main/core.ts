@@ -11,6 +11,7 @@ import { JsonFile } from './storage/jsonStore';
 import { CandleStore, binanceKlineSource } from './storage/candleStore';
 import { MarketHub } from './market/hub';
 import { SeriesService, type SeriesHandle } from './market/series';
+import { FundingCache } from './market/funding';
 import { WorkspaceService, type WorkspaceOp } from './workspaces';
 import { WindowManager } from './windows';
 import { createShortcuts, getAutostart, setAutostart } from './desktop';
@@ -43,6 +44,8 @@ export class AppCore {
   readonly hub: MarketHub;
   readonly store: CandleStore;
   readonly series: SeriesService;
+  /** Historical funding rates (backtests, replays, funding-rate series). */
+  readonly funding: FundingCache;
   readonly workspaces: WorkspaceService;
   readonly windows: WindowManager;
   quitting = false;
@@ -58,7 +61,8 @@ export class AppCore {
     this.settingsFile.set(mergeSettings(this.settingsFile.get()));
     this.hub = new MarketHub(log);
     this.store = new CandleStore(paths.data, binanceKlineSource(this.hub.rest), log, () => this.hub.clock.now());
-    this.series = new SeriesService(this.hub, this.store, log);
+    this.funding = new FundingCache(path.join(paths.data, 'funding'), this.hub.rest, () => this.hub.clock.now());
+    this.series = new SeriesService(this.hub, this.store, log, this.funding);
     this.workspaces = new WorkspaceService(paths.userData);
     this.windows = new WindowManager(this.workspaces, this.router, log, {
       iconPath: path.join(paths.resources, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),

@@ -6,13 +6,14 @@ import { MarketHub } from '../../src/main/market/hub';
 import { CandleStore, binanceKlineSource } from '../../src/main/storage/candleStore';
 import { SeriesService } from '../../src/main/market/series';
 import type { SeriesUpdate } from '../../src/shared/marketTypes';
+import { FundingCache } from '../../src/main/market/funding';
 
 const logs: string[] = [];
 const log = (level: string, msg: string) => logs.push(`${level} ${msg}`);
 const hub = new MarketHub(log);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fufu-live-'));
 const store = new CandleStore(dir, binanceKlineSource(hub.rest), log);
-const series = new SeriesService(hub, store, log);
+const series = new SeriesService(hub, store, log, new FundingCache(path.join(dir, 'funding'), hub.rest));
 
 afterAll(() => {
   hub.shutdown();

@@ -1,16 +1,13 @@
 /**
- * Futures statistics (open interest, long/short ratios) as a shared bar series for scripts and
- * bots: cached 5-minute samples (CandleStore kind "metrics") plus the newest samples polled from
- * REST, folded into bars of the requested timeframe as they become usable (see shared/metrics).
- * In a replay the samples are revealed with the replay clock instead.
+ * Futures statistics (open interest, long/short ratios) and funding rates as a shared bar series
+ * for scripts and bots: cached samples (CandleStore kind "metrics", or the funding history) plus
+ * the newest samples polled from REST, folded into bars of the requested timeframe as they become
+ * usable (see shared/metrics). In a replay the samples are revealed with the replay clock instead.
  */
 import { CandleSeries } from '../../shared/candles';
-import { METRICS, METRICS_EPOCH, METRIC_STEP, revealMetric, type MetricKind } from '../../shared/metrics';
+import { METRICS, METRIC_STEP, revealMetric, type MetricInfo, type MetricKind } from '../../shared/metrics';
 import { seriesKey, type SeriesInfo, type SeriesSnapshot, type SeriesSpec, type SeriesStatus, type SeriesUpdate } from '../../shared/marketTypes';
 import { bucketEnd, bucketStart, parseTimeframe, timeForBarsBack, type Timeframe } from '../../shared/timeframes';
-import type { SymbolId } from '../../shared/symbols';
-import type { BinanceRest } from '../binance/rest';
-import type { CandleStore } from '../storage/candleStore';
 import type { SeriesFeed } from './series';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
@@ -32,7 +29,25 @@ export interface MetricClock {
   release(): void;
 }
 
-/** Polls the newest statistics of one symbol (every 30 s) and ticks at every 5-minute mark. */
+/** Loads raw samples with time in [from, to) (cached; downloads what is missing). */
+export type MetricLoader = (from: number, to: number) => Promise<CandleSeries>;
+
+export interface PollerOptions {
+  /** For log messages, e.g. "BTCUSDT futures statistics". */
+  name: string;
+  /** The newest raw samples. */
+  fetch(now: number): Promise<CandleSeries>;
+  now(): number;
+  log: Logger;
+  pollMs: number;
+  /** Listeners are called at every mark (+offset): statistics become usable at 5-minute marks. */
+  markMs: number;
+  markOffsetMs: number;
+  /** Poll at the mark instead of only notifying (funding settles on the hour). */
+  pollAtMark: boolean;
+}
+
+/** Polls the newest samples of one source while series use it, and ticks at its marks. */
 export class MetricPoller {
   refs = 0;
   samples = new CandleSeries(16);
@@ -42,39 +57,35 @@ export class MetricPoller {
   private timer: NodeJS.Timeout | null = null;
   private tick: NodeJS.Timeout | null = null;
 
-  constructor(
-    private rest: Pick<BinanceRest, 'futuresStats'>,
-    private now: () => number,
-    readonly symbol: SymbolId,
-    private log: Logger,
-  ) {
+  constructor(private o: PollerOptions) {
     this.first = this.poll();
-    this.timer = setInterval(() => void this.poll(), 30_000);
+    this.timer = setInterval(() => void this.poll(), o.pollMs);
     this.scheduleTick();
   }
 
   private scheduleTick(): void {
-    const now = this.now();
-    // a sample becomes usable at a 5-minute mark: tick just after it
-    const next = Math.floor(now / METRIC_STEP) * METRIC_STEP + METRIC_STEP + 250;
+    const { markMs, markOffsetMs } = this.o;
+    const now = this.o.now();
+    const next = Math.floor((now - markOffsetMs) / markMs) * markMs + markMs + markOffsetMs;
     this.tick = setTimeout(() => {
-      this.notify();
+      if (this.o.pollAtMark) void this.poll();
+      else this.notify();
       this.scheduleTick();
     }, next - now);
   }
 
   private async poll(): Promise<void> {
     try {
-      const now = this.now();
-      const s = await this.rest.futuresStats(this.symbol, now - 45 * 60_000, now + 60_000);
+      const now = this.o.now();
+      const s = await this.o.fetch(now);
       const merged = this.samples.length ? this.samples.merge(s) : s;
       const cut = merged.lowerBound(now - 2 * DAY);
       this.samples = cut > 0 ? merged.slice(cut) : merged;
-      if (!this.ok) this.log('info', `${this.symbol} futures statistics: polling recovered`);
+      if (!this.ok) this.o.log('info', `${this.o.name}: polling recovered`);
       this.ok = true;
       this.notify();
     } catch (e) {
-      if (this.ok) this.log('warn', `${this.symbol} futures statistics: ${(e as Error).message}`);
+      if (this.ok) this.o.log('warn', `${this.o.name}: ${(e as Error).message}`);
       this.ok = false;
     }
   }
@@ -118,6 +129,7 @@ export class MetricSeries {
   readonly key: string;
   readonly tf: Timeframe;
   readonly metric: MetricKind;
+  private m: MetricInfo;
   status: SeriesStatus = 'loading';
   info: SeriesInfo;
   hasMore = true;
@@ -143,7 +155,7 @@ export class MetricSeries {
   constructor(
     readonly spec: SeriesSpec,
     private clock: MetricClock,
-    private store: CandleStore,
+    private load: MetricLoader,
     private log: Logger,
     initialBars: number,
     keySuffix = '',
@@ -154,7 +166,8 @@ export class MetricSeries {
     if (!spec.metric) throw new Error('Not a statistics series');
     this.tf = tf;
     this.metric = spec.metric;
-    this.info = { key: this.key, baseInterval: '5m', construction: '' };
+    this.m = METRICS[spec.metric];
+    this.info = { key: this.key, baseInterval: this.m.source === 'stats' ? '5m' : null, construction: '' };
     let older: Promise<void> = Promise.resolve();
     this.ready = this.init(initialBars, (p) => (older = p)).catch((e) => {
       this.status = 'error';
@@ -175,20 +188,23 @@ export class MetricSeries {
     if (this.spec.market !== 'futures') throw new Error('Futures statistics exist for perpetual futures only');
     await this.clock.ready();
     const now = this.clock.now();
-    const from = Math.max(METRICS_EPOCH, timeForBarsBack(this.tf, bucketStart(this.tf, now), initialBars) - METRIC_STEP);
+    const from = Math.max(this.m.epoch, timeForBarsBack(this.tf, bucketStart(this.tf, now), initialBars) - this.m.stepMs);
     const to = this.clock.kind === 'replay' ? now + 3 * DAY : now + METRIC_STEP;
     // the last two months first (one daily archive per day beyond Binance's 30-day REST window),
     // older history afterwards
-    const quick = Math.max(from, Math.floor((now - QUICK_DAYS * DAY) / METRIC_STEP) * METRIC_STEP);
-    this.raw = await this.store.get('metrics', 'futures', this.spec.symbol, '5m', quick, to);
+    const quick = this.m.source === 'stats' ? Math.max(from, Math.floor((now - QUICK_DAYS * DAY) / METRIC_STEP) * METRIC_STEP) : from;
+    this.raw = await this.load(quick, to);
     this.loadedTo = to;
-    this.hasMore = from > METRICS_EPOCH;
+    this.hasMore = from > this.m.epoch;
     if (quick > from) background(this.loadOlder(from, quick));
     if (this.clock.kind === 'live') this.mergeRecent();
     this.rebuild();
     this.dirty = Infinity;
     this.status = this.clock.status();
-    this.info.construction = `Binance futures statistics: ${METRICS[this.metric].title.toLowerCase()}, 5-minute samples${this.spec.tf === '5m' ? '' : ` aggregated to ${this.spec.tf}`}; a sample counts from the next 5-minute mark (Binance publishes it 2–3 minutes after measuring)${this.clock.kind === 'replay' ? '; replay clock' : ''}`;
+    this.info.construction =
+      this.m.source === 'funding'
+        ? `Binance funding rates (% per funding interval) at each settlement${this.clock.kind === 'replay' ? '; replay clock' : ''}`
+        : `Binance futures statistics: ${this.m.title.toLowerCase()}, 5-minute samples${this.spec.tf === '5m' ? '' : ` aggregated to ${this.spec.tf}`}; a sample counts from the next 5-minute mark (Binance publishes it 2–3 minutes after measuring)${this.clock.kind === 'replay' ? '; replay clock' : ''}`;
     if (!this.raw.length && !this.clock.recent()?.length) this.info.construction += ' — no data for this range';
     this.inited = true;
     if (this.disposed) return;
@@ -206,10 +222,10 @@ export class MetricSeries {
     const rec = this.clock.recent();
     const last = this.raw.length ? this.raw.t[this.raw.length - 1] : NaN;
     // after a long sleep the polled window may not reach back to the cache: fill the gap first
-    if (rec?.length && last === last && rec.t[0] > last + METRIC_STEP && this.gapTried !== rec.t[0]) {
+    if (rec?.length && last === last && rec.t[0] > last + this.m.stepMs && this.gapTried !== rec.t[0]) {
       if (this.loading) return;
       this.gapTried = rec.t[0];
-      this.loading = this.store.get('metrics', 'futures', this.spec.symbol, '5m', last + 1, rec.t[0]).then(
+      this.loading = this.load(last + 1, rec.t[0]).then(
         (more) => {
           this.loading = null;
           if (this.disposed) return;
@@ -247,7 +263,7 @@ export class MetricSeries {
     if (this.loading || now < this.loadedTo - DAY) return;
     const from = this.loadedTo;
     const to = from + 3 * DAY;
-    this.loading = this.store.get('metrics', 'futures', this.spec.symbol, '5m', from, to).then(
+    this.loading = this.load(from, to).then(
       (more) => {
         this.loading = null;
         this.loadedTo = to;
@@ -320,7 +336,7 @@ export class MetricSeries {
   /** History before the first load; merged in with a reset so clients refetch. */
   private async loadOlder(from: number, to: number): Promise<void> {
     try {
-      const older = await this.store.get('metrics', 'futures', this.spec.symbol, '5m', from, to);
+      const older = await this.load(from, to);
       if (this.disposed || !older.length) return;
       this.raw = older.merge(this.raw);
       this.rebuild();
@@ -336,13 +352,13 @@ export class MetricSeries {
     await this.ready;
     if (!this.hasMore || this.status === 'error') return false;
     const firstT = this.raw.length ? this.raw.t[0] : this.clock.now();
-    const from = Math.max(METRICS_EPOCH, timeForBarsBack(this.tf, bucketStart(this.tf, firstT), count) - METRIC_STEP);
+    const from = Math.max(this.m.epoch, timeForBarsBack(this.tf, bucketStart(this.tf, firstT), count) - this.m.stepMs);
     if (from >= firstT) {
       this.hasMore = false;
       return false;
     }
-    const older = await this.store.get('metrics', 'futures', this.spec.symbol, '5m', from, firstT);
-    this.hasMore = from > METRICS_EPOCH;
+    const older = await this.load(from, firstT);
+    this.hasMore = from > this.m.epoch;
     if (!older.length) return false;
     this.raw = older.merge(this.raw);
     this.rebuild();

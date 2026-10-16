@@ -40,8 +40,9 @@ Supported:
   `bgcolor`, `barcolor`, `alertcondition`, `alert()`, `log.info/warning/error`.
 - `request.security()` and `request.security_lower_tf()` for BTC/ETH/SOL on any timeframe and
   market (`"BINANCE:ETHUSDT"`, `"ETHUSDT.P"` for the perpetual), with `lookahead` and `gaps`.
-- Futures statistics of the perpetuals, through TradingView's open interest tickers. See
-  [Open interest and long/short ratios](#open-interest-and-longshort-ratios) below.
+- Futures data of the perpetuals (open interest, long/short ratios, funding rates) through
+  ticker suffixes like TradingView's open interest tickers. See
+  [Open interest, long/short ratios and funding](#open-interest-longshort-ratios-and-funding) below.
 - Inputs: all `input.*` kinds, `group`, `inline`, `tooltip`, `options`, `minval/maxval/step`.
 
 Not supported (compile error with the reason):
@@ -59,10 +60,10 @@ Accepted but different:
 - `syminfo.*` describe Binance instruments (`syminfo.mintick` is the exchange tick size).
   `syminfo.ticker` is `BTCUSDT` on spot and `BTCUSDT.P` on the perpetual, like TradingView.
 
-## Open interest and long/short ratios
+## Open interest, long/short ratios and funding
 
-Binance's futures statistics of the perpetuals work as symbols with a suffix, like
-TradingView's open interest tickers:
+Binance's futures data of the perpetuals work as symbols with a suffix, like TradingView's open
+interest tickers:
 
 | Ticker | Value |
 | --- | --- |
@@ -71,6 +72,7 @@ TradingView's open interest tickers:
 | `BINANCE:BTCUSDT.P_LSR` | long/short account ratio, all accounts |
 | `BINANCE:BTCUSDT.P_TOP_LSR` | long/short account ratio, top traders |
 | `BINANCE:BTCUSDT.P_TOP_POS` | long/short position ratio, top traders |
+| `BINANCE:BTCUSDT.P_FUNDING` | funding rate in % per funding interval (FuFu's own suffix) |
 
 ```pine
 oi = request.security(syminfo.prefix + ":" + syminfo.ticker + "_OI", timeframe.period, close)
@@ -88,9 +90,14 @@ oi = request.security(syminfo.prefix + ":" + syminfo.ticker + "_OI", timeframe.p
 - History comes from Binance's API for the last 30 days and from its daily archives before
   that. Both are cached. The first load of years of history takes a while, so charts show the
   last two months first and add the rest in the background.
+- Funding is different: one value per settlement (every 8 hours for BTC, ETH and SOL, since
+  2019), in % of the position (0.01 = 0.01%). Positive means longs pay shorts. A settlement
+  counts from its time: the 08:00 rate closes the bar that ends at 08:00. Between settlements
+  the last rate holds.
 - Built-in scripts: **Open Interest** (candles, like TradingView's), **Open Interest Delta**
   (the change per bar, colored by new longs, new shorts, short covering and long closing),
-  **Long/Short Ratio** and the **OI Breakout Strategy**.
+  **Long/Short Ratio**, **Funding Rate** and the **OI Breakout Strategy**. The strategy builder
+  offers these as conditions too.
 
 ## Strategies
 
