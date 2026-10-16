@@ -163,7 +163,8 @@ export function HeatmapModule({ module }: ModuleProps) {
     const dpr = window.devicePixelRatio || 1;
     const Wt = size.width;
     const Ht = size.height;
-    if (c.width !== Wt * dpr) {
+    // both sides: a module that only got taller would otherwise keep a stretched old frame
+    if (c.width !== Wt * dpr || c.height !== Ht * dpr) {
       c.width = Wt * dpr;
       c.height = Ht * dpr;
     }

@@ -296,7 +296,8 @@ export function NumberField({ value, onChange, step = 1, min, max, decimals, sty
     <div style={{ position: 'relative', display: 'flex', ...style }}>
       <input
         className="input num"
-        style={{ width: '100%', paddingRight: suffix ? 28 : undefined }}
+        // room for the unit: "%" or "min" as well as "USDT" or "s pause"
+        style={{ width: '100%', paddingRight: suffix ? 14 + Math.ceil(suffix.length * 6.2) : undefined }}
         value={text}
         placeholder={placeholder}
         disabled={disabled}
@@ -319,7 +320,7 @@ export function NumberField({ value, onChange, step = 1, min, max, decimals, sty
           }
         }}
       />
-      {suffix && <span style={{ position: 'absolute', right: 8, top: 6, color: 'var(--text-3)', fontSize: 11, pointerEvents: 'none' }}>{suffix}</span>}
+      {suffix && <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', fontSize: 11, pointerEvents: 'none', whiteSpace: 'nowrap' }}>{suffix}</span>}
     </div>
   );
 }

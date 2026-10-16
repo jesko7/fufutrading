@@ -86,6 +86,7 @@ const SUGGESTIONS = [
   { icon: 'flask', text: 'Build a mean-reversion strategy for ETH on 15m, backtest it over the last year and compare it with buy & hold.' },
   { icon: 'code', text: 'Write a Python indicator that highlights volume spikes above 3× the 20-bar average.' },
   { icon: 'target', text: 'Find robust parameters for the MA Crossover strategy on BTC 4h — check out-of-sample results.' },
+  { icon: 'trend', text: 'Does rising open interest confirm BTC breakouts? Test it on the 1h perpetual over two years against random entries.' },
   { icon: 'info', text: 'Explain how the Supertrend strategy in the library works and when it tends to fail.' },
 ];
 

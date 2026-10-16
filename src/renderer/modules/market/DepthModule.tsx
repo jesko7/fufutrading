@@ -32,7 +32,7 @@ export function DepthModule({ module }: ModuleProps) {
     const dpr = window.devicePixelRatio || 1;
     const W = size.width;
     const H = size.height;
-    if (c.width !== W * dpr) {
+    if (c.width !== W * dpr || c.height !== H * dpr) {
       c.width = W * dpr;
       c.height = H * dpr;
     }

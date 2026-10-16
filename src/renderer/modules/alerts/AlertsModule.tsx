@@ -97,7 +97,7 @@ export function AlertsModule({ module }: ModuleProps) {
           (data.alerts.length === 0 ? (
             <Empty icon="bell" title="No alerts yet">
               <div className="col" style={{ alignItems: 'center', gap: 10 }}>
-                <span>Get notified when a price level is crossed, the market moves fast, an indicator or strategy signals, or the order book becomes one-sided. Right-click a chart to set a price alert in one click.</span>
+                <span>Get notified when a price level is crossed, the market moves fast, an indicator or strategy signals, the order book becomes one-sided, or futures positioning shifts (open interest, funding, liquidations). Right-click a chart to set a price alert in one click.</span>
                 <button className="btn primary" onClick={(e) => add.toggle(e.currentTarget)}>
                   <Icon name="plus" size={14} /> New alert
                 </button>

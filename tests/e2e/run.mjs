@@ -122,6 +122,26 @@ const S = {
       await shot(file);
     }
     check(true, 'presets render in the light theme');
+    // newer modules in the light theme: derivatives data and the futures alert editor
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Derivatives');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => document.querySelectorAll('.deriv-card .dc-value').length >= 4, null, { timeout: 45000 });
+    await wait(1500);
+    await shot('45-light-derivatives');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Alerts');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.alerts', { timeout: 15000 });
+    await page.click('.stack-head button:has-text("New alert")');
+    await page.click('.menu-item:has-text("Futures data")');
+    await page.waitForSelector('.alert-editor');
+    await wait(800);
+    await shot('46-light-futures-alert');
+    await page.keyboard.press('Escape');
+    check(true, 'derivatives and the futures alert editor render in the light theme');
     await page.click('button[data-tip="Toggle light / dark"]');
   },
   async perf() {

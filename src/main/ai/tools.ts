@@ -264,7 +264,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'get_docs',
       readOnly: true,
       description:
-        'FuFu documentation. Read it before writing code. Topics: "pine" (supported Pine Script subset and semantics), "pine_functions" (every supported built-in with parameters, generated from the engine), "python" (the fufu Python API), "backtesting" (fills, costs, metrics), "examples" (example scripts from the built-in library).',
+        'FuFu documentation. Read it before writing code. Topics: "pine" (supported Pine Script subset and semantics, including open interest and long/short ratio tickers), "pine_functions" (every supported built-in with parameters, generated from the engine), "python" (the fufu Python API), "backtesting" (fills, costs, metrics), "examples" (example scripts from the built-in library: strategies, an indicator, open interest, multi-timeframe and Python).',
       inputSchema: { type: 'object', properties: { topic: { type: 'string', enum: ['pine', 'pine_functions', 'python', 'backtesting', 'examples'] } }, required: ['topic'] },
       async run(args) {
         switch (args.topic) {
@@ -277,7 +277,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           case 'backtesting':
             return readDoc(deps.docsDir, 'backtesting.md');
           case 'examples': {
-            const ids = ['builtin:strat_ma_cross', 'builtin:strat_rsi_reversion', 'builtin:rsi', 'builtin:py_sma_cross', 'builtin:py_zscore'];
+            const ids = ['builtin:strat_ma_cross', 'builtin:strat_rsi_reversion', 'builtin:rsi', 'builtin:strat_oi_breakout', 'builtin:py_sma_cross', 'builtin:py_zscore', 'builtin:py_mtf_filter'];
             return ids
               .map((id) => scripts.library.get(id))
               .filter(Boolean)
