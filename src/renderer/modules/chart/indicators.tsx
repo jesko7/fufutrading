@@ -332,23 +332,6 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
         {name}
       </span>
       {r && <span className="muted">{inputSummary(r, ind)}</span>}
-      {live?.status === 'loading' && <Spinner size={11} />}
-      {values}
-      {sum && (
-        <span className={clsx('ind-val', sum.net >= 0 ? 'pos' : 'neg')} data-tip={`${sum.trades} trades · win rate ${fmtPct(sum.winRate * 100, 0, false)} · profit factor ${Number.isFinite(sum.pf) ? sum.pf.toFixed(2) : '∞'} · max drawdown ${fmtPct(sum.mddPct * 100, 1, false)}`}>
-          {fmtSignedUsd(sum.net)} ({fmtPct(sum.netPct * 100, 1)}) · {sum.trades} trades
-        </span>
-      )}
-      {warn.length > 0 && (
-        <span className="ind-warn" data-tip={warn.join('\n')}>
-          <Icon name="alert" size={12} />
-        </span>
-      )}
-      {live?.status === 'error' && (
-        <button className="ind-err link-btn" onClick={() => void openScriptInEditor(ind.scriptId, { line: r?.error?.line })} data-tip="Open in the script editor">
-          {live.error}
-        </button>
-      )}
       <span className="ind-actions">
         <button className="icon-btn tiny" onClick={() => setInd({ visible: hidden })} data-tip={hidden ? 'Show' : 'Hide'}>
           <Icon name={hidden ? 'eyeOff' : 'eye'} size={13} />
@@ -366,6 +349,23 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
           <Icon name="x" size={13} />
         </button>
       </span>
+      {live?.status === 'loading' && <Spinner size={11} />}
+      {values}
+      {sum && (
+        <span className={clsx('ind-val', sum.net >= 0 ? 'pos' : 'neg')} data-tip={`${sum.trades} trades · win rate ${fmtPct(sum.winRate * 100, 0, false)} · profit factor ${Number.isFinite(sum.pf) ? sum.pf.toFixed(2) : '∞'} · max drawdown ${fmtPct(sum.mddPct * 100, 1, false)}`}>
+          {fmtSignedUsd(sum.net)} ({fmtPct(sum.netPct * 100, 1)}) · {sum.trades} trades
+        </span>
+      )}
+      {warn.length > 0 && (
+        <span className="ind-warn" data-tip={warn.join('\n')}>
+          <Icon name="alert" size={12} />
+        </span>
+      )}
+      {live?.status === 'error' && (
+        <button className="ind-err link-btn" onClick={() => void openScriptInEditor(ind.scriptId, { line: r?.error?.line })} data-tip="Open in the script editor">
+          {live.error}
+        </button>
+      )}
       {menu.anchor && (
         <Menu
           anchor={menu.anchor}
@@ -431,7 +431,7 @@ export function PaneLegends({ moduleId, cfg, outputs, lives, index, store, updat
         const ind = (cfg.indicators || []).find((x) => x.id === p.id);
         if (!ind) return null;
         return (
-          <div key={p.id} className="pane-legend" style={{ top: p.top + 4 }}>
+          <div key={p.id} className="pane-legend" style={{ top: p.top + 4, maxHeight: Math.max(16, p.height - 6) }}>
             <LegendRow moduleId={moduleId} ind={ind} live={lives.get(ind.id)} output={byId.get(ind.id)} index={index} store={store} cfg={cfg} update={update} />
           </div>
         );

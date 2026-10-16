@@ -122,6 +122,18 @@
   border-radius: 4px;
   max-width: 100%;
   width: fit-content;
+  /* one line: a narrow chart clips the values instead of wrapping into the next pane */
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ind-item > * {
+  flex: none;
+}
+.ind-item > .ind-err {
+  flex: 0 1 auto;
+  min-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ind-item .ind-actions {
   display: none;
@@ -279,6 +291,7 @@
   z-index: 3;
   pointer-events: none;
   display: flex;
+  overflow: hidden;
 }
 .ind-item .ind-val.pos {
   color: var(--up);
