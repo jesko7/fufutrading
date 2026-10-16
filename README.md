@@ -22,8 +22,9 @@ an AI assistant that builds and tests strategies inside the app.
 - **Workspaces:** dockable, multi-window layouts and presets, a command palette (Ctrl+K) and
   keyboard shortcuts that never fire while you type, light and dark themes.
 - **Scripting:**
-  - Pine Script (v4–v6 subset, honest about what isn't supported) and Python (Pyodide with
-    NumPy), with identical indicator math in both languages
+  - Pine Script v3–v6 (including v4's un-namespaced built-ins, drawings with linefills,
+    polylines and chart points, maps, matrices; honest about what isn't supported) and Python
+    (Pyodide with NumPy), with identical indicator math in both languages
   - built-in library, favorites, import/export
   - editor with autocomplete, diagnostics and lookahead/repaint warnings
   - bar inspector, Python debugger
@@ -33,8 +34,11 @@ an AI assistant that builds and tests strategies inside the app.
   - realistic Binance costs, funding and mark-price liquidations
   - intrabar precision from lower-timeframe klines (bar magnifier)
   - benchmarks, regimes, fee sensitivity and a full trade analysis
+  - every strategy against 1,000 random twins (same trades at random times), the Greeks
+    (alpha, beta, correlation, Omega, VaR …) and a trade-order Monte Carlo
 - **Optimization:**
   - grid, random, Bayesian and genetic search with constraints and multi-objective ranking
+    (including alpha as an objective)
   - holdout, walk-forward and purged cross-validation
   - overfitting diagnostics (robustness, bootstrap, deflated Sharpe, PBO …), heatmaps and 3-D
     landscapes
@@ -42,20 +46,31 @@ an AI assistant that builds and tests strategies inside the app.
 - **Paper trading:**
   - multiple accounts with cost presets (Binance ≈0.2% round trip, TradingView-style €1 per
     fill …)
-  - market, limit and stop orders with drag-and-drop SL/TP
-  - Binance leverage brackets, maintenance-margin tiers, liquidation formula, margin calls and
-    funding
+  - market, limit, stop, stop-limit and trailing-stop orders, GTC/IOC/FOK, post-only,
+    drag-and-drop SL/TP
+  - Binance's order rules (filters refreshed from Binance, price bands, size limits), leverage
+    brackets and leverage changes on open positions, maintenance-margin tiers, liquidation
+    formula, margin calls and funding
+  - a trade journal with notes, setup tags and statistics per setup
 - **Prop challenges:** FTMO and Lucid Trading rule simulation (targets, daily/max loss,
   trailing, consistency, trading days) for manual or bot accounts.
 - **Bots:** strategies trade their own accounts on every bar close, mirror their stops and
-  targets, explain every action, pause themselves on errors, and keep running in the tray.
+  targets, explain every action, pause themselves on errors or risk guards (drawdown, daily
+  loss, losing streak), and keep running in the tray.
+- **Derivatives data:** open interest, funding history, long/short ratios, taker flow and a live
+  liquidation feed.
 - **Replay:** bar replay with adjustable speed, stepping and replay trading. Strictly no future
-  data, at real data resolution.
-- **Alerts:** price, moves, indicators, script conditions and order-book conditions, with
-  desktop notifications.
+  data, at real data resolution. A session report compares your replay trades with buy & hold
+  and random entries.
+- **Alerts:** price, moves, indicators, script conditions, order-book conditions and futures
+  data (liquidations, open interest, funding), with desktop notifications and webhooks.
 - **AI Studio:** Claude Code (your subscription) with model, mode, effort and thinking settings.
-  It writes, compiles, runs, backtests and optimizes scripts through the app's own tools and
-  iterates on real results.
+  It researches like a quant through the app's own tools:
+  - writes, compiles and runs scripts, measuring their predictive value
+  - backtests against random twins and the Greeks, tests robustness on other coins,
+    timeframes and periods
+  - optimizes out-of-sample and reports an honest verdict
+  - reviews your own trades and journal, and can prepare a paper bot
 
 ## Requirements
 
@@ -98,7 +113,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke charts trading scripts backtest optimizer bots replay alerts ai builder
+npm run e2e -- smoke presets perf charts trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives prop builder help light
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves
