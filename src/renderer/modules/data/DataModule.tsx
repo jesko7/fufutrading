@@ -8,8 +8,10 @@ import { fmtDate } from '../../lib/format';
 import { SYMBOL_SPECS, type Market, type SymbolId } from '../../../shared/symbols';
 import './data.css';
 
+type Kind = 'klines' | 'mark' | 'metrics';
+
 interface Entry {
-  kind: 'klines' | 'mark';
+  kind: Kind;
   market: Market;
   symbol: SymbolId;
   interval: string;
@@ -53,6 +55,10 @@ function ins(symbol: SymbolId, market: Market): string {
   return `${SYMBOL_SPECS[symbol].base}${market === 'futures' ? ' Perp' : ''}`;
 }
 
+const KIND_LABEL: Record<Kind, string> = { klines: 'candles', mark: 'mark price', metrics: 'futures statistics' };
+/** The download choice for open interest and long/short ratios (5-minute samples). */
+const STATS = 'stats';
+
 export function DataModule(_p: ModuleProps) {
   const [data, setData] = useState<Overview | null>(null);
   const [busy, setBusy] = useState<{ label: string; done: number; total: number } | null>(null);
@@ -66,7 +72,7 @@ export function DataModule(_p: ModuleProps) {
       .catch(fail('Could not read the cache'));
   useEffect(load, []);
 
-  const download = (p: { market: Market; symbol: SymbolId; interval: string; from: number; to: number; kind?: 'klines' | 'mark' }, label: string) => {
+  const download = (p: { market: Market; symbol: SymbolId; interval: string; from: number; to: number; kind?: Kind }, label: string) => {
     if (busy) return;
     setBusy({ label, done: 0, total: 1 });
     const unsub = api.sub<any>('data:download', p, (m) => {
@@ -87,7 +93,9 @@ export function DataModule(_p: ModuleProps) {
   const prefetch = () => {
     const now = Date.now();
     const from = range === 'all' ? Date.UTC(2017, 6, 1) : now - +range * 86400000;
-    download({ market: sym.market, symbol: sym.symbol, interval, from, to: now }, `${ins(sym.symbol, sym.market)} ${interval} · ${RANGES.find((r) => r.value === range)?.label.toLowerCase()}`);
+    const span = RANGES.find((r) => r.value === range)?.label.toLowerCase();
+    if (interval === STATS) download({ kind: 'metrics', market: 'futures', symbol: sym.symbol, interval: '5m', from, to: now }, `${ins(sym.symbol, 'futures')} futures statistics · ${span}`);
+    else download({ market: sym.market, symbol: sym.symbol, interval, from, to: now }, `${ins(sym.symbol, sym.market)} ${interval} · ${span}`);
   };
 
   return (
@@ -108,13 +116,18 @@ export function DataModule(_p: ModuleProps) {
           <div className="faint small">Candles are cached automatically when charts, backtests and replays need them. Prefetch a range to make long backtests and replays start instantly.</div>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
             <SymbolPicker symbol={sym.symbol} market={sym.market} onChange={(s, m) => setSym({ symbol: s, market: m })} />
-            <Select value={interval} onChange={setIntervalV} options={INTERVALS.filter((i) => !(i === '1s' && sym.market === 'futures')).map((i) => ({ value: i, label: `${i} candles` }))} />
+            <Select
+              value={interval === STATS && sym.market !== 'futures' ? '1m' : interval}
+              onChange={setIntervalV}
+              options={[...INTERVALS.filter((i) => !(i === '1s' && sym.market === 'futures')).map((i) => ({ value: i, label: `${i} candles` })), ...(sym.market === 'futures' ? [{ value: STATS, label: 'Open interest & long/short ratios' }] : [])]}
+            />
             <Select value={range} onChange={setRange} options={RANGES} />
             <button className="btn small primary" disabled={!!busy} onClick={prefetch}>
               <Icon name="download" size={13} /> Download
             </button>
           </div>
           {interval === '1s' && <div className="faint small">1-second candles are large: about 86,400 per day.</div>}
+          {interval === STATS && sym.market === 'futures' && <div className="faint small">5-minute samples Binance publishes since September 2020: the last 30 days from its API, older ones as one small archive per day.</div>}
           {busy && (
             <div className="data-progress">
               <Spinner size={12} />
@@ -142,7 +155,7 @@ export function DataModule(_p: ModuleProps) {
                       <CoinIcon symbol={e.symbol} size={13} />
                       <b>{ins(e.symbol, e.market)}</b>
                       <span className="faint">
-                        {e.interval} {e.kind === 'mark' ? 'mark price' : 'candles'}
+                        {e.interval} {KIND_LABEL[e.kind] || 'candles'}
                       </span>
                     </div>
                     <div className="data-cov faint">
@@ -164,7 +177,7 @@ export function DataModule(_p: ModuleProps) {
                         className="icon-btn small"
                         data-tip="Delete from the cache"
                         onClick={async () => {
-                          if (await confirmDialog({ title: 'Delete cached data?', body: `${ins(e.symbol, e.market)} ${e.interval} ${e.kind === 'mark' ? 'mark-price ' : ''}candles (${fmtBytes(e.bytes)}). It is downloaded again when needed.`, confirm: 'Delete', danger: true })) {
+                          if (await confirmDialog({ title: 'Delete cached data?', body: `${ins(e.symbol, e.market)} ${e.interval} ${KIND_LABEL[e.kind] || 'candles'} (${fmtBytes(e.bytes)}). It is downloaded again when needed.`, confirm: 'Delete', danger: true })) {
                             await api.call('data:clear', e.kind, e.market, e.symbol, e.interval).catch(fail('Not deleted'));
                             load();
                           }

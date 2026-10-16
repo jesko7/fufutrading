@@ -444,7 +444,7 @@ export const VARIABLES: Record<string, { js: string; ret: Ret }> = {
   minute: { js: 'B.time.minute(T[i])', ret: 'num' },
   second: { js: 'B.time.second(T[i])', ret: 'num' },
   'syminfo.tickerid': { js: 'R.sym.tickerid', ret: 'str' },
-  'syminfo.ticker': { js: 'R.sym.symbol', ret: 'str' },
+  'syminfo.ticker': { js: 'R.sym.ticker', ret: 'str' },
   'syminfo.root': { js: 'R.sym.base', ret: 'str' },
   'syminfo.basecurrency': { js: 'R.sym.base', ret: 'str' },
   'syminfo.currency': { js: 'R.sym.quote', ret: 'str' },

@@ -9,6 +9,9 @@
  * Only missing ranges are downloaded. Large gaps use data.binance.vision archives (monthly,
  * or daily for 1s data); everything else uses the REST API in parallel pages.
  * Nothing is loaded into memory beyond the requested range.
+ *
+ * Kind "metrics" holds futures statistics (open interest, long/short ratios; see shared/metrics)
+ * as 5-minute samples: daily archives before Binance's 30-day REST window, REST inside it.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,15 +19,24 @@ import { CandleSeries, STRIDE } from '../../shared/candles';
 import type { Market, SymbolId } from '../../shared/symbols';
 import { intervalMs, intervalToTf, bucketStart, bucketEnd } from '../../shared/timeframes';
 import { ensureDir, readJson, writeFileAtomic, writeJsonAtomic } from './jsonStore';
+import { METRIC_STEP } from '../../shared/metrics';
 
-export type CandleKind = 'klines' | 'mark';
+export type CandleKind = 'klines' | 'mark' | 'metrics';
 export type Range = [number, number];
 
 export interface KlineSource {
   rest(kind: CandleKind, market: Market, symbol: SymbolId, interval: string, startTime: number, endTime: number, limit: number): Promise<CandleSeries>;
   archive(kind: CandleKind, market: Market, symbol: SymbolId, interval: string, period: 'monthly' | 'daily', date: string): Promise<CandleSeries | null>;
   restLimit(market: Market): number;
+  /** Futures statistics: REST for [start, end) inside the last 30 days, and one day's archive. */
+  metrics?: {
+    rest(symbol: SymbolId, start: number, end: number): Promise<CandleSeries>;
+    archive(symbol: SymbolId, date: string): Promise<CandleSeries>;
+  };
 }
+
+/** Days the futures statistics REST endpoints serve (Binance: 30; one day of margin). */
+const METRICS_REST_DAYS = 29;
 
 export interface Progress {
   done: number;
@@ -179,8 +191,9 @@ export class CandleStore {
   missing(kind: CandleKind, market: Market, symbol: SymbolId, interval: string, from: number, to: number): Range[] {
     const tf = intervalToTf(interval);
     const a = bucketStart(tf, from);
-    // 1.5 s margin covers the uncertainty of the measured clock offset
-    const b = Math.min(to, CandleStore.currentOpen(interval, this.now() - 1500));
+    // 1.5 s margin covers the uncertainty of the measured clock offset; futures statistics are
+    // published a few minutes after they are measured, so only those older than 10 minutes are final
+    const b = kind === 'metrics' ? Math.min(to, Math.floor((this.now() - 10 * 60_000) / METRIC_STEP) * METRIC_STEP) : Math.min(to, CandleStore.currentOpen(interval, this.now() - 1500));
     if (b <= a) return [];
     return subtractRanges([a, b], this.coverage(kind, market, symbol, interval));
   }
@@ -250,7 +263,11 @@ export class CandleStore {
       if (!gaps.length) return;
       const ms = intervalMs(interval);
       const tasks: { range: Range; run: () => Promise<CandleSeries | null> }[] = [];
-      for (const [a, b] of gaps) this.planDownloads(kind, market, symbol, interval, ms, a, b, tasks);
+      const errors: Error[] = [];
+      for (const [a, b] of gaps) {
+        if (kind === 'metrics') this.planMetrics(symbol, a, b, tasks, errors);
+        else this.planDownloads(kind, market, symbol, interval, ms, a, b, tasks);
+      }
       let done = 0;
       const total = tasks.length;
       onProgress?.({ done, total, phase: 'download' });
@@ -275,7 +292,41 @@ export class CandleStore {
         cov = addRange(cov, [a, b]);
       }
       this.setCoverage(dir, cov);
+      if (errors.length) {
+        this.log('warn', `${symbol} futures statistics: ${errors.length} of ${total} downloads failed (${errors[0].message})`);
+        if (errors.length === total) throw errors[0];
+      }
     });
+  }
+
+  /**
+   * Futures statistics: one task per archive day before the REST window, REST pages of 500 samples
+   * inside it. Archive day D holds the samples measured in [D + 5 min, D + 1 day + 5 min). A failed
+   * task leaves its range uncovered (retried next time) without failing the others.
+   */
+  private planMetrics(symbol: SymbolId, a: number, b: number, out: { range: Range; run: () => Promise<CandleSeries | null> }[], errors: Error[]): void {
+    const src = this.source.metrics;
+    if (!src) throw new Error('No source for futures statistics');
+    const DAY = 86_400_000;
+    const restFrom = chunkStart('day', this.now() - METRICS_REST_DAYS * DAY) + METRIC_STEP;
+    const guard = (p: () => Promise<CandleSeries>) => () =>
+      p().catch((e: Error) => {
+        errors.push(e);
+        return null;
+      });
+    let t = a;
+    while (t < Math.min(b, restFrom)) {
+      const day = chunkStart('day', t - METRIC_STEP);
+      const end = Math.min(day + DAY + METRIC_STEP, restFrom, b);
+      const date = chunkName('day', day);
+      out.push({ range: [t, end], run: guard(() => src.archive(symbol, date)) });
+      t = end;
+    }
+    const step = 500 * METRIC_STEP;
+    for (let s = Math.max(t, restFrom); s < b; s += step) {
+      const e = Math.min(b, s + step);
+      out.push({ range: [s, e], run: guard(() => src.rest(symbol, s, e)) });
+    }
   }
 
   /** Break [a, b) into archive and REST download tasks. */
@@ -389,5 +440,9 @@ export function binanceKlineSource(rest: import('../binance/rest').BinanceRest):
     rest: (kind, market, symbol, interval, startTime, endTime, limit) =>
       kind === 'mark' ? rest.markPriceKlines(symbol, interval, { startTime, endTime, limit }) : rest.klines(market, symbol, interval, { startTime, endTime, limit }),
     archive: (kind, market, symbol, interval, period, date) => rest.archiveKlines(market, symbol, interval, period, date, kind === 'mark' ? 'markPriceKlines' : 'klines'),
+    metrics: {
+      rest: (symbol, start, end) => rest.futuresStats(symbol, start, end),
+      archive: (symbol, date) => rest.archiveMetrics(symbol, date),
+    },
   };
 }

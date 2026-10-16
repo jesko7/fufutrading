@@ -58,7 +58,9 @@ an AI assistant that builds and tests strategies inside the app.
   targets, explain every action, pause themselves on errors or risk guards (drawdown, daily
   loss, losing streak), and keep running in the tray.
 - **Derivatives data:** open interest, funding history, long/short ratios, taker flow and a live
-  liquidation feed.
+  liquidation feed. Open interest and the long/short ratios also work as script data since
+  2020, through TradingView's tickers (`BINANCE:BTCUSDT.P_OI`), without lookahead, in
+  backtests, replays and bots.
 - **Replay:** bar replay with adjustable speed, stepping and replay trading. Strictly no future
   data, at real data resolution. A session report compares your replay trades with buy & hold
   and random entries.

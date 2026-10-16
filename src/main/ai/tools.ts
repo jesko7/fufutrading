@@ -242,7 +242,7 @@ async function loadSecurityFor(deps: AiToolDeps, keys: string[], spanMs: number)
     const ptf = parseTimeframe(kp.tf);
     if (!isSymbol(kp.symbol) || !ptf) throw new Error(`unsupported data request ${key}`);
     const n = Math.min(20000, Math.max(300, Math.ceil(spanMs / tfDurationMs(ptf)) + 50));
-    out[key] = await deps.scripts.closedBars({ symbol: kp.symbol as SymbolId, market: kp.market, tf: kp.tf, chartType: kp.chartType === 'heikinashi' ? 'heikinashi' : 'candles' }, n);
+    out[key] = await deps.scripts.closedBars({ symbol: kp.symbol as SymbolId, market: kp.market, tf: kp.tf, chartType: kp.chartType === 'heikinashi' ? 'heikinashi' : 'candles', metric: kp.metric }, n);
   }
   return out;
 }

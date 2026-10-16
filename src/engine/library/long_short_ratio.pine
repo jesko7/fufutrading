@@ -1,0 +1,16 @@
+//@version=6
+// @name Long/Short Ratio
+// @category Futures
+// @description Binance long/short ratios of the perpetual: all accounts, top traders' accounts and top traders' positions (5-minute samples; above 1 more long than short). Extremes often mark crowded positioning.
+indicator("Long/Short Ratio", format=format.price, precision=3)
+sym = input.symbol("", "Symbol (empty: chart symbol)")
+showTop = input.bool(true, "Top traders")
+base = sym == "" ? syminfo.prefix + ":" + syminfo.ticker : sym
+tf = timeframe.in_seconds() < 300 ? "5" : timeframe.period
+all = request.security(base + "_LSR", tf, close)
+topAcc = request.security(base + "_TOP_LSR", tf, close)
+topPos = request.security(base + "_TOP_POS", tf, close)
+plot(all, "All accounts", color.blue, linewidth=2)
+plot(showTop ? topAcc : na, "Top traders (accounts)", color.orange)
+plot(showTop ? topPos : na, "Top traders (positions)", color.purple)
+hline(1, "Balanced", color.gray, linestyle=hline.style_dashed)

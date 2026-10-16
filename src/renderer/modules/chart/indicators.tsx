@@ -9,6 +9,7 @@ import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import type { IndicatorOutput, PlotSeries, ShapeSeries, PlotType, ShapeStyle, ShapeLocation } from '../../chart/types';
 import type { BarStore } from '../../chart/barStore';
+import { formatVolume } from '../../chart/scale';
 import type { ChartModuleConfig, IndicatorInstance } from '../../../shared/workspace';
 import { newId } from '../../../shared/workspace';
 import type { ScriptResult, ScriptInputDef, ScriptPlot } from '../../../engine/types';
@@ -190,7 +191,9 @@ function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStor
   for (const p of r.plots) {
     const st = styles[p.id] || {};
     const visible = st.visible ?? p.display;
-    if (p.kind === 'plot' || p.kind === 'candle' || p.kind === 'bar') {
+    if (p.kind === 'candle' || p.kind === 'bar') {
+      plots.push({ id: p.id, title: p.title, type: p.kind === 'candle' ? 'candles' : 'bars', values: shiftNum(p.values, off), o: p.o && shiftNum(p.o, off), h: p.h && shiftNum(p.h, off), l: p.l && shiftNum(p.l, off), color: st.color || p.color, colors: st.color ? undefined : shiftArr(p.colors, off), width: 1, offset: 0, visible, precision: r.meta.precision });
+    } else if (p.kind === 'plot') {
       plots.push({ id: p.id, title: p.title, type: plotType(p.style), values: shiftNum(p.values, off), color: st.color || p.color, colors: st.color ? undefined : shiftArr(p.colors, off), width: st.width ?? p.width, offset: p.offset, histbase: p.histbase, visible, trackPrice: p.trackPrice, precision: r.meta.precision });
     } else if (p.kind === 'arrow') {
       const up = new Float64Array(p.values.length).fill(NaN);
@@ -226,6 +229,7 @@ function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStor
     scaleMin: r.meta.scaleMin,
     scaleMax: r.meta.scaleMax,
     precision: r.meta.precision,
+    format: r.meta.format,
     warnings: r.warnings.filter((w) => w.kind === 'lookahead' || w.kind === 'repaint' || w.kind === 'runtime').map((w) => `${w.kind === 'lookahead' ? 'Lookahead' : w.kind === 'repaint' ? 'Repaint' : 'Runtime'}: ${w.message}`),
   };
   // the fills reference plot ids; hidden plots keep their data so fills still work
@@ -295,16 +299,29 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
   const warn = output?.warnings || [];
   const values: ReactNode[] = [];
   if (r && r.ok && !hidden) {
+    const fmt = (v: number) => (!Number.isFinite(v) ? '∅' : r.meta.format === 'volume' ? formatVolume(v) : `${fmtNum(v, r.meta.precision ?? autoDecimals(v))}${r.meta.format === 'percent' ? '%' : ''}`);
     for (const p of r.plots) {
       if (values.length >= 8) break;
       const st = ind.styles?.[p.id];
-      if (!(st?.visible ?? p.display) || p.kind !== 'plot') continue;
-      const v = valueAt(p, off, index);
+      if (!(st?.visible ?? p.display) || (p.kind !== 'plot' && p.kind !== 'candle' && p.kind !== 'bar')) continue;
       const k = index - off;
       const col = (p.colors && k >= 0 ? p.colors[k] : null) || st?.color || p.color;
+      if (p.kind !== 'plot') {
+        // plotcandle / plotbar: O H L C like the main series legend
+        const at = (a: Float64Array | undefined) => (a ? valueAt({ ...p, values: a }, off, index) : NaN);
+        const c = valueAt(p, off, index);
+        if (!Number.isFinite(c)) continue;
+        values.push(
+          <span key={p.id} className="ind-val" style={{ color: col || undefined }} data-tip={p.title}>
+            O {fmt(at(p.o))} H {fmt(at(p.h))} L {fmt(at(p.l))} C {fmt(c)}
+          </span>,
+        );
+        continue;
+      }
+      const v = valueAt(p, off, index);
       values.push(
         <span key={p.id} className="ind-val" style={{ color: col || undefined }} data-tip={p.title}>
-          {Number.isFinite(v) ? fmtNum(v, r.meta.precision ?? autoDecimals(v)) : '∅'}
+          {fmt(v)}
         </span>,
       );
     }
@@ -425,7 +442,7 @@ export function PaneLegends({ moduleId, cfg, outputs, lives, index, store, updat
 
 // ------------------------------------------------------------------ picker
 
-const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
+const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Futures', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
 
 function addIndicator(moduleId: string, scriptId: string): void {
   const st = useApp.getState();

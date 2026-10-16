@@ -31,6 +31,13 @@ import { DrawingLayer } from './drawings';
 import { drawFootprint } from './drawFootprint';
 import { fmtDateTime, timeParts } from '../lib/format';
 
+/** A sub-pane value in its indicator's format: indicator(format=format.volume) shows K/M/B. */
+function paneValue(pane: { id: string; indicators: { format?: string }[] }, v: number, dec: number): string {
+  const f = pane.id === 'main' ? undefined : pane.indicators[0]?.format;
+  if (f === 'volume') return formatVolume(v);
+  return f === 'percent' ? `${formatAxis(v, dec)}%` : formatAxis(v, dec);
+}
+
 export interface Pane {
   id: string; // 'main' or indicator id
   scale: PriceScale;
@@ -691,7 +698,7 @@ export class ChartEngine {
     for (const v of ticks) {
       const y = s.toY(v);
       if (y < pane.top + 6 || y > pane.top + pane.height - 6) continue;
-      const label = s.mode === 'percent' && pane.id === 'main' ? `${formatAxis((v / s.base - 1) * 100, 2)}%` : formatAxis(v, dec);
+      const label = s.mode === 'percent' && pane.id === 'main' ? `${formatAxis((v / s.base - 1) * 100, 2)}%` : paneValue(pane, v, dec);
       ctx.fillText(label, this.plotW + 8, y);
     }
     // last values of indicators in sub panes
@@ -702,7 +709,7 @@ export class ChartEngine {
           if (pl.visible === false) continue;
           const v = lastFinite(pl.values, this.bars.length - 1);
           if (!isFinite(v)) continue;
-          this.axisLabel(ctx, s.toY(v), formatAxis(v, ind.precision ?? dec), pl.color, pane);
+          this.axisLabel(ctx, s.toY(v), paneValue(pane, v, ind.precision ?? dec), pl.color, pane);
         }
       }
     } else {
@@ -865,7 +872,7 @@ export class ChartEngine {
       let txt: string;
       if (pane.id === 'main' && pane.scale.mode === 'percent') txt = `${formatAxis((v / pane.scale.base - 1) * 100, 2)}%`;
       else if (pane.id === 'main') txt = formatAxis(v, this.priceDecimals);
-      else txt = formatAxis(v, pane.indicators[0]?.precision ?? decimalsForStep(pane.scale.tickStep(4)));
+      else txt = paneValue(pane, v, pane.indicators[0]?.precision ?? decimalsForStep(pane.scale.tickStep(4)));
       this.axisLabel(ctx, cy, txt, th.labelBg, pane);
     }
     // time label

@@ -1,0 +1,18 @@
+//@version=6
+// @name Open Interest Delta
+// @category Futures
+// @description Change of open interest per bar, colored by what it means with the price move: new longs (price and OI up), new shorts (price down, OI up), short covering (price up, OI down) and long liquidation/closing (both down).
+indicator("Open Interest Delta", format=format.volume)
+sym = input.symbol("", "Symbol (empty: chart symbol)")
+usd = input.bool(false, "In USDT (open interest value)")
+ticker = (sym == "" ? syminfo.prefix + ":" + syminfo.ticker : sym) + (usd ? "_OI_USD" : "_OI")
+oi = request.security(ticker, timeframe.in_seconds() < 300 ? "5" : timeframe.period, close)
+delta = oi - oi[1]
+priceUp = close >= open
+col = delta >= 0 ? (priceUp ? color.new(color.teal, 0) : color.new(color.red, 0)) : (priceUp ? color.new(color.teal, 60) : color.new(color.red, 60))
+plot(delta, "OI change", col, style=plot.style_columns)
+hline(0, "Zero", color.gray)
+// a jump: three times the usual absolute change of the last 50 bars
+jump = delta > 0 and delta > ta.sma(math.abs(delta), 50)[1] * 3
+alertcondition(jump and not priceUp, "Shorts piling in", "Open interest jumped while price fell")
+alertcondition(jump and priceUp, "Longs piling in", "Open interest jumped while price rose")

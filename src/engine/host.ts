@@ -6,6 +6,7 @@
  *  - one-shot runs (backtests, optimizer trials).
  * Pure logic: no worker_threads dependency, so it is unit-tested directly.
  */
+import { METRICS, isMetric, type MetricKind } from '../shared/metrics';
 import { PineInstance, analyzePine, compileCached, securityRequests, toScriptError } from './pine';
 import { runPython, analyzePython, type PyInitOptions, type DebugControl } from './python/host';
 import { LiveBars, fromPacked } from './data';
@@ -96,9 +97,18 @@ export interface RunSpec {
   magnifier?: Magnifier;
 }
 
-export function keyParts(key: string): { market: 'spot' | 'futures'; symbol: string; tf: string; chartType: string } {
+/** Parts of a request.security data key: `<market>:<symbol>:<tf>:<candles|heikinashi|metric>`. */
+export function keyParts(key: string): { market: 'spot' | 'futures'; symbol: string; tf: string; chartType: string; metric?: MetricKind } {
   const [market, symbol, tf, chartType] = key.split(':');
-  return { market: market === 'futures' ? 'futures' : 'spot', symbol, tf, chartType: chartType || 'candles' };
+  return { market: market === 'futures' ? 'futures' : 'spot', symbol, tf, chartType: chartType || 'candles', metric: isMetric(chartType) ? chartType : undefined };
+}
+
+/** A data key for people: "ETHUSDT.P 4h", "BTCUSDT 1h Heikin-Ashi", "BTCUSDT.P open interest (contracts) 1h". */
+export function describeKey(key: string): string {
+  const kp = keyParts(key);
+  const sym = `${kp.symbol}${kp.market === 'futures' ? '.P' : ''}`;
+  if (kp.metric) return `${sym} ${METRICS[kp.metric].title.toLowerCase()} ${kp.tf}`;
+  return `${sym} ${kp.tf}${kp.chartType === 'heikinashi' ? ' Heikin-Ashi' : ''}`;
 }
 
 function toBars(x: BarSeries | Float64Array, tf: string, chartType: string): BarSeries {
@@ -349,7 +359,7 @@ export class ScriptHost {
       if (need.length) {
         const r = emptyResult('pine');
         r.meta = { type: c.meta.type === 'strategy' ? 'strategy' : 'indicator', title: c.meta.title, shortTitle: c.meta.shortTitle, overlay: c.meta.overlay, precision: c.meta.precision };
-        r.warnings.push({ message: `Loading ${need.join(', ')}…`, kind: 'info' });
+        r.warnings.push({ message: `Loading ${need.map(describeKey).join(', ')}…`, kind: 'info' });
         inst.pine = null;
         inst.last = null;
         return { kind: 'full', result: r, t0: t0bars, need };
@@ -418,7 +428,7 @@ export class ScriptHost {
       return { result: emptyResult('pine', toScriptError(e)), need: [] };
     }
     const need = [...new Set(securityRequests(c, spec.inputs, spec.ctx).map((r) => r.key))].filter((k) => !security[k]);
-    if (need.length) return { result: emptyResult('pine', { message: `Missing data: ${need.join(', ')}`, kind: 'runtime' }), need };
+    if (need.length) return { result: emptyResult('pine', { message: `Missing data: ${need.map(describeKey).join(', ')}`, kind: 'runtime' }), need };
     const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop, bot: spec.bot });
     return { result: inst.run(), need: [] };
   }

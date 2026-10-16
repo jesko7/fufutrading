@@ -101,7 +101,8 @@ export interface StrategyRaw {
 export interface ScriptResult {
   ok: boolean;
   language: ScriptLanguage;
-  meta: { type: 'indicator' | 'strategy'; title: string; shortTitle: string; overlay: boolean; precision?: number; scaleMin?: number; scaleMax?: number };
+  /** format: Pine's indicator(format=…): "volume" (K/M/B), "percent", "price" or "inherit". */
+  meta: { type: 'indicator' | 'strategy'; title: string; shortTitle: string; overlay: boolean; precision?: number; format?: string; scaleMin?: number; scaleMax?: number };
   inputs: ScriptInputDef[];
   plots: ScriptPlot[];
   hlines: { id: string; title: string; price: number; color: string; style: string; width: number; display: boolean }[];

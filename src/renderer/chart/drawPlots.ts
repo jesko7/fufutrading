@@ -17,6 +17,15 @@ export function indicatorRange(ind: IndicatorOutput, i0: number, i1: number): [n
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }
+    // candles and bars: their wicks
+    if (p.h && p.l) {
+      for (let i = a; i <= b; i++) {
+        const x = p.h[i];
+        const y = p.l[i];
+        if (isFinite(x) && x > hi) hi = x;
+        if (isFinite(y) && y < lo) lo = y;
+      }
+    }
     if ((p.type === 'histogram' || p.type === 'columns') && isFinite(lo)) {
       const base = p.histbase ?? 0;
       lo = Math.min(lo, base);
@@ -83,6 +92,36 @@ function drawPlot(rc: RenderCtx, p: PlotSeries): void {
   ctx.lineJoin = 'round';
   const colorAt = (i: number) => (p.colors ? p.colors[i] : p.color);
   switch (p.type) {
+    case 'candles':
+    case 'bars': {
+      // plotcandle / plotbar: like the main series, in the plot's (per-bar) color
+      if (!p.o || !p.h || !p.l) return;
+      const bw = Math.max(1, rc.bodyW);
+      const tick = Math.max(1, Math.floor(bw / 2));
+      for (let i = lo; i <= hi; i++) {
+        const o = p.o[i];
+        const h = p.h[i];
+        const l = p.l[i];
+        const c = p.values[i];
+        const col = colorAt(i);
+        if (!col || !isFinite(o) || !isFinite(c)) continue;
+        const x = Math.round(rc.x(i + off));
+        const yo = s.toY(o);
+        const yc = s.toY(c);
+        const yh = s.toY(isFinite(h) ? h : Math.max(o, c));
+        const yl = s.toY(isFinite(l) ? l : Math.min(o, c));
+        ctx.fillStyle = col;
+        // wick / bar: a vertical line from high to low
+        ctx.fillRect(x, Math.min(yh, yl), 1, Math.max(1, Math.abs(yl - yh)));
+        if (p.type === 'candles') {
+          ctx.fillRect(Math.round(x - bw / 2 + 0.5), Math.min(yo, yc), Math.max(1, Math.round(bw)), Math.max(1, Math.abs(yc - yo)));
+        } else {
+          ctx.fillRect(x - tick, Math.round(yo), tick, 1);
+          ctx.fillRect(x + 1, Math.round(yc), tick, 1);
+        }
+      }
+      return;
+    }
     case 'histogram':
     case 'columns': {
       const base = s.toY(p.histbase ?? 0);

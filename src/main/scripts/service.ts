@@ -13,9 +13,9 @@ import { dialog, BrowserWindow } from 'electron';
 import type { AppCore } from '../core';
 import { ScriptPool, type RunHandle } from './pool';
 import { ScriptLibrary } from './library';
-import type { ManagedSeries } from '../market/series';
+import type { SeriesHandle } from '../market/series';
 import type { InstanceReply, InstanceUpdate } from '../../engine/host';
-import { keyParts } from '../../engine/host';
+import { describeKey, keyParts } from '../../engine/host';
 import type { RunContext, ScriptLanguage } from '../../engine/types';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import type { SeriesSpec, SeriesUpdate } from '../../shared/marketTypes';
@@ -59,10 +59,11 @@ export function runContext(spec: Pick<SeriesSpec, 'symbol' | 'market' | 'tf' | '
 /** One live script on one chart series. */
 export class LiveScript {
   readonly inst = `live_${uid()}`;
-  private series!: ManagedSeries;
+  private series!: SeriesHandle;
   private releaseSeries: (() => void) | null = null;
   private unsubSeries: (() => void) | null = null;
-  private sec = new Map<string, { series: ManagedSeries; release: () => void; unsub: () => void; dirtyFrom: number; sent: boolean }>();
+  /** request.security series; `ready` once loaded (until then nothing is sent for them). */
+  private sec = new Map<string, { series: SeriesHandle; release: () => void; unsub: () => void; dirtyFrom: number; sent: boolean; ready: boolean }>();
   private dirtyFrom = Infinity;
   private needReset = false;
   private sentLen = 0;
@@ -151,7 +152,7 @@ export class LiveScript {
 
   private securityPacked(): Record<string, Float64Array> {
     const r: Record<string, Float64Array> = {};
-    for (const [k, s] of this.sec) r[k] = s.series.out.pack();
+    for (const [k, s] of this.sec) if (s.ready && s.series.status !== 'error') r[k] = s.series.out.pack();
     return r;
   }
 
@@ -219,9 +220,9 @@ export class LiveScript {
         this.push({ type: 'error', message: `Unsupported symbol in ${key}` });
         return;
       }
-      const spec: SeriesSpec = { symbol: kp.symbol as SymbolId, market: kp.market, tf: kp.tf, chartType: kp.chartType === 'heikinashi' ? 'heikinashi' : 'candles' };
+      const spec: SeriesSpec = { symbol: kp.symbol as SymbolId, market: kp.market, tf: kp.tf, chartType: kp.chartType === 'heikinashi' ? 'heikinashi' : 'candles', metric: kp.metric };
       const { series, release } = this.acquire(spec, Math.min(20000, Math.max(500, this.p.bars || 2000)));
-      const entry = { series, release, unsub: () => {}, dirtyFrom: Infinity, sent: false };
+      const entry = { series, release, unsub: () => {}, dirtyFrom: Infinity, sent: false, ready: false };
       this.sec.set(key, entry);
       try {
         await series.ready;
@@ -230,9 +231,10 @@ export class LiveScript {
       }
       if (this.closed) return;
       if (series.status === 'error') {
-        this.push({ type: 'error', message: `${key}: ${series.info.error || 'data unavailable'}` });
+        this.push({ type: 'error', message: `${describeKey(key)}: ${series.info.error || 'data unavailable'}` });
         continue;
       }
+      entry.ready = true;
       entry.unsub = series.subscribe((u) => {
         if (u.reset) {
           entry.sent = false;
@@ -295,7 +297,7 @@ export class LiveScript {
       this.dirtyFrom = Infinity;
     }
     for (const [k, s] of this.sec) {
-      if (s.series.status === 'error') continue;
+      if (!s.ready || s.series.status === 'error') continue;
       if (!s.sent) {
         (u.securityFull ||= {})[k] = s.series.out.pack();
         s.sent = true;
@@ -355,6 +357,7 @@ export class ScriptService {
     const { series, release } = this.core.series.acquire(spec, { bars });
     try {
       await series.ready;
+      await series.complete;
       if (series.status === 'error') throw new Error(series.info.error || 'Data unavailable');
       const out = series.out;
       return out.pack(0, Math.max(0, out.length - 1));

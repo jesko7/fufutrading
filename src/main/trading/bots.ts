@@ -12,8 +12,8 @@ import type { AppCore } from '../core';
 import type { ScriptService } from '../scripts/service';
 import { runContext } from '../scripts/service';
 import type { TradingEngine } from './engine';
-import type { ManagedSeries } from '../market/series';
-import type { BotStepResult } from '../../engine/host';
+import type { SeriesHandle } from '../market/series';
+import { keyParts, type BotStepResult } from '../../engine/host';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import { fromPacked } from '../../engine/data';
 import { planBot, type BotPlan } from '../../shared/trading/botPlan';
@@ -42,10 +42,10 @@ function lowerBound(t: Float64Array, n: number, x: number): number {
 const fmtQ = (q: number) => `${+Math.abs(q).toFixed(6)}`;
 
 class BotRunner {
-  private series: ManagedSeries | null = null;
+  private series: SeriesHandle | null = null;
   private releaseSeries: (() => void) | null = null;
   private unsub: (() => void) | null = null;
-  private sec = new Map<string, { series: ManagedSeries; release: () => void }>();
+  private sec = new Map<string, { series: SeriesHandle; release: () => void }>();
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private again = false;
@@ -298,14 +298,15 @@ class BotRunner {
   private async loadSecurity(keys: string[], fromT: number): Promise<void> {
     for (const key of keys) {
       if (this.sec.has(key)) continue;
-      const [market, symbol, tf, chartType] = key.split(':');
+      const { market, symbol, tf, chartType, metric } = keyParts(key);
       const ptf = parseTimeframe(tf);
       if (!isSymbol(symbol) || !ptf) throw new Error(`Unsupported data request ${key}`);
       const bars = Math.min(20000, Math.max(500, Math.ceil((Date.now() - fromT) / tfDurationMs(ptf)) + 50));
-      const spec: SeriesSpec = { symbol, market: market === 'futures' ? 'futures' : 'spot', tf, chartType: chartType === 'heikinashi' ? 'heikinashi' : 'candles' };
+      const spec: SeriesSpec = { symbol, market, tf, chartType: chartType === 'heikinashi' ? 'heikinashi' : 'candles', metric };
       const h = this.svc.core.series.acquire(spec, { bars });
       this.sec.set(key, h);
       await h.series.ready;
+      await h.series.complete;
       if (h.series.status === 'error') throw new Error(`${key}: ${h.series.info.error || 'data unavailable'}`);
     }
   }

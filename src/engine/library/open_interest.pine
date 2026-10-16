@@ -1,0 +1,17 @@
+//@version=6
+// @name Open Interest
+// @category Futures
+// @description Binance perpetual open interest (contracts) as candles, like TradingView's built-in: 5-minute samples aggregated to the chart timeframe (since September 2020). Works on spot charts too (uses the perpetual).
+indicator("Open Interest", format=format.volume)
+sym = input.symbol("", "Symbol (empty: chart symbol)")
+showMa = input.bool(false, "Moving average")
+maLen = input.int(20, "MA length", minval=1)
+// BINANCE:BTCUSDT.P_OI — TradingView's open interest ticker
+ticker = (sym == "" ? syminfo.prefix + ":" + syminfo.ticker : sym) + "_OI"
+// statistics are measured every 5 minutes: below that, show the last value as a line
+fine = timeframe.in_seconds() < 300
+[o, h, l, c] = request.security(ticker, fine ? "5" : timeframe.period, [open, high, low, close])
+col = c >= o ? color.teal : color.red
+plotcandle(fine ? na : o, fine ? na : h, fine ? na : l, fine ? na : c, "Open interest", color=col, wickcolor=col, bordercolor=col)
+plot(fine ? c : na, "Open interest (5m)", color.teal, style=plot.style_stepline, linewidth=2)
+plot(showMa ? ta.sma(c, maLen) : na, "MA", color.orange)

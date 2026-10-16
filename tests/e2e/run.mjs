@@ -549,6 +549,10 @@ const S = {
       await page.keyboard.press('Enter');
       await wait(150);
     }
+    // open interest follows the replay clock too
+    await page.fill('.picker-main input', 'Open Interest');
+    await page.locator('.picker-row .picker-name', { hasText: /^Open Interest$/ }).click();
+    await wait(150);
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => [...document.querySelectorAll('.pane-legend .ind-item')].some((r) => /RSI/.test(r.textContent || '') && /\d+\.\d+/.test(r.textContent || '')), null, { timeout: 30000 });
     const ids = await page.evaluate(() => Object.keys(window.__charts || {}));
@@ -588,6 +592,8 @@ const S = {
     const lv = await page.evaluate(() => [...document.querySelectorAll('.ind-item')].map((x) => x.textContent || '').join(' | '));
     const errs = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
     check(errs.length === 0 && /RSI/.test(lv) && /trades/.test(lv), `indicator and strategy run on replay data (${lv.replace(/\s+/g, ' ').slice(0, 140)})`);
+    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Open Interest/.test(r.textContent || '') && /C \d+(\.\d+)?K/.test(r.textContent || '')), null, { timeout: 60000 });
+    check(true, 'open interest runs on the replay clock');
     const notice = await page.textContent('.ob .replay-notice').catch(() => '');
     check(/Live/.test(notice || ''), 'order book is marked as live data during the replay');
     // the trade panel trades the replay account at replay prices: a limit order below the replay price
@@ -764,6 +770,20 @@ const S = {
       const rv = await call('review_trades', { accountId: accts.result.accounts[0].id });
       check(!!rv.result.overall && !!rv.result.bySide && 'within30minAfterALoss' in rv.result, `trade review data (${rv.result.overall.trades} trades)`);
     }
+    // open interest as script data in a backtest: 400 days span Binance's REST window and its daily archives
+    const t0 = Date.now();
+    const oiBt = await call('backtest', { id: 'builtin:strat_oi_breakout', symbol: 'BTCUSDT', market: 'futures', tf: '1h', days: 400 });
+    check(oiBt.result.ok && oiBt.result.metrics.trades > 0 && !oiBt.result.warnings.some((w) => /No open interest/.test(w)), `OI Breakout backtest on BINANCE:BTCUSDT.P_OI (${oiBt.result.ok ? `${oiBt.result.metrics.trades} trades, ${oiBt.result.metrics.netProfitPct}%` : oiBt.result.error}, ${Math.round((Date.now() - t0) / 1000)} s)`);
+    const pyOi = await call('run_script', {
+      language: 'python',
+      code: ['# @name OI check', 'from fufu import *', '', '', "@indicator('OI check')", 'def main(data):', "    oi = data.security('BTCUSDT.P_OI', '1h')", "    plot(oi, 'Open interest')", ''].join(String.fromCharCode(10)),
+      symbol: 'BTCUSDT',
+      market: 'futures',
+      tf: '1h',
+      bars: 500,
+    });
+    const pyLast = pyOi.result.plots?.[0]?.last?.slice(-1)[0];
+    check(pyOi.result.ok && pyLast > 1000, `Python reads open interest with data.security('BTCUSDT.P_OI') (last ${pyLast})`);
     const saved = await call('get_backtest', { id: bt.result.recordId });
     check(saved.result.ok && saved.result.metrics?.vsRandom && saved.result.request?.tf === '4h', `Claude can read a saved backtest (${saved.result.label})`);
     // Claude prepares a paper bot: the dialog opens prefilled, the bot is set up with the strategy
@@ -830,6 +850,20 @@ const S = {
     check(true, 'open interest history drawn');
     await wait(1500);
     await shot('29b-derivatives');
+    // open interest as script data: the TradingView-style built-in reads BINANCE:<symbol>.P_OI
+    await page.locator('button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    await page.fill('.picker-main input', 'Open Interest');
+    await page.locator('.picker-row .picker-name', { hasText: /^Open Interest$/ }).click();
+    await wait(200);
+    await page.keyboard.press('Escape');
+    // the legend shows the open interest value (about 90K BTC), not just the MA length input
+    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Open Interest/.test(r.textContent || '') && /\d\d(\.\d+)?\s?K/.test(r.textContent || '')), null, { timeout: 120000, polling: 500 });
+    const oi = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Open Interest/.test(t)));
+    const oiErr = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
+    check(!oiErr.length && oi.length === 1, `Open Interest indicator runs on the perpetual's statistics (${oi.join('').slice(0, 80)}${oiErr.length ? ` errors ${JSON.stringify(oiErr)}` : ''})`);
+    await wait(800);
+    await shot('29c-open-interest');
   },
   async prop() {
     console.log('scenario: prop challenges');

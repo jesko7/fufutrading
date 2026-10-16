@@ -1,6 +1,7 @@
 /** Types shared between the main process (market data services) and renderers. */
 import type { Market, SymbolId } from './symbols';
 import type { RenkoOptions } from './candles';
+import type { MetricKind } from './metrics';
 
 export type ChartType = 'candles' | 'heikinashi' | 'renko' | 'bars' | 'line' | 'area' | 'hollow' | 'footprint';
 
@@ -10,6 +11,8 @@ export interface SeriesSpec {
   tf: string;
   chartType: ChartType;
   renko?: RenkoOptions;
+  /** Futures statistics instead of klines (open interest, long/short ratios; see shared/metrics). */
+  metric?: MetricKind;
 }
 
 export type SeriesStatus = 'loading' | 'live' | 'syncing' | 'reconnecting' | 'degraded' | 'error' | 'replay';
@@ -124,6 +127,6 @@ export interface ConnectionInfo {
 
 export function seriesKey(s: SeriesSpec): string {
   const r = s.chartType === 'renko' && s.renko ? `:${s.renko.boxSize || ''}/${s.renko.atrLength || ''}/${s.renko.percent || ''}/${s.renko.source || 'close'}` : '';
-  const ct = s.chartType === 'heikinashi' || s.chartType === 'renko' ? s.chartType : 'ohlc';
+  const ct = s.metric ? s.metric : s.chartType === 'heikinashi' || s.chartType === 'renko' ? s.chartType : 'ohlc';
   return `${s.market}:${s.symbol}:${s.tf}:${ct}${r}`;
 }

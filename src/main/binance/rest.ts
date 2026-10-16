@@ -11,6 +11,7 @@ import { unzipSync } from 'fflate';
 import { CandleSeries } from '../../shared/candles';
 import type { Market, SymbolId } from '../../shared/symbols';
 import type { TradeTick } from '../../shared/live';
+import { parseMetricsCsv } from '../../shared/metrics';
 
 const SPOT_HOSTS = ['https://api.binance.com', 'https://data-api.binance.vision', 'https://api1.binance.com', 'https://api2.binance.com'];
 const FUT_HOST = 'https://fapi.binance.com';
@@ -64,6 +65,8 @@ export class BinanceRest {
   private bannedUntil: Record<Market, number> = { spot: 0, futures: 0 };
   private limiters: Record<Market, Limiter> = { spot: new Limiter(6), futures: new Limiter(5) };
   private bulkLimiter = new Limiter(4);
+  /** Small daily archives (futures metrics, ~10 KB): latency bound, so more in parallel. */
+  private smallLimiter = new Limiter(20);
   public requestCount = 0;
 
   constructor(private log: Logger = () => {}) {}
@@ -183,6 +186,39 @@ export class BinanceRest {
     return rows.map((r) => ({ t: r.fundingTime, rate: +r.fundingRate, markPrice: +r.markPrice || NaN }));
   }
 
+  /**
+   * Open interest and long/short ratios measured in [startTime, endTime) (5-minute samples, at
+   * most 500; Binance serves the last 30 days only), in the layout of shared/metrics.
+   */
+  async futuresStats(symbol: SymbolId, startTime: number, endTime: number): Promise<CandleSeries> {
+    type Row = Record<string, string | number>;
+    const q = (name: string) => this.get<Row[]>('futures', `/futures/data/${name}`, { symbol, period: '5m', limit: 500, startTime, endTime: endTime - 1 }, 1);
+    const [oi, topAcc, topPos, global] = await Promise.all([q('openInterestHist'), q('topLongShortAccountRatio'), q('topLongShortPositionRatio'), q('globalLongShortAccountRatio')]);
+    const rows = new Map<number, number[]>();
+    const put = (list: Row[], slot: number, key: string) => {
+      for (const r of list) {
+        const t = Number(r.timestamp);
+        if (!(t >= startTime && t < endTime)) continue;
+        let row = rows.get(t);
+        if (!row) rows.set(t, (row = [NaN, NaN, NaN, NaN, NaN]));
+        const v = Number(r[key]);
+        row[slot] = v > 0 ? v : NaN;
+      }
+    };
+    put(oi, 0, 'sumOpenInterest');
+    put(oi, 1, 'sumOpenInterestValue');
+    put(topAcc, 2, 'longShortRatio');
+    put(topPos, 3, 'longShortRatio');
+    put(global, 4, 'longShortRatio');
+    const ts = [...rows.keys()].sort((a, b) => a - b);
+    const s = new CandleSeries(ts.length);
+    for (const t of ts) {
+      const r = rows.get(t)!;
+      s.push(t, r[0], r[1], r[2], r[3], r[4]);
+    }
+    return s;
+  }
+
   async fundingInfo(): Promise<{ symbol: string; fundingIntervalHours: number }[]> {
     return this.get('futures', '/fapi/v1/fundingInfo', {}, 1);
   }
@@ -208,8 +244,8 @@ export class BinanceRest {
   }
 
   /** Download and unzip one archive; returns CSV text or null if not published (404). */
-  async fetchArchiveCsv(url: string): Promise<string | null> {
-    return this.bulkLimiter.run(async () => {
+  async fetchArchiveCsv(url: string, small = false): Promise<string | null> {
+    return (small ? this.smallLimiter : this.bulkLimiter).run(async () => {
       for (let attempt = 1; ; attempt++) {
         try {
           const res = await fetch(url, { signal: AbortSignal.timeout(120000) });
@@ -234,6 +270,12 @@ export class BinanceRest {
     const csv = await this.fetchArchiveCsv(this.bulkUrl(market, kind, period, symbol, interval, date));
     if (csv === null) return null;
     return parseKlineCsv(csv);
+  }
+
+  /** Futures statistics (5-minute samples) of one UTC day from the daily metrics archive; empty if not published. */
+  async archiveMetrics(symbol: SymbolId, date: string): Promise<CandleSeries> {
+    const csv = await this.fetchArchiveCsv(`${BULK_HOST}/data/futures/um/daily/metrics/${symbol}/${symbol}-metrics-${date}.zip`, true);
+    return csv === null ? new CandleSeries(1) : parseMetricsCsv(csv);
   }
 
   /** Aggregate trades for one UTC day from the daily archive (can be very large for BTC). */

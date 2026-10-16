@@ -1,7 +1,7 @@
 /**
- * Data manager: what is cached locally (candles by interval, mark-price candles, aggregate
- * trades), coverage and gaps, disk use, prefetching ranges for offline backtests and replays,
- * and cleanup.
+ * Data manager: what is cached locally (candles by interval, mark-price candles, futures
+ * statistics, aggregate trades), coverage and gaps, disk use, prefetching ranges for offline
+ * backtests and replays, and cleanup.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,6 +11,10 @@ import type { TradeStore } from './storage/tradeStore';
 import type { CandleKind } from './storage/candleStore';
 import { isSymbol, type Market, type SymbolId } from '../shared/symbols';
 import { intervalMs } from '../shared/timeframes';
+import { METRICS_EPOCH } from '../shared/metrics';
+
+const KINDS: CandleKind[] = ['klines', 'mark', 'metrics'];
+const kindOf = (k: unknown): CandleKind => (KINDS.includes(k as CandleKind) ? (k as CandleKind) : 'klines');
 
 export interface CacheEntry {
   kind: CandleKind;
@@ -41,7 +45,7 @@ export function registerDataManager(core: AppCore, trades: TradeStore): void {
   const overview = (): { root: string; entries: CacheEntry[]; trades: ReturnType<TradeStore['stats']>; totalBytes: number } => {
     const entries: CacheEntry[] = [];
     const base = path.join(store.root, 'candles');
-    for (const kind of ['klines', 'mark'] as CandleKind[]) {
+    for (const kind of KINDS) {
       for (const market of ['spot', 'futures'] as Market[]) {
         const md = path.join(base, kind, market);
         if (!fs.existsSync(md)) continue;
@@ -61,7 +65,7 @@ export function registerDataManager(core: AppCore, trades: TradeStore): void {
   r.handle('data:overview', () => overview());
   r.handle('data:clear', ([kind, market, symbol, interval]) => {
     if (!isSymbol(symbol)) throw new Error('Validation: unsupported symbol');
-    store.clear(kind === 'mark' ? 'mark' : 'klines', market === 'futures' ? 'futures' : 'spot', symbol, String(interval));
+    store.clear(kindOf(kind), market === 'futures' ? 'futures' : 'spot', symbol, String(interval));
     return true;
   });
   r.handle('data:openFolder', () => shell.openPath(core.paths.data));
@@ -73,12 +77,14 @@ export function registerDataManager(core: AppCore, trades: TradeStore): void {
         if (!isSymbol(p.symbol) || (p.market !== 'spot' && p.market !== 'futures')) throw new Error('invalid instrument');
         if (!INTERVALS.includes(p.interval)) throw new Error('invalid interval');
         if (p.interval === '1s' && p.market === 'futures') throw new Error('Binance has no 1s klines for futures');
+        const kind = kindOf(p.kind);
+        if (kind === 'metrics' && (p.market !== 'futures' || p.interval !== '5m')) throw new Error('futures statistics are 5-minute samples of the perpetuals');
         const to = Math.min(Number(p.to) || Date.now(), core.hub.clock.now());
-        const from = Math.max(Number(p.from) || 0, Date.UTC(2017, 6, 1));
+        const from = Math.max(Number(p.from) || 0, kind === 'metrics' ? METRICS_EPOCH : Date.UTC(2017, 6, 1));
         if (!(to > from)) throw new Error('empty range');
         const bars = (to - from) / intervalMs(p.interval);
         if (bars > 5_000_000) throw new Error('range too large for this interval (more than 5 million candles)');
-        await store.get(p.kind === 'mark' ? 'mark' : 'klines', p.market, p.symbol, p.interval, from, to, (pr) => !cancelled && push({ type: 'progress', ...pr }));
+        await store.get(kind, p.market, p.symbol, p.interval, from, to, (pr) => !cancelled && push({ type: 'progress', ...pr }));
         if (!cancelled) push({ type: 'done' });
       } catch (e) {
         if (!cancelled) push({ type: 'error', message: (e as Error).message });

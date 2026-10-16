@@ -261,6 +261,11 @@ class SeriesView:
         return -self._cur()
 
 
+
+# futures statistics ticker suffixes (longest first), see shared/metrics.ts
+_METRIC_SUFFIXES = [('_OI_USD', 'oiusd'), ('_TOP_LSR', 'toplsr'), ('_TOP_POS', 'toppos'), ('_LSR', 'lsr'), ('_OI', 'oi')]
+
+
 class Bars:
     """Chart data. Arrays are float64 numpy arrays (time in ms since epoch)."""
 
@@ -306,14 +311,24 @@ class Bars:
 
         Without lookahead a chart bar only sees values of bars that had *closed* by the chart
         bar's close (exactly like Pine's request.security with lookahead_off on closed bars).
-        `symbol` is 'BTCUSDT', 'ETHUSDT' or 'SOLUSDT'; `market` 'spot' or 'futures'.
+        `symbol` is 'BTCUSDT', 'ETHUSDT' or 'SOLUSDT' (add '.P' for the perpetual); `market`
+        'spot' or 'futures'. Futures statistics take a suffix, like TradingView's open interest
+        symbols: 'BTCUSDT.P_OI' (open interest, contracts), '_OI_USD' (its value), '_LSR'
+        (long/short account ratio), '_TOP_LSR' / '_TOP_POS' (top traders' accounts / positions).
         """
         sym = (symbol or self.symbol or '').upper().replace('/', '').replace('BINANCE:', '')
+        metric = None
+        for suffix, kind in _METRIC_SUFFIXES:
+            if sym.endswith(suffix):
+                sym, metric = sym[: -len(suffix)], kind
+                break
         if sym.endswith('.P'):
             sym, market = sym[:-2], 'futures'
+        if metric:
+            market = 'futures'
         mk = market or self.market
         tfx = tf or self.tf
-        key = f'{mk}:{sym}:{tfx}:candles'
+        key = f'{mk}:{sym}:{tfx}:{metric or "candles"}'
         n = len(self._cols['close'])
         if key not in self._htf:
             _ctx.need.add(key)

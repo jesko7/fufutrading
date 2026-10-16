@@ -34,7 +34,7 @@ export interface ChartBars {
 export type SeriesStyle = 'candles' | 'hollow' | 'bars' | 'line' | 'area' | 'footprint';
 export type ScaleMode = 'linear' | 'log' | 'percent';
 
-export type PlotType = 'line' | 'linebr' | 'stepline' | 'histogram' | 'columns' | 'area' | 'areabr' | 'circles' | 'cross';
+export type PlotType = 'line' | 'linebr' | 'stepline' | 'histogram' | 'columns' | 'area' | 'areabr' | 'circles' | 'cross' | 'candles' | 'bars';
 
 export interface PlotSeries {
   id: string;
@@ -51,6 +51,10 @@ export interface PlotSeries {
   /** Show the last value on the price axis. */
   trackPrice?: boolean;
   precision?: number;
+  /** plotcandle / plotbar: open, high and low (values = close). */
+  o?: Float64Array;
+  h?: Float64Array;
+  l?: Float64Array;
 }
 
 export type ShapeStyle = 'triangleup' | 'triangledown' | 'circle' | 'cross' | 'xcross' | 'arrowup' | 'arrowdown' | 'labelup' | 'labeldown' | 'square' | 'diamond' | 'flag' | 'char';
@@ -162,6 +166,8 @@ export interface IndicatorOutput {
   scaleMin?: number;
   scaleMax?: number;
   precision?: number;
+  /** "volume" shows values as K/M/B, "percent" with a % sign. */
+  format?: string;
   error?: string;
   warnings?: string[];
   visible: boolean;

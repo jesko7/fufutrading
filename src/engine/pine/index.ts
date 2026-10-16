@@ -11,6 +11,7 @@ import { StrategyBroker, type BrokerConfig, type TickProvider } from '../backtes
 import type { ScriptResult, ScriptError, BarSeries, RunContext, StrategyRaw } from '../types';
 import { emptyResult } from '../types';
 import { SYMBOLS, type SymbolId } from '../../shared/symbols';
+import { METRICS, isMetric, splitMetricSuffix, type MetricKind } from '../../shared/metrics';
 import { parseTimeframe, tfDurationMs } from '../../shared/timeframes';
 
 export type { CompiledPine };
@@ -62,15 +63,20 @@ export interface SecurityRequest {
   symbol: SymbolId;
   market: 'spot' | 'futures';
   tf: string;
-  chartType: 'candles' | 'heikinashi';
+  /** Heikin-Ashi candles, or a futures statistic instead of klines. */
+  chartType: 'candles' | 'heikinashi' | MetricKind;
   lowerTf: boolean;
   lookahead: boolean;
   gaps: boolean;
 }
 
-/** Parse a TradingView-style ticker into a supported Binance instrument. */
-export function resolveTicker(ticker: string, ctx: RunContext): { symbol: SymbolId; market: 'spot' | 'futures'; ha: boolean } {
-  let t = String(ticker || '').trim();
+/**
+ * Parse a TradingView-style ticker into a supported Binance instrument: BTCUSDT (spot, or the
+ * chart's market without a prefix), BTCUSDT.P / BTCUSDTPERP (perpetual), #HA (Heikin-Ashi) and the
+ * futures statistics suffixes _OI, _OI_USD, _LSR, _TOP_LSR, _TOP_POS (always the perpetual).
+ */
+export function resolveTicker(ticker: string, ctx: RunContext): { symbol: SymbolId; market: 'spot' | 'futures'; ha: boolean; metric: MetricKind | null } {
+  let t = String(ticker || '').trim().toUpperCase();
   let ha = false;
   if (t.endsWith('#HA')) {
     ha = true;
@@ -78,7 +84,9 @@ export function resolveTicker(ticker: string, ctx: RunContext): { symbol: Symbol
   }
   let prefix = '';
   if (t.includes(':')) [prefix, t] = t.split(':');
-  if (prefix && prefix.toUpperCase() !== 'BINANCE') throw new Error(`Symbol "${ticker}" is not available: FuFu only has Binance BTC, ETH and SOL data.`);
+  if (prefix && prefix !== 'BINANCE') throw new Error(`Symbol "${ticker}" is not available: FuFu only has Binance BTC, ETH and SOL data.`);
+  const [base, metric] = splitMetricSuffix(t);
+  t = base;
   let market = ctx.market;
   if (t.endsWith('.P')) {
     market = 'futures';
@@ -87,14 +95,17 @@ export function resolveTicker(ticker: string, ctx: RunContext): { symbol: Symbol
     market = 'futures';
     t = t.slice(0, -4);
   } else if (prefix) market = 'spot';
-  const sym = t.toUpperCase() as SymbolId;
-  if (!(SYMBOLS as readonly string[]).includes(sym)) throw new Error(`Symbol "${ticker}" is not available: supported are BTCUSDT, ETHUSDT and SOLUSDT (spot, or .P for perpetuals).`);
-  return { symbol: sym, market, ha };
+  // open interest and long/short ratios exist for the perpetuals only
+  if (metric) market = 'futures';
+  const sym = t as SymbolId;
+  if (!(SYMBOLS as readonly string[]).includes(sym)) throw new Error(`Symbol "${ticker}" is not available: supported are BTCUSDT, ETHUSDT and SOLUSDT (spot, or .P for perpetuals; add _OI for open interest).`);
+  return { symbol: sym, market, ha: ha && !metric, metric };
 }
 
 export function securityRequests(c: CompiledPine, inputs: Record<string, unknown>, ctx: RunContext): SecurityRequest[] {
   const sym = makeSym(ctx, c.version);
-  const R = { inputs, sym } as unknown as Runtime;
+  // the runtime's operators (string +, ==, ternaries on na) without any bar data
+  const R = Object.assign(Object.create(Runtime.prototype) as Runtime, { inputs, sym });
   const out: SecurityRequest[] = [];
   for (const s of c.security) {
     let symStr: string;
@@ -117,7 +128,7 @@ export function securityRequests(c: CompiledPine, inputs: Record<string, unknown
     } catch (e) {
       throw new PineError((e as Error).message, s.line, 0, 'compile');
     }
-    const chartType = ins.ha ? 'heikinashi' : 'candles';
+    const chartType = ins.metric ?? (ins.ha ? 'heikinashi' : 'candles');
     out.push({ site: s.site, key: `${ins.market}:${ins.symbol}:${tf}:${chartType}`, symbol: ins.symbol, market: ins.market, tf, chartType, lowerTf: s.lowerTf, lookahead: s.lookahead, gaps: s.gaps });
   }
   return out;
@@ -164,10 +175,12 @@ export function mapSecurity(chart: BarSeries, ctxBars: BarSeries, rec: unknown[]
 
 function makeSym(ctx: RunContext, version: number): SymbolCtx & { chartType: string } {
   const tf = parseTimeframe(ctx.tf);
+  const ticker = `${ctx.symbol}${ctx.market === 'futures' ? '.P' : ''}${isMetric(ctx.chartType) ? METRICS[ctx.chartType].suffix : ''}`;
   return {
     symbol: ctx.symbol,
     market: ctx.market,
-    tickerid: `BINANCE:${ctx.symbol}${ctx.market === 'futures' ? '.P' : ''}`,
+    ticker,
+    tickerid: `BINANCE:${ticker}`,
     tf: ctx.tf,
     pineTf: oursToPineTf(ctx.tf, version),
     tfSeconds: tf ? tfDurationMs(tf) / 1000 : 60,
@@ -427,7 +440,7 @@ export class PineInstance {
     const R = this.R;
     const c = this.c;
     const res = emptyResult('pine', this.error || undefined);
-    res.meta = { type: c.meta.type === 'strategy' ? 'strategy' : 'indicator', title: c.meta.title, shortTitle: c.meta.shortTitle, overlay: c.meta.overlay, precision: c.meta.precision };
+    res.meta = { type: c.meta.type === 'strategy' ? 'strategy' : 'indicator', title: c.meta.title, shortTitle: c.meta.shortTitle, overlay: c.meta.overlay, precision: c.meta.precision, format: c.meta.format };
     res.inputs = c.inputs.map((i) => ({ key: i.key, type: i.type, title: i.title, defval: i.defval, min: i.min, max: i.max, step: i.step, options: i.options, tooltip: i.tooltip, group: i.group, inline: i.inline }));
     const n = R.n;
     res.plots = R.plots.map((p) => ({

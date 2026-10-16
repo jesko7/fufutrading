@@ -69,6 +69,12 @@ per alert.
 - **History:** klines from the local cache. Missing ranges come from REST or Binance's data
   archive and are cached for reuse. The Data Manager shows coverage, gaps and disk use,
   prefetches ranges for offline backtests and replays, and cleans up.
+- **Futures statistics** (open interest, long/short ratios) are Binance's 5-minute samples
+  since September 2020: from its API for the last 30 days, from its daily archives before
+  that, cached like candles. Scripts use them as `BINANCE:BTCUSDT.P_OI` and so on (see the
+  Pine guide). A sample counts from the next 5-minute mark, because Binance publishes it 2–3
+  minutes after measuring it. Backtests, replays and bots therefore see what a live trader
+  saw. The Data Manager can prefetch them.
 - **Footprints** use Binance aggregate trades with their aggressor side (from the maker flag).
   They are cached per day and only the newest days are kept.
 - **Time:** bar closes follow Binance's server clock. The app measures its offset, so a

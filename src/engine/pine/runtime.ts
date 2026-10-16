@@ -253,6 +253,8 @@ export interface BarData {
 export interface SymbolCtx {
   symbol: string;
   market: 'spot' | 'futures';
+  /** TradingView ticker: BTCUSDT, BTCUSDT.P (perpetual), BTCUSDT.P_OI (open interest). */
+  ticker: string;
   tickerid: string;
   tf: string; // our format, e.g. 15m
   pineTf: string; // Pine format, e.g. 15

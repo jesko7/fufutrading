@@ -40,6 +40,8 @@ Supported:
   `bgcolor`, `barcolor`, `alertcondition`, `alert()`, `log.info/warning/error`.
 - `request.security()` and `request.security_lower_tf()` for BTC/ETH/SOL on any timeframe and
   market (`"BINANCE:ETHUSDT"`, `"ETHUSDT.P"` for the perpetual), with `lookahead` and `gaps`.
+- Futures statistics of the perpetuals, through TradingView's open interest tickers. See
+  [Open interest and long/short ratios](#open-interest-and-longshort-ratios) below.
 - Inputs: all `input.*` kinds, `group`, `inline`, `tooltip`, `options`, `minval/maxval/step`.
 
 Not supported (compile error with the reason):
@@ -55,6 +57,40 @@ Accepted but different:
 - `strategy.risk.*` rules are ignored, with a warning.
 - The `timeframe` parameter of `indicator()` is ignored, with a warning. Use `request.security`.
 - `syminfo.*` describe Binance instruments (`syminfo.mintick` is the exchange tick size).
+  `syminfo.ticker` is `BTCUSDT` on spot and `BTCUSDT.P` on the perpetual, like TradingView.
+
+## Open interest and long/short ratios
+
+Binance's futures statistics of the perpetuals work as symbols with a suffix, like
+TradingView's open interest tickers:
+
+| Ticker | Value |
+| --- | --- |
+| `BINANCE:BTCUSDT.P_OI` | open interest in contracts (BTC) |
+| `BINANCE:BTCUSDT.P_OI_USD` | open interest value in USDT |
+| `BINANCE:BTCUSDT.P_LSR` | long/short account ratio, all accounts |
+| `BINANCE:BTCUSDT.P_TOP_LSR` | long/short account ratio, top traders |
+| `BINANCE:BTCUSDT.P_TOP_POS` | long/short position ratio, top traders |
+
+```pine
+oi = request.security(syminfo.prefix + ":" + syminfo.ticker + "_OI", timeframe.period, close)
+[o, h, l, c] = request.security("BINANCE:ETHUSDT.P_OI", "240", [open, high, low, close])
+```
+
+- The suffix always means the perpetual, also on a spot chart (`BTCUSDT_OI` works too).
+- Binance measures these values every 5 minutes, since September 2020. Bars of any timeframe
+  are built from the samples: open = the previous bar's close, close = the last sample,
+  high/low = the extremes of the samples. Volume is 0. Below 5 minutes, use `"5"` as the
+  timeframe (or plot the value as a line).
+- No lookahead: Binance publishes a sample 2–3 minutes after measuring it, so every sample
+  counts from the next 5-minute mark. A value measured at 12:00 closes the bar that ends at
+  12:05. Backtests, replays and live bots see the same values at the same times.
+- History comes from Binance's API for the last 30 days and from its daily archives before
+  that. Both are cached. The first load of years of history takes a while, so charts show the
+  last two months first and add the rest in the background.
+- Built-in scripts: **Open Interest** (candles, like TradingView's), **Open Interest Delta**
+  (the change per bar, colored by new longs, new shorts, short covering and long closing),
+  **Long/Short Ratio** and the **OI Breakout Strategy**.
 
 ## Strategies
 

@@ -11,10 +11,12 @@ import { CandleSeries, aggregate, heikinAshi, heikinAshiBar, mergeInto, renkoBox
 import { LiveAggregator, type BaseKline, type TradeTick } from '../../shared/live';
 import { type SeriesSpec, type SeriesSnapshot, type SeriesUpdate, type SeriesStatus, type SeriesInfo, seriesKey } from '../../shared/marketTypes';
 import { baseIntervalFor, bucketStart, bucketEnd, intervalMs, parseTimeframe, timeForBarsBack, tfDurationMs, type Timeframe, DAY, HOUR, MIN } from '../../shared/timeframes';
-import { SYMBOL_SPECS } from '../../shared/symbols';
+import { SYMBOL_SPECS, type SymbolId } from '../../shared/symbols';
+import { METRICS_EPOCH, METRIC_STEP, metricBars, type MetricKind } from '../../shared/metrics';
 import type { CandleStore } from '../storage/candleStore';
 import type { MarketHub } from './hub';
 import type { TapeListener } from './tape';
+import { MetricPoller, MetricSeries, replayMetricClock, type MetricClock } from './metricSeries';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
 
@@ -44,6 +46,27 @@ export function liveFeed(hub: MarketHub, spec: SeriesSpec): SeriesFeed {
     status: () => (tape.status === 'live' ? 'live' : tape.status === 'degraded' ? 'degraded' : tape.status === 'reconnecting' ? 'reconnecting' : 'syncing'),
     release,
   };
+}
+
+/** What consumers of a shared series use: kline series and futures statistics alike. */
+export interface SeriesHandle {
+  readonly key: string;
+  readonly spec: SeriesSpec;
+  readonly out: CandleSeries;
+  status: SeriesStatus;
+  info: SeriesInfo;
+  hasMore: boolean;
+  refs: number;
+  ready: Promise<void>;
+  /** Futures statistics load older history after `ready`; this resolves when it is in. */
+  complete?: Promise<void>;
+  lastPrice: number;
+  subscribe(cb: (u: SeriesUpdate) => void): () => void;
+  snapshot(maxBars?: number): SeriesSnapshot;
+  loadMore(count: number): Promise<boolean>;
+  closedLength(now: number): number;
+  source(): CandleSeries;
+  dispose(): void;
 }
 
 const DECOMP_SPOT = ['1d', '12h', '4h', '1h', '15m', '1m', '1s'];
@@ -289,8 +312,9 @@ function sameTf(a: Timeframe, b: Timeframe): boolean {
 }
 
 export class SeriesService {
-  private map = new Map<string, ManagedSeries>();
+  private map = new Map<string, ManagedSeries | MetricSeries>();
   private disposeTimers = new Map<string, NodeJS.Timeout>();
+  private pollers = new Map<SymbolId, MetricPoller>();
 
   constructor(
     private hub: MarketHub,
@@ -307,8 +331,35 @@ export class SeriesService {
     return 2000;
   }
 
+  /** The live clock of futures statistics: one poller per symbol while series use it. */
+  private metricClock(symbol: SymbolId): MetricClock {
+    let p = this.pollers.get(symbol);
+    if (!p) {
+      p = new MetricPoller(this.hub.rest, () => this.hub.clock.now(), symbol, this.log);
+      this.pollers.set(symbol, p);
+    }
+    const poller = p;
+    poller.refs++;
+    let released = false;
+    return {
+      kind: 'live',
+      now: () => this.hub.clock.now(),
+      ready: () => poller.first,
+      recent: () => poller.samples,
+      listen: (cb) => poller.listen(cb),
+      status: () => (poller.ok ? 'live' : 'degraded'),
+      release: () => {
+        if (released) return;
+        released = true;
+        if (--poller.refs > 0) return;
+        poller.stop();
+        if (this.pollers.get(symbol) === poller) this.pollers.delete(symbol);
+      },
+    };
+  }
+
   /** Acquire a shared series (ref counted). Call `release` when done. */
-  acquire(spec: SeriesSpec, opts: { feed?: SeriesFeed; keySuffix?: string; bars?: number } = {}): { series: ManagedSeries; release: () => void } {
+  acquire(spec: SeriesSpec, opts: { feed?: SeriesFeed; keySuffix?: string; bars?: number } = {}): { series: SeriesHandle; release: () => void } {
     const key = seriesKey(spec) + (opts.keySuffix || '');
     let s = this.map.get(key);
     if (s && s.status === 'error') {
@@ -317,8 +368,14 @@ export class SeriesService {
       s = undefined;
     }
     if (!s) {
-      const feed = opts.feed || liveFeed(this.hub, spec);
-      s = new ManagedSeries(spec, feed, this.store, this.log, opts.bars || this.defaultBars(spec), opts.keySuffix || '');
+      const bars = opts.bars || this.defaultBars(spec);
+      if (spec.metric) {
+        const clock = opts.feed ? replayMetricClock(opts.feed) : this.metricClock(spec.symbol);
+        s = new MetricSeries(spec, clock, this.store, this.log, bars, opts.keySuffix || '');
+      } else {
+        const feed = opts.feed || liveFeed(this.hub, spec);
+        s = new ManagedSeries(spec, feed, this.store, this.log, bars, opts.keySuffix || '');
+      }
       this.map.set(key, s);
     } else if (opts.feed) {
       opts.feed.release();
@@ -354,7 +411,7 @@ export class SeriesService {
     };
   }
 
-  get(key: string): ManagedSeries | undefined {
+  get(key: string): SeriesHandle | undefined {
     return this.map.get(key);
   }
 
@@ -380,6 +437,17 @@ export class SeriesService {
     const histTf = parseTimeframe(iv.replace('d', 'D').replace('w', 'W'))!;
     let s = sameTf(histTf, tf) ? raw : aggregate(raw, tf);
     // drop a trailing incomplete bucket
+    if (s.length && bucketEnd(tf, s.t[s.length - 1]) > b) s = s.slice(0, s.length - 1);
+    return s;
+  }
+
+  /** Futures statistics bars for analysis (backtests): closed bars of the samples usable by `to`. */
+  async metricHistory(spec: { symbol: SymbolId; tf: string; metric: MetricKind }, from: number, to: number, onProgress?: (p: { done: number; total: number; phase: string }) => void): Promise<CandleSeries> {
+    const tf = parseTimeframe(spec.tf);
+    if (!tf) throw new Error(`Invalid timeframe ${spec.tf}`);
+    const b = Math.min(to, this.hub.clock.now());
+    const raw = await this.store.get('metrics', 'futures', spec.symbol, '5m', Math.max(METRICS_EPOCH, bucketStart(tf, from) - METRIC_STEP), b, onProgress);
+    let s = metricBars(raw, spec.metric, tf, b);
     if (s.length && bucketEnd(tf, s.t[s.length - 1]) > b) s = s.slice(0, s.length - 1);
     return s;
   }

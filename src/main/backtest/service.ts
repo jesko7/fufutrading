@@ -17,6 +17,7 @@ import { DocStore, uid, readJson, writeJsonAtomic } from '../storage/jsonStore';
 import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
 import { randomBenchmark, tradeMonteCarlo, type RandomBenchmark, type TradeMonteCarlo } from '../../engine/backtest/benchmarks';
 import { keyParts } from '../../engine/host';
+import { METRICS } from '../../shared/metrics';
 import { fromCandles } from '../../engine/data';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import { buildMagnifier, magnifierCoverage, type Magnifier } from '../../engine/backtest/magnifier';
@@ -373,8 +374,14 @@ export class BacktestService {
         if (!isSymbol(kp.symbol)) throw new Error(`Unsupported symbol ${kp.symbol}`);
         const ktf = parseTimeframe(kp.tf);
         if (!ktf) throw new Error(`Invalid timeframe ${kp.tf}`);
-        progress({ phase: `Loading ${kp.symbol} ${kp.tf}` });
+        progress({ phase: `Loading ${kp.symbol}${kp.metric ? ` ${METRICS[kp.metric].title.toLowerCase()}` : ''} ${kp.tf}` });
         const from2 = timeForBarsBack(ktf, bucketStart(ktf, fromWarm), warmup);
+        if (kp.metric) {
+          const stats = await this.core.series.metricHistory({ symbol: kp.symbol as SymbolId, tf: kp.tf, metric: kp.metric }, from2, to, (p) => progress({ phase: `Loading ${kp.symbol} futures statistics`, done: p.done, total: p.total }));
+          if (!stats.length) warnings.push(`No ${METRICS[kp.metric].title.toLowerCase()} for ${kp.symbol} in this range (Binance has these statistics since September 2020).`);
+          security[key] = fromCandles(stats, kp.tf, 'candles');
+          continue;
+        }
         let other = await this.candles(kp.symbol as SymbolId, kp.market, kp.tf, from2, to, progress);
         if (kp.chartType === 'heikinashi') other = heikinAshi(other);
         security[key] = fromCandles(other, kp.tf, kp.chartType);

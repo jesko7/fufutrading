@@ -10,7 +10,7 @@ import { IpcRouter } from './ipc';
 import { JsonFile } from './storage/jsonStore';
 import { CandleStore, binanceKlineSource } from './storage/candleStore';
 import { MarketHub } from './market/hub';
-import { SeriesService, type ManagedSeries } from './market/series';
+import { SeriesService, type SeriesHandle } from './market/series';
 import { WorkspaceService, type WorkspaceOp } from './workspaces';
 import { WindowManager } from './windows';
 import { createShortcuts, getAutostart, setAutostart } from './desktop';
@@ -88,7 +88,7 @@ export class AppCore {
   /** Pause every running bot (tray menu). */
   pauseAllBots: () => void = () => {};
   /** Acquire a replay series (set by the replay service). */
-  replayAcquire: ((spec: SeriesSpec, ref: { session: string; epoch: number }) => { series: ManagedSeries; release: () => void }) | null = null;
+  replayAcquire: ((spec: SeriesSpec, ref: { session: string; epoch: number }) => { series: SeriesHandle; release: () => void }) | null = null;
 
   notify(title: string, body: string): void {
     if (!this.settings.notifications.desktop) return;
@@ -307,7 +307,7 @@ export class AppCore {
     r.handle('data:stats', ([kind, market, symbol, interval]) => this.store.stats(kind, market, symbol, interval));
   }
 
-  acquireReplay(spec: SeriesSpec, ref: { session: string; epoch: number }): { series: ManagedSeries; release: () => void } {
+  acquireReplay(spec: SeriesSpec, ref: { session: string; epoch: number }): { series: SeriesHandle; release: () => void } {
     if (!this.replayAcquire) throw new Error('Replay is not available');
     return this.replayAcquire(spec, ref);
   }
