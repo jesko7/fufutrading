@@ -126,7 +126,7 @@ export class ScriptPool {
   private spawn(group: Group): Slot {
     const s = new Slot(group, this.script, this.py, (slot, reason) => {
       this.slots = this.slots.filter((x) => x !== slot);
-      if (reason !== 'stopped' && reason !== 'idle') this.log('warn', `script worker #${slot.id} (${slot.group}) ${reason}`);
+      if (reason !== 'stopped' && reason !== 'idle' && !this.closing) this.log('warn', `script worker #${slot.id} (${slot.group}) ${reason}`);
       for (const inst of slot.instances) {
         this.instSlot.delete(inst);
         for (const l of this.lostListeners) l(inst, reason);
@@ -319,7 +319,11 @@ export class ScriptPool {
     return this.slots.map((s) => ({ group: s.group, id: s.id, instances: s.instances.size, pending: s.pending.size }));
   }
 
+  /** Set while the app quits: workers ending then are expected. */
+  private closing = false;
+
   async shutdown(): Promise<void> {
+    this.closing = true;
     clearInterval(this.reaper);
     await Promise.all(this.slots.map((s) => s.worker.terminate().catch(() => 0)));
     this.slots = [];

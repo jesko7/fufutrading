@@ -81,6 +81,7 @@ const P: Record<string, string> = {
   greek: 'M12 4.5L4 19h16z',
   target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M12 12h.01',
   max: 'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5',
+  restore: 'M9 4v5H4 M15 4v5h5 M9 20v-5H4 M15 20v-5h5',
   layout: 'M3 4h18v16H3z M3 9h18 M9 9v11',
   log: 'M4 20c4-1 6-5 8-9s5-7 8-7',
   flow: 'M5 4h6v4H5z M13 16h6v4h-6z M8 8v4h8v4 M5 16h4v4H5z M7 12v4',

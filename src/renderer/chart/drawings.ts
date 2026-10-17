@@ -313,7 +313,8 @@ export class DrawingLayer {
     return false;
   }
 
-  escape(): void {
+  /** Cancel what Escape cancels (a drawing in progress, the tool, the selection); false when there was nothing. */
+  escape(): boolean {
     if (this.pending) this.pending = null;
     else if (this.tool) {
       this.tool = null;
@@ -321,7 +322,8 @@ export class DrawingLayer {
     } else if (this.selected) {
       this.selected = null;
       this.eng.emitDrawingSelect(null);
-    }
+    } else return false;
+    return true;
   }
 
   deleteSelected(): boolean {

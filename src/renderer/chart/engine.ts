@@ -1272,11 +1272,15 @@ export class ChartEngine {
 
   private onKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      let used = false;
       if (this.pickBarMode) {
         this.setPickBarMode(false);
         this.cb.onPickBar?.(NaN, -1);
+        used = true;
       }
-      this.drawings.escape();
+      if (this.drawings.escape()) used = true;
+      // consumed here: a maximized panel stays maximized
+      if (used) e.preventDefault();
       this.invalidateOverlay();
       return;
     }

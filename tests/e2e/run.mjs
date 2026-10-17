@@ -1197,6 +1197,16 @@ const S = {
     check(tiles.length >= 6, `summary: ${tiles.join(' | ')}`);
     check(await page.$('.opt-mod .oc-index') !== null, 'the index price sits between the strikes');
     await shot('51-options-chain');
+    // maximize the panel (double-click its tab), look at it big, restore with Esc
+    await page.locator('.stack:has(.opt-mod) .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized .opt-mod', { timeout: 5000 });
+    const mw = await page.$eval('.stack.maximized', (e) => e.getBoundingClientRect().width);
+    check(mw > 1300, `the options panel maximizes over the workspace (${Math.round(mw)} px wide)`);
+    await wait(700);
+    await shot('51b-options-maximized');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
+    check(true, 'Esc restores the layout');
     await page.click('.opt-mod .seg button:has-text("Greeks")');
     const greeks = await page.$$eval('.opt-mod .oc-table thead tr:nth-child(2) th', (t) => t.map((x) => x.textContent).join(' '));
     check(/Δ Γ Θ ν Strike Δ Γ Θ ν/.test(greeks.split(' ').reverse().join(' ')) || /ν Θ Γ Δ Strike Δ Γ Θ ν/.test(greeks), `Greeks columns (${greeks})`);

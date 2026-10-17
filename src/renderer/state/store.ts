@@ -31,6 +31,8 @@ interface AppState {
   toasts: Toast[];
   modals: ModalSpec[];
   dragModule: string | null;
+  /** A stack shown over the whole workspace (Esc or double-click restores). */
+  maximizedStack: string | null;
   setSettings(s: AppSettings): void;
   updateSettings(patch: Partial<AppSettings>): Promise<void>;
   setWorkspace(ws: Workspace, rev: number): void;
@@ -47,6 +49,7 @@ interface AppState {
   openModal(m: ModalSpec): void;
   closeModal(id: string): void;
   setDragModule(id: string | null): void;
+  setMaximizedStack(id: string | null): void;
 }
 
 let toastId = 1;
@@ -62,6 +65,7 @@ export const useApp = create<AppState>((set, get) => ({
   toasts: [],
   modals: [],
   dragModule: null,
+  maximizedStack: null,
   setSettings(s) {
     setTimezoneMode(s.timezone);
     applyTheme(s);
@@ -129,6 +133,9 @@ export const useApp = create<AppState>((set, get) => ({
   },
   setDragModule(id) {
     set({ dragModule: id });
+  },
+  setMaximizedStack(id) {
+    set({ maximizedStack: id });
   },
 }));
 

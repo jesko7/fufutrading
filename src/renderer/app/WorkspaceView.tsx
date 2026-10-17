@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useApp } from '../state/store';
 import { api, errorMessage } from '../api';
@@ -112,6 +112,32 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
   const menu = usePopover();
   const addMenu = usePopover();
   const isFocused = node.modules.includes(focused || '');
+  // maximized: the stack covers the workspace (the others stay mounted underneath, so nothing reloads)
+  const maximized = useApp((s) => s.maximizedStack) === node.id;
+  const toggleMax = () => useApp.getState().setMaximizedStack(maximized ? null : node.id);
+  const [box, setBox] = useState<DOMRect | null>(null);
+  useLayoutEffect(() => {
+    if (!maximized) {
+      setBox(null);
+      return;
+    }
+    const measure = () => {
+      const w = document.querySelector('.workspace');
+      if (w) setBox(w.getBoundingClientRect());
+    };
+    measure();
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      if (e.key === 'Escape' && !e.defaultPrevented && !typing && !useApp.getState().modals.length) useApp.getState().setMaximizedStack(null);
+    };
+    window.addEventListener('resize', measure);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [maximized]);
 
   const setActive = (i: number) => {
     const st = useApp.getState();
@@ -163,8 +189,13 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
   ];
 
   return (
-    <div className={clsx('stack', isFocused && 'focused')} data-stack-id={node.id} onMouseDownCapture={() => useApp.getState().setFocused(activeId)}>
-      <div className="stack-head">
+    <div
+      className={clsx('stack', isFocused && 'focused', maximized && 'maximized')}
+      style={maximized && box ? { position: 'fixed', left: box.left + 4, top: box.top + 4, width: box.width - 8, height: box.height - 8, zIndex: 40 } : undefined}
+      data-stack-id={node.id}
+      onMouseDownCapture={() => useApp.getState().setFocused(activeId)}
+    >
+      <div className="stack-head" onDoubleClick={(e) => (e.target as HTMLElement).closest('.stack-tabs') && toggleMax()}>
         <div className="stack-tabs">
           {node.modules.map((mid, i) => {
             const m = ws.modules[mid];
@@ -200,6 +231,9 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
         <div className="head-controls" ref={setSlot} />
         <button className="icon-btn small" onClick={(e) => addMenu.toggle(e.currentTarget)} data-tip="Add module here">
           <Icon name="plus" size={15} />
+        </button>
+        <button className={clsx('icon-btn small', maximized && 'active')} onClick={toggleMax} data-tip={maximized ? 'Restore (Esc)' : 'Maximize (double-click the tab)'}>
+          <Icon name={maximized ? 'restore' : 'max'} size={14} />
         </button>
         <button className="icon-btn small" onClick={(e) => menu.toggle(e.currentTarget)} data-tip="Module options">
           <Icon name="more" size={16} />
