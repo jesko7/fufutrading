@@ -139,7 +139,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

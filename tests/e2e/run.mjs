@@ -1368,6 +1368,22 @@ const S = {
     check(below, 'a panel dragged by its header lands below the chart');
     await shot('61-layout-header-drag');
   },
+  async settings() {
+    console.log('scenario: settings');
+    await page.click('button[data-tip="Settings"]');
+    await page.waitForSelector('.modal:has-text("Reverse horizontal scrolling")', { timeout: 5000 });
+    // Appearance: the chart's momentum (on by default) can be switched off
+    const momentum = page.locator('.modal div:has(> div > div:text-is("Momentum")) [role=switch]').first();
+    const before = (await page.evaluate(() => window.fufu.invoke('settings:get'))).chart.momentum;
+    await momentum.click();
+    const off = await page.waitForFunction(() => window.fufu.invoke('settings:get').then((s) => s.chart.momentum === false), null, { timeout: 5000, polling: 200 }).then(() => true).catch(() => false);
+    check(before !== false && off, 'chart momentum is on by default and the setting turns it off');
+    await shot('62-settings');
+    await momentum.click();
+    await page.waitForFunction(() => window.fufu.invoke('settings:get').then((s) => s.chart.momentum !== false), null, { timeout: 5000, polling: 200 });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+  },
   async help() {
     console.log('scenario: help');
     await page.click('.titlebar button[data-tip^="Help"], button[data-tip^="Help: documentation"]');

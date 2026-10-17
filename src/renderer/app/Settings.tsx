@@ -54,7 +54,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
               </Row>
               <Row label="Candle colours">
-                <div className="row">
+                <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
                   <ColorInput label="Up" value={s.chart.up} onChange={(v) => upd({ chart: { ...s.chart, up: v, wickUp: v } })} />
                   <ColorInput label="Down" value={s.chart.down} onChange={(v) => upd({ chart: { ...s.chart, down: v, wickDown: v } })} />
                   <button className="btn small" onClick={() => upd({ chart: { ...s.chart, up: '#22c55e', down: '#ef4444', wickUp: '#22c55e', wickDown: '#ef4444' } })}>
