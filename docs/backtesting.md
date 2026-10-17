@@ -145,3 +145,7 @@ Scripts only see data up to the bar being processed. Python `next()` arrays are 
 the current bar. Pine history references can't use negative offsets. Higher-timeframe data
 without lookahead only reveals bars that had closed. The compiler and editor warn about
 constructs that leak future data or behave differently live (see the Pine and Python docs).
+
+When the code looks ahead, a red banner sits above the results: they are better than anything
+achievable live. **Assumptions → Check with a live replay** replays the most recent bars as a bot
+saw them and compares its position and orders after every bar close with the backtest.

@@ -700,6 +700,16 @@ function CardBody({ card }: { card: Card }) {
       );
     }
     case 'market':
+      if (Array.isArray(d.kpis))
+        return (
+          <div className="ai-card small">
+            <div className="ai-kpis">
+              {d.kpis.map((x: { k: string; v: string; tone?: number }) => (
+                <Kpi key={x.k} k={x.k} v={x.v} tone={x.tone !== undefined ? tone(x.tone) : undefined} />
+              ))}
+            </div>
+          </div>
+        );
       return (
         <div className="ai-card small">
           <div className="ai-kpis">

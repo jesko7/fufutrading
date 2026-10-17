@@ -1,0 +1,482 @@
+/* Options module — chain, smile, exposure, builder. */
+html[data-theme='dark'] .opt-mod {
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s6: #008300;
+  --s8: #e66767;
+}
+html[data-theme='light'] .opt-mod {
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #008300;
+  --s8: #e34948;
+}
+.opt-mod {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.opt-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* stat tiles */
+.ot-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.ot-tiles.small {
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+}
+.ot-tile {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  padding: 8px 10px;
+  min-width: 0;
+}
+.ot-label {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ot-value {
+  font-size: 17px;
+  font-weight: 650;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ot-sub {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* filter row: expiries, column set, range */
+.ot-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ot-chips {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;
+}
+.ot-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.25;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ot-chip .faint {
+  font-size: 10.5px;
+}
+.ot-chip:hover {
+  background: var(--hover);
+}
+.ot-chip.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.ot-chip.off {
+  opacity: 0.45;
+}
+.ot-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* chain */
+.oc-wrap {
+  flex: 1;
+  min-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.oc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.oc-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  font-weight: 500;
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 4px 8px;
+  text-align: right;
+  white-space: nowrap;
+}
+.oc-table thead tr:nth-child(2) th {
+  top: 22px;
+  border-bottom: 1px solid var(--border);
+}
+.oc-sides th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.oc-sides th.calls {
+  text-align: left;
+}
+.oc-sides th.puts {
+  text-align: right;
+}
+.oc-table td {
+  padding: 3px 8px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.oc-table td.itm {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.oc-table td.act {
+  cursor: pointer;
+}
+.oc-table td.act:hover {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.oc-table td.act.buy {
+  color: var(--up);
+}
+.oc-table td.act.sell {
+  color: var(--down);
+}
+.oc-table .oc-strike {
+  text-align: center;
+  font-weight: 650;
+  background: var(--panel-2);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  min-width: 76px;
+}
+.oc-table tr.atm td {
+  border-bottom-color: var(--border-strong);
+}
+.oc-table tr.atm .oc-strike {
+  color: var(--accent);
+}
+.oc-index td {
+  padding: 0;
+  border: 0;
+  height: 0;
+  text-align: center;
+  position: relative;
+}
+.oc-index td span {
+  position: relative;
+  top: -8px;
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--accent);
+  color: #fff;
+}
+.oc-index td::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  border-top: 1px solid var(--accent);
+}
+
+/* cards */
+.ot-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ot-card {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ot-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ot-card-head b {
+  font-size: 12.5px;
+}
+.ot-card-head .faint {
+  font-size: 11.5px;
+}
+.ot-grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 10px;
+}
+.ot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ot-table th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-3);
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ot-table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  white-space: nowrap;
+}
+.ot-table .num {
+  text-align: right;
+}
+.ot-table tr.sel td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.ot-table tr.expired td {
+  opacity: 0.55;
+}
+.ot-table.legs td {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.leg-side {
+  display: inline-block;
+  min-width: 30px;
+  font-weight: 600;
+  font-size: 11px;
+}
+.leg-side.buy {
+  color: var(--up);
+}
+.leg-side.sell {
+  color: var(--down);
+}
+.ot-empty {
+  padding: 10px 0;
+}
+.ot-foot {
+  margin-top: auto;
+}
+.ot-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.ot-slider input[type='range'] {
+  width: 150px;
+  accent-color: var(--accent);
+}
+.ot-slider .num {
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* charts */
+.ox-chart {
+  position: relative;
+  width: 100%;
+}
+.ox-chart svg {
+  display: block;
+  overflow: visible;
+}
+.ox-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.ox-grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ox-axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ox-zero {
+  stroke: var(--text-3);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ox-tick {
+  fill: var(--chart-text);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ox-vline {
+  stroke: var(--text-3);
+  stroke-width: 1;
+  opacity: 0.55;
+  shape-rendering: crispEdges;
+}
+.ox-vline.strong {
+  stroke: var(--text-2);
+  opacity: 0.9;
+}
+.ox-vlabel {
+  fill: var(--text-2);
+  font-size: 10.5px;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+}
+.ox-series {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ox-band {
+  opacity: 0.12;
+}
+.ox-dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+.ox-cross {
+  stroke: var(--chart-cross);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+.ox-profit {
+  fill: var(--up);
+  opacity: 0.1;
+}
+.ox-loss {
+  fill: var(--down);
+  opacity: 0.1;
+}
+.ox-bar path {
+  transition: opacity var(--t-fast);
+}
+.ox-bar.hover path {
+  opacity: 0.75;
+}
+.ox-tip {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  min-width: 120px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  background: var(--panel-3);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ox-tip.left {
+  transform: translateX(-100%);
+}
+.ox-tip-head {
+  color: var(--text-2);
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+.ox-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.ox-tip-row b {
+  font-variant-numeric: tabular-nums;
+}
+.ox-line {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  border-radius: 1px;
+  flex: none;
+}
+.ox-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.ox-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ox-key.static {
+  cursor: default;
+}
+.ox-key.off {
+  opacity: 0.4;
+}
+.ox-key:not(.static):hover {
+  color: var(--text);
+}
+.ot-scroll-x {
+  overflow-x: auto;
+}

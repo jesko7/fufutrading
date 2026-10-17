@@ -31,6 +31,7 @@ export const MODULES: Record<ModuleType, { component: ComponentType<ModuleProps>
   alerts: { component: Pending },
   news: { component: Pending },
   derivatives: { component: Pending },
+  options: { component: Pending },
   ai: { component: Pending },
   bots: { component: Pending },
   data: { component: Pending },
@@ -59,6 +60,8 @@ export function moduleTitle(m: ModuleState): string {
       return `Tape ${sym}`;
     case 'orderEntry':
       return `Trade ${sym}`;
+    case 'options':
+      return `Options ${sym}`;
     default:
       return m.config.title || base;
   }

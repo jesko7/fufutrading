@@ -1129,6 +1129,55 @@ const S = {
     check(opened, 'the Strategy Tester warns about the lookahead above the results');
     if (opened) await shot('50-tester-lookahead');
   },
+  async options() {
+    console.log('scenario: options & Greeks');
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Options');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.opt-mod .oc-table tbody tr td.oc-strike', { timeout: 90000 });
+    const rows = await page.$$eval('.opt-mod .oc-table tbody tr td.oc-strike', (r) => r.length);
+    check(rows >= 8, `the BTC option chain lists strikes (${rows})`);
+    await page.waitForFunction(() => [...document.querySelectorAll('.opt-mod .ot-tile')].some((t) => /IV 30 days/.test(t.textContent || '') && /\d+\.\d%/.test(t.textContent || '')), null, { timeout: 30000 });
+    const tiles = await page.$$eval('.opt-mod .ot-tile', (t) => t.map((x) => x.textContent?.replace(/\s+/g, ' ').trim()));
+    check(tiles.length >= 6, `summary: ${tiles.join(' | ')}`);
+    check(await page.$('.opt-mod .oc-index') !== null, 'the index price sits between the strikes');
+    await shot('51-options-chain');
+    await page.click('.opt-mod .seg button:has-text("Greeks")');
+    const greeks = await page.$$eval('.opt-mod .oc-table thead tr:nth-child(2) th', (t) => t.map((x) => x.textContent).join(' '));
+    check(/Δ Γ Θ ν Strike Δ Γ Θ ν/.test(greeks.split(' ').reverse().join(' ')) || /ν Θ Γ Δ Strike Δ Γ Θ ν/.test(greeks), `Greeks columns (${greeks})`);
+    const deltas = await page.$$eval('.opt-mod .oc-table tbody tr', (rows) => rows.map((r) => [...r.querySelectorAll('td')].map((td) => td.textContent)).filter((c) => c.length > 4));
+    const callD = deltas.map((c) => parseFloat(c[3])).filter(Number.isFinite);
+    check(callD.length > 4 && callD.every((d) => d >= -0.001 && d <= 1.001) && callD[0] >= callD[callD.length - 1], `call deltas fall from ${callD[0]} to ${callD[callD.length - 1]} with the strike`);
+    await shot('52-options-greeks');
+    // add a straddle from the builder's strategy menu
+    await page.click('.opt-mod .tabs .tab:has-text("Builder")');
+    await page.click('.opt-mod button:has-text("Strategy")');
+    await page.click('.menu-item:has-text("Long straddle")');
+    await page.waitForSelector('.opt-mod .ot-table.legs tbody tr', { timeout: 10000 });
+    const legs = await page.$$eval('.opt-mod .ot-table.legs tbody tr', (r) => r.length);
+    check(legs === 2, `a straddle has two legs (${legs})`);
+    const bstats = await page.$$eval('.opt-mod .ot-tile', (t) => Object.fromEntries(t.map((x) => [x.querySelector('.ot-label')?.textContent, x.querySelector('.ot-value')?.textContent])));
+    check(/^\$/.test(bstats['Theta'] || '') === false && /−\$/.test(bstats['Theta'] || '') && /^\$/.test(bstats['Vega'] || ''), `a long straddle pays theta and is long vega (theta ${bstats['Theta']}, vega ${bstats['Vega']})`);
+    check((bstats['Break-even'] || '').split('·').length === 2, `two break-evens (${bstats['Break-even']})`);
+    await page.waitForSelector('.opt-mod .ox-chart svg path.ox-series', { timeout: 10000 });
+    await shot('53-options-builder');
+    await page.click('.opt-mod .tabs .tab:has-text("Smile")');
+    await page.waitForSelector('.opt-mod .ox-chart svg path.ox-series', { timeout: 10000 });
+    const smile = await page.$$eval('.opt-mod .ox-chart svg path.ox-series', (p) => p.filter((x) => (x.getAttribute('d') || '').length > 20).length);
+    check(smile >= 3, `volatility smiles of several expiries (${smile})`);
+    await shot('54-options-smile');
+    await page.click('.opt-mod .tabs .tab:has-text("Exposure")');
+    await page.waitForSelector('.opt-mod .ox-bar path[d^="M"]', { timeout: 60000 });
+    const bars = await page.$$eval('.opt-mod .ox-bar path[d^="M"]', (b) => b.length);
+    check(bars > 8, `open interest and gamma by strike (${bars} bars)`);
+    const mp = await page.$$eval('.opt-mod .ot-tile', (t) => t.find((x) => /Max pain/.test(x.textContent || ''))?.querySelector('.ot-value')?.textContent);
+    check(/\d/.test(mp || ''), `max pain from the open interest (${mp})`);
+    await shot('55-options-exposure');
+    const ai = await page.evaluate(() => window.fufu.invoke('ai:testTool', 'options_snapshot', { symbol: 'ETHUSDT' }));
+    const r = ai.result;
+    check(r && r.iv30Pct > 5 && r.iv30Pct < 300 && r.expiries.length >= 3 && Number.isFinite(r.putCallOpenInterest), `options data for Claude: ETH IV30 ${r?.iv30Pct}%, P/C ${r?.putCallOpenInterest}, ${r?.expiries?.length} expiries, gamma ${r?.dealerGamma?.regime}`);
+  },
 };
 
 try {

@@ -78,6 +78,7 @@ const P: Record<string, string> = {
   home: 'M3 11l9-7 9 7 M5 10v10h14V10',
   sliders: 'M4 6h10 M18 6h2 M4 12h4 M12 12h8 M4 18h12 M20 18h0 M16 4v4 M10 10v4 M18 16v4',
   zap: 'M13 2L4 14h7l-1 8 9-12h-7z',
+  greek: 'M12 4.5L4 19h16z',
   target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M12 12h.01',
   max: 'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5',
   layout: 'M3 4h18v16H3z M3 9h18 M9 9v11',

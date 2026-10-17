@@ -13,10 +13,12 @@ import { runContext } from '../scripts/service';
 import type { BacktestService, BacktestRecord, BacktestRequest } from '../backtest/service';
 import type { OptimizerService, OptimizeRequest } from '../backtest/optimizer';
 import type { DerivativesService } from '../market/derivatives';
+import type { OptionsService } from '../market/options';
 import type { TradingEngine } from '../trading/engine';
 import type { JournalService } from '../trading/journal';
 import type { McpTool } from './mcp';
 import { pineFunctionReference } from '../../engine/docs';
+import { constantMaturityVol, expirySummaries, exposureByStrike, gammaFlip } from '../../shared/options';
 import { fromPacked } from '../../engine/data';
 import { keyParts } from '../../engine/host';
 import type { ScriptLanguage, ScriptResult } from '../../engine/types';
@@ -32,6 +34,7 @@ export interface AiToolDeps {
   backtests: BacktestService;
   optimizer: OptimizerService;
   derivatives?: DerivativesService;
+  options?: OptionsService;
   trading?: TradingEngine;
   journal?: JournalService;
   docsDir: string;
@@ -893,7 +896,82 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           taker: s.taker ? { buySellRatio5m: r2(s.taker.ratio), buy1h: r2(s.taker.buy1h), sell1h: r2(s.taker.sell1h) } : null,
         };
       },
-      card: (_a, r) => ({ kind: 'market', title: `Futures positioning: ${r?.symbol}`, data: r ? { last: r.openInterest ? `OI $${(r.openInterest.valueUsdt / 1e9).toFixed(2)}B` : '—', changePct: r.openInterest?.change24hPct, atr14Pct: r.funding?.predictedPct, annualVolatilityPct: r.funding?.avg7dAnnualPct, trend: r.longShort ? `L/S ${r.longShort.ratio}` : '—' } : {} }),
+      card: (_a, r) => ({
+        kind: 'market',
+        title: `Futures positioning: ${r?.symbol}`,
+        data: r
+          ? {
+              kpis: [
+                { k: 'Open interest', v: r.openInterest ? `$${(r.openInterest.valueUsdt / 1e9).toFixed(2)}B` : '—' },
+                { k: 'OI 24h', v: r.openInterest ? `${r.openInterest.change24hPct > 0 ? '+' : ''}${r.openInterest.change24hPct}%` : '—', tone: r.openInterest?.change24hPct },
+                { k: 'Funding', v: r.funding ? `${r.funding.predictedPct}%` : '—' },
+                { k: 'Funding 7d', v: r.funding ? `${r.funding.avg7dAnnualPct}% / yr` : '—' },
+                { k: 'Long/short', v: r.longShort ? String(r.longShort.ratio) : '—' },
+              ],
+            }
+          : {},
+      }),
+    },
+    {
+      name: 'options_snapshot',
+      readOnly: true,
+      description:
+        "What the Binance options market prices for BTC, ETH or SOL right now: the index, 30-day implied volatility (variance-interpolated, like a volatility index) and the expected move it implies, the term structure per expiry (ATM volatility, 25-delta risk reversal and butterfly, max pain, call/put open interest, the ±1 standard deviation move to expiry), the put/call open-interest ratio, the strikes with the most open interest, and dealer gamma exposure (positive damps moves, negative amplifies them; the gamma flip is the index level where it changes sign). Use it for sentiment and expected ranges: a negative risk reversal means puts are richer (fear of a drop), short-dated volatility above long-dated means stress.",
+      inputSchema: { type: 'object', properties: { symbol: INSTRUMENT_SCHEMA.symbol, expiries: { type: 'number', description: 'How many expiries to list (default 8)' } } },
+      async run(args) {
+        if (!deps.options) throw new Error('options data is not available');
+        const symbol = String(args.symbol || 'BTCUSDT').toUpperCase() as SymbolId;
+        if (!isSymbol(symbol)) throw new Error('symbol must be BTCUSDT, ETHUSDT or SOLUSDT');
+        const s = await deps.options.once(symbol);
+        if (!s.rows.length) throw new Error(s.error || 'no options data');
+        const sums = expirySummaries(s);
+        const iv30 = constantMaturityVol(sums.map((e) => ({ t: e.t, iv: e.atm })), 30);
+        const ex = exposureByStrike(s.rows, s.index);
+        const calls = ex.reduce((a, e) => a + (e.callOI || 0), 0);
+        const puts = ex.reduce((a, e) => a + (e.putOI || 0), 0);
+        const gex = ex.reduce((a, e) => a + (Number.isFinite(e.gex) ? e.gex : 0), 0);
+        const n = Math.max(1, Math.min(20, Math.round(Number(args.expiries) || 8)));
+        return {
+          underlying: symbol,
+          index: r2(s.index),
+          time: new Date(s.t).toISOString(),
+          iv30Pct: r2(iv30 * 100),
+          expectedMove30dPct: r2(iv30 * Math.sqrt(30 / 365) * 100),
+          putCallOpenInterest: r2(puts / calls),
+          openInterest: { calls: r2(calls), puts: r2(puts), notionalUsdt: Math.round((calls + puts) * s.index) },
+          dealerGamma: { usdtPer1PctMove: Math.round(gex), regime: gex >= 0 ? 'positive: dealer hedging damps moves' : 'negative: dealer hedging amplifies moves', flipAtIndex: r2(gammaFlip(s.rows, s.index, s.rf, s.t)) },
+          expiries: sums.slice(0, n).map((e) => ({
+            expiry: new Date(e.expiry).toISOString().slice(0, 10),
+            days: r2(e.t * 365),
+            atmIvPct: r2(e.atm * 100),
+            expectedMovePct: r2(e.atm * Math.sqrt(e.t) * 100),
+            riskReversal25Pct: r2(e.rr25 * 100),
+            butterfly25Pct: r2(e.bf25 * 100),
+            maxPain: e.maxPain,
+            callOI: r2(e.callOI),
+            putOI: r2(e.putOI),
+          })),
+          largestOpenInterest: [...ex]
+            .sort((a, b) => b.callOI + b.putOI - (a.callOI + a.putOI))
+            .slice(0, 6)
+            .map((e) => ({ strike: e.strike, callOI: r2(e.callOI), putOI: r2(e.putOI) })),
+        };
+      },
+      card: (_a, r) => ({
+        kind: 'market',
+        title: `Options: ${r?.underlying}`,
+        data: r
+          ? {
+              kpis: [
+                { k: 'Index', v: String(r.index) },
+                { k: 'IV 30d', v: `${r.iv30Pct}%` },
+                { k: '25Δ RR', v: r.expiries?.[1] ? `${r.expiries[1].riskReversal25Pct}%` : '—', tone: r.expiries?.[1]?.riskReversal25Pct },
+                { k: 'Put/call OI', v: String(r.putCallOpenInterest) },
+                { k: 'Dealer gamma', v: r.dealerGamma.usdtPer1PctMove >= 0 ? 'positive' : 'negative' },
+              ],
+            }
+          : {},
+      }),
     },
     {
       name: 'show_in_app',

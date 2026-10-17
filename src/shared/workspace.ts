@@ -22,6 +22,7 @@ export type ModuleType =
   | 'alerts'
   | 'news'
   | 'derivatives'
+  | 'options'
   | 'ai'
   | 'bots'
   | 'data'
@@ -154,6 +155,8 @@ export function defaultModuleConfig(type: ModuleType, symbol: SymbolId = 'BTCUSD
       return { filter: 'all' };
     case 'derivatives':
       return { symbol };
+    case 'options':
+      return { symbol, tab: 'chain' };
     case 'propRules':
       return { tab: 'challenges', accountId: null };
     case 'builder':
@@ -179,6 +182,7 @@ export const MODULE_INFO: Record<ModuleType, { title: string; description: strin
   alerts: { title: 'Alerts', description: 'Price, indicator, strategy and order book alerts', icon: 'bell' },
   news: { title: 'News', description: 'Crypto headlines for BTC, ETH and SOL', icon: 'news' },
   derivatives: { title: 'Derivatives', description: 'Open interest, funding, long/short ratios and live liquidations', icon: 'zap' },
+  options: { title: 'Options', description: 'Binance options: chain with the Greeks, volatility smile, exposure and a position builder', icon: 'greek' },
   ai: { title: 'AI Studio', description: 'Claude builds, tests and explains strategies', icon: 'spark' },
   bots: { title: 'Bots', description: 'Automated paper-trading bots', icon: 'bot' },
   data: { title: 'Data Manager', description: 'Local historical data and tick downloads', icon: 'database' },

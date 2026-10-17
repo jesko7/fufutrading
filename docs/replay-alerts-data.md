@@ -80,6 +80,30 @@ per alert.
   minutes after measuring it. Backtests, replays and bots therefore see what a live trader
   saw. The Data Manager can prefetch them. Funding rates work the same way
   (`BINANCE:BTCUSDT.P_FUNDING`), one value per settlement.
+- **Options** (the **Options** module): Binance's USDT-margined European options on BTC, ETH and
+  SOL, with the Greeks as Binance publishes them.
+  - **Chain:** strikes of one expiry with calls and puts side by side. Choose **Prices** (mark
+    implied volatility, bid, mark, ask), **Greeks** (Δ delta, Γ gamma, Θ theta per day, ν vega
+    per volatility point) or **Activity** (open interest, 24-hour volume and change). In-the-money
+    cells are tinted, and the index sits between the strikes.
+  - **Smile & term:** implied volatility by strike per expiry (with the bid/ask band), the term
+    structure of at-the-money volatility, the 25-delta risk reversal per expiry (below zero: puts
+    are richer) and a table with the expected move to each expiry, butterfly and max pain.
+  - **Exposure:** open interest by strike (calls above, puts below) and dealer gamma by strike,
+    in USDT per 1% move. This assumes dealers are long the calls and short the puts others trade,
+    the usual convention. Positive gamma damps moves, negative gamma amplifies them, and the
+    gamma flip is the index level where the sign changes.
+  - **Builder:** click a bid, mark or ask in the chain, or pick a strategy (straddle, strangle,
+    spreads, iron condor, covered call, protective put), to combine legs, including the coin
+    itself. It shows the position's net Greeks, the premium, break-evens, maximum profit and
+    loss, and the payoff at the first expiry and on any date with a volatility shift. Values use
+    Black-Scholes with each option's mark volatility and Binance's rate. That is the model
+    Binance prices with, so the Greeks match the exchange's. The builder is for planning only;
+    paper trading covers spot and perpetuals.
+
+  The summary shows 30-day implied volatility, interpolated in total variance like a volatility
+  index, with the expected move it implies. It also shows the 25-delta skew, the put/call
+  open-interest ratio, max pain and dealer gamma.
 - **Footprints** use Binance aggregate trades with their aggressor side (from the maker flag).
   They are cached per day and only the newest days are kept.
 - **Time:** bar closes follow Binance's server clock. The app measures its offset, so a
@@ -104,7 +128,9 @@ from claude.com/claude-code and run `claude` once in a terminal to sign in.
   - signal quality of indicators: forward returns after signals and the information
     coefficient of plots
   - optimization with an out-of-sample holdout or walk-forward
-  - market statistics
+  - market statistics, futures positioning and the options market (implied volatility, skew,
+    expected moves, max pain, dealer gamma)
+  - a repaint check that replays recent bars as if live
   - "show in app" (open in the editor, add to a chart, open a backtest)
 
   So a typical turn is hypothesis → write → check → run → backtest → robustness → refine, and

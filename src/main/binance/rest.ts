@@ -16,6 +16,7 @@ import { parseMetricsCsv } from '../../shared/metrics';
 const SPOT_HOSTS = ['https://api.binance.com', 'https://data-api.binance.vision', 'https://api1.binance.com', 'https://api2.binance.com'];
 const FUT_HOST = 'https://fapi.binance.com';
 const BULK_HOST = 'https://data.binance.vision';
+const OPTIONS_HOST = 'https://eapi.binance.com';
 
 const WEIGHT_LIMIT: Record<Market, number> = { spot: 6000, futures: 2400 };
 
@@ -65,6 +66,10 @@ export class BinanceRest {
   private bannedUntil: Record<Market, number> = { spot: 0, futures: 0 };
   private limiters: Record<Market, Limiter> = { spot: new Limiter(6), futures: new Limiter(5) };
   private bulkLimiter = new Limiter(4);
+  private optionsLimiter = new Limiter(4);
+  private optionsWeight = 0;
+  private optionsWeightResetAt = 0;
+  private optionsBannedUntil = 0;
   /** Small daily archives (futures metrics, ~10 KB): latency bound, so more in parallel. */
   private smallLimiter = new Limiter(20);
   public requestCount = 0;
@@ -170,6 +175,53 @@ export class BinanceRest {
 
   async ticker24h(market: Market, symbol: SymbolId): Promise<Record<string, string | number>> {
     return this.get(market, market === 'spot' ? '/api/v3/ticker/24hr' : '/fapi/v1/ticker/24hr', { symbol }, 2);
+  }
+
+  /**
+   * Binance options (eapi.binance.com): public data of the USDT-margined European options.
+   * Its own budget (400 weight a minute) and concurrency, separate from spot and futures.
+   */
+  async eapi<T = unknown>(pathname: string, params: Record<string, string | number | undefined> = {}, weight = 1): Promise<T> {
+    const qs = Object.entries(params)
+      .filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+      .join('&');
+    return this.optionsLimiter.run(async () => {
+      for (let attempt = 1; ; attempt++) {
+        const now = Date.now();
+        if (this.optionsBannedUntil > now) await sleep(this.optionsBannedUntil - now);
+        if (now < this.optionsWeightResetAt && this.optionsWeight + weight > 400 * 0.85) await sleep(Math.max(250, this.optionsWeightResetAt - now));
+        try {
+          this.requestCount++;
+          const res = await fetch(`${OPTIONS_HOST}${pathname}${qs ? `?${qs}` : ''}`, { signal: AbortSignal.timeout(15000) });
+          const uw = res.headers.get('x-mbx-used-weight-1m');
+          if (uw) {
+            this.optionsWeight = parseInt(uw, 10) || 0;
+            const n = Date.now();
+            this.optionsWeightResetAt = n - (n % 60000) + 60000;
+          }
+          if (res.status === 429 || res.status === 418) {
+            const ra = parseInt(res.headers.get('retry-after') || '0', 10);
+            const wait = Math.max(ra * 1000, res.status === 418 ? 120000 : 5000);
+            this.optionsBannedUntil = Date.now() + wait;
+            this.log('warn', `Binance options rate limited (${res.status}); backing off ${Math.round(wait / 1000)}s`);
+            if (attempt < 4) continue;
+          }
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            if (res.status >= 500 && attempt < 4) {
+              await sleep(500 * attempt);
+              continue;
+            }
+            throw new HttpError(res.status, `HTTP ${res.status} ${pathname}: ${body.slice(0, 200)}`, body);
+          }
+          return (await res.json()) as T;
+        } catch (e) {
+          if (e instanceof HttpError || attempt >= 4) throw e;
+          await sleep(400 * attempt + Math.random() * 300);
+        }
+      }
+    });
   }
 
   async exchangeInfo(market: Market): Promise<any> {

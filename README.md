@@ -28,7 +28,9 @@ an AI assistant that builds and tests strategies inside the app.
     polylines and chart points, maps, matrices; honest about what isn't supported) and Python
     (Pyodide with NumPy), with identical indicator math in both languages
   - built-in library, favorites, import/export
-  - editor with autocomplete, diagnostics and lookahead/repaint warnings
+  - editor with autocomplete, diagnostics and lookahead/repaint warnings, plus a repaint check
+    that replays recent bars as if live and compares them with the history (for strategies: what
+    a bot would have done against the backtest)
   - bar inspector, Python debugger
   - a flowchart **Strategy Builder** that generates editable code (indicators, price,
     candlestick patterns and futures positioning as conditions)
@@ -60,6 +62,10 @@ an AI assistant that builds and tests strategies inside the app.
 - **Bots:** strategies trade their own accounts on every bar close, mirror their stops and
   targets, explain every action, pause themselves on errors or risk guards (drawdown, daily
   loss, losing streak), and keep running in the tray.
+- **Options:** Binance's BTC, ETH and SOL options. The chain has prices, implied volatilities and
+  the Greeks (Δ Γ Θ ν). Charts show the volatility smile, term structure and skew, open interest
+  and dealer gamma by strike, max pain and the gamma flip. A position builder nets the Greeks of
+  several legs and draws the payoff on any date with a volatility shift.
 - **Derivatives data:** open interest, funding history, long/short ratios, taker flow, a live
   liquidation feed and a positioning history (price against open interest, ratios and funding
   over 7 days to a year). Open interest, the long/short ratios and funding rates also work as
@@ -120,7 +126,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives prop builder help light
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

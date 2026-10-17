@@ -121,12 +121,36 @@ The compiler warns (it doesn't block) about:
 - **Lookahead**: `request.security(..., lookahead=barmerge.lookahead_on)` on expressions that
   aren't offset by `[1]` or more (they read the higher-timeframe bar before it closed), and
   negative plot offsets (values drawn on bars before they were known).
-- **Repainting**: `request.security` values on the realtime bar, `varip`, `timenow`,
-  `barstate.isrealtime` and `barstate.isnew`. These behave differently live than on historical
-  bars, so backtests can't reproduce them.
+- **Repainting**: `request.security` values on the realtime bar (only when the requested
+  timeframe is higher than the chart's), `varip`, `timenow`, `barstate.isrealtime` and
+  `barstate.isnew`. These behave differently live than on historical bars, so backtests can't
+  reproduce them.
 
-History references with negative offsets (`close[-1]`) are rejected outright. Warnings show in the
-editor gutter, the indicator legend and the Strategy Tester's assumptions.
+History references with negative offsets (`close[-1]`) are rejected outright. Offsets may come from
+inputs (`offset = -displacement + 1`, as in Ichimoku); the warning then uses the default inputs.
+
+Warnings show in the editor gutter, the Problems panel and the indicator legend (the ⚠ is red for
+lookahead, amber for repainting). A lookahead also shows above the Strategy Tester's results and
+in the bot setup.
+
+### Repaint check (live replay)
+
+Static warnings can't see everything (last-bar logic, Python array code, your own constructs).
+The **repaint check** tests a script empirically: it replays the most recent bars (300 by
+default) as if each had just closed live and compares what the script showed at that moment
+with what its history shows for the same bar now.
+
+- Indicators are compared by their plot values and alert conditions, as a chart keeps them for a
+  bar once the next one has started.
+- Strategies are compared by their position and working orders after each bar close, which is
+  exactly what a bot acts on. A difference means a bot would have traded differently than the
+  backtest.
+- Other timeframes and symbols are cut at the same moment. A higher-timeframe bar that was still
+  forming is rebuilt from the chart's bars, so `lookahead_on` without `[1]` is caught too.
+
+Open it from the ⚠ in the legend, the indicator's menu (**Check for repainting…**), the replay
+button in the script editor, or the Strategy Tester (**Assumptions → Check with a live replay**).
+Claude runs the same check with the `check_repainting` tool.
 
 ## Data available to scripts
 
