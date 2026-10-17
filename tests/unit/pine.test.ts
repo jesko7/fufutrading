@@ -23,6 +23,26 @@ function bars(n: number, f = (i: number) => 100 + Math.sin(i / 7) * 10 + i * 0.0
   return { t, o, h, l, c, v, tc, length: n };
 }
 
+/** Higher-timeframe bars of `k` chart bars each. */
+function resample(chart: BarSeries, k: number): BarSeries {
+  const n = Math.floor(chart.length / k);
+  const H = { t: new Float64Array(n), o: new Float64Array(n), h: new Float64Array(n), l: new Float64Array(n), c: new Float64Array(n), v: new Float64Array(n), tc: new Float64Array(n), length: n };
+  for (let j = 0; j < n; j++) {
+    H.t[j] = chart.t[j * k];
+    H.tc[j] = chart.tc[j * k + k - 1];
+    H.o[j] = chart.o[j * k];
+    H.c[j] = chart.c[j * k + k - 1];
+    H.h[j] = Math.max(...Array.from(chart.h.slice(j * k, j * k + k)));
+    H.l[j] = Math.min(...Array.from(chart.l.slice(j * k, j * k + k)));
+  }
+  return H;
+}
+
+/** The first `m` bars. */
+function head(d: BarSeries, m: number): BarSeries {
+  return { t: d.t.slice(0, m), o: d.o.slice(0, m), h: d.h.slice(0, m), l: d.l.slice(0, m), c: d.c.slice(0, m), v: d.v.slice(0, m), tc: d.tc.slice(0, m), length: m };
+}
+
 const ctx: RunContext = { symbol: 'BTCUSDT', market: 'spot', tf: '1m', chartType: 'candles', mintick: 0.01, base: 'BTC', quote: 'USDT' };
 
 function run(code: string, data = bars(300), extra: Partial<Parameters<typeof runPine>[1]> = {}) {
@@ -264,16 +284,7 @@ describe('Pine: request.security', () => {
   it('maps higher-timeframe values without lookahead', () => {
     const chart = bars(240); // 1m
     // 15m context bars built from the 1m bars
-    const n = 16;
-    const H = { t: new Float64Array(n), o: new Float64Array(n), h: new Float64Array(n), l: new Float64Array(n), c: new Float64Array(n), v: new Float64Array(n), tc: new Float64Array(n), length: n };
-    for (let k = 0; k < n; k++) {
-      H.t[k] = chart.t[k * 15];
-      H.tc[k] = H.t[k] + 15 * MIN;
-      H.o[k] = chart.o[k * 15];
-      H.c[k] = chart.c[k * 15 + 14];
-      H.h[k] = Math.max(...Array.from(chart.h.slice(k * 15, k * 15 + 15)));
-      H.l[k] = Math.min(...Array.from(chart.l.slice(k * 15, k * 15 + 15)));
-    }
+    const H = resample(chart, 15);
     const code = `//@version=5\nindicator("t")\nplot(request.security(syminfo.tickerid, "15", close), "h")`;
     const c = compileCached(code);
     const reqs = securityRequests(c, {}, ctx);
@@ -417,6 +428,24 @@ describe('Pine: live instance', () => {
     expect(r.plots[0].values[120]).toBeCloseTo(full2.plots[0].values[120], 9);
     expect(r.plots[1].values[120]).toBe(121);
     expect(r.plots[0].values[119]).toBeCloseTo(full2.plots[0].values[119], 9);
+  });
+  it('maps context values onto chart bars that arrive without new context data', () => {
+    // e.g. a 1m chart with open interest (5-minute data) or a replay that steps the chart only
+    const code = `//@version=5\nindicator("t")\nplot(request.security(syminfo.tickerid, "15", close), "h")`;
+    const all = bars(240);
+    const H = resample(all, 15);
+    const security = { [securityRequests(compileCached(code), {}, ctx)[0].key]: H };
+    const inst = new PineInstance(code, { data: head(all, 200), ctx, inputs: {}, security, realtime: true });
+    inst.run();
+    for (const m of [201, 202, 205, 240]) {
+      const r = inst.update(head(all, m));
+      const full = runPine(code, { data: head(all, m), ctx, inputs: {}, security, realtime: true });
+      expect(r.error).toBeUndefined();
+      for (const i of [m - 2, m - 1]) {
+        expect(r.plots[0].values[i]).toBeGreaterThan(0);
+        expect(r.plots[0].values[i]).toBe(full.plots[0].values[i]);
+      }
+    }
   });
 });
 

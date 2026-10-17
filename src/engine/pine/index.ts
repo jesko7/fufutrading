@@ -271,6 +271,8 @@ export class PineInstance {
   readonly c: CompiledPine;
   private opts: PineRunOptions;
   private secReqs: SecurityRequest[] = [];
+  /** Values the sub-instances recorded on each context series (mapped onto the chart again when only the chart changes). */
+  private secRecords: { data: BarSeries; reqs: SecurityRequest[]; record: Record<number, unknown[]> }[] = [];
   error: ScriptError | null = null;
 
   constructor(code: string | CompiledPine, opts: PineRunOptions) {
@@ -367,6 +369,7 @@ export class PineInstance {
       l.push(r);
       byKey.set(r.key, l);
     }
+    const records: typeof this.secRecords = [];
     for (const [key, reqs] of byKey) {
       const data = security?.[key];
       if (!data) throw new PineError(`request.security: data for ${key} was not provided`, 0, 0, 'runtime');
@@ -385,11 +388,16 @@ export class PineInstance {
         sub.loopCount = 0;
         subMain();
       }
-      for (const r of reqs) {
-        const rec = sub.secMode.record[r.site] || [];
-        this.R.sec[r.site] = mapSecurity(this.opts.data, data, rec, { lookahead: r.lookahead, gaps: r.gaps, lowerTf: r.lowerTf, realtime: !!this.opts.realtime });
-      }
+      records.push({ data, reqs, record: sub.secMode.record });
     }
+    this.secRecords = records;
+    this.remapSecurity();
+  }
+
+  /** Map the recorded context values onto the current chart bars (new bars, or the realtime bar becoming historical). */
+  private remapSecurity(): void {
+    for (const { data, reqs, record } of this.secRecords)
+      for (const r of reqs) this.R.sec[r.site] = mapSecurity(this.opts.data, data, record[r.site] || [], { lookahead: r.lookahead, gaps: r.gaps, lowerTf: r.lowerTf, realtime: !!this.opts.realtime });
   }
 
   private step(i: number): void {
@@ -443,7 +451,10 @@ export class PineInstance {
       R.d = data as unknown as BarData;
       this.opts.data = data;
       if (this.broker) (this.broker as any).data = data;
+      if (security) this.opts.security = security;
       if (security && this.c.security.length) this.prepareSecurity(security);
+      // only the chart changed: its new bars (and the bar that stopped being realtime) need the context values too
+      else if (this.c.security.length) this.remapSecurity();
       if (newN < oldN || newN - oldN > 5 || R.committedBar < 0) {
         // too much changed: full rerun
         return this.rebuild(data, security);
