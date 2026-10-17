@@ -498,3 +498,36 @@ html[data-theme='light'] .opt-mod {
 .ot-tiles.compact .ot-sub {
   display: none;
 }
+.ot-surface {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ot-surface th {
+  font-weight: 500;
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  text-align: center;
+}
+.ot-surface tbody th {
+  text-align: left;
+  color: var(--text-2);
+}
+.ot-surface th.atm {
+  color: var(--text);
+  font-weight: 650;
+}
+.ot-surface td {
+  min-width: 38px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  text-align: center;
+  font-weight: 550;
+}
+.ot-surface td.blank {
+  background: color-mix(in srgb, var(--border) 50%, transparent);
+}

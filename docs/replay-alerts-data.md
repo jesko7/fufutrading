@@ -86,7 +86,8 @@ per alert.
     implied volatility, bid, mark, ask), **Greeks** (Δ delta, Γ gamma, Θ theta per day, ν vega
     per volatility point) or **Activity** (open interest, 24-hour volume and change). In-the-money
     cells are tinted, and the index sits between the strikes.
-  - **Smile & term:** implied volatility by strike per expiry (with the bid/ask band), the term
+  - **Smile & term:** implied volatility by strike per expiry (with the bid/ask band), the
+    volatility surface (expiries × strike as a share of the forward, as a heatmap), the term
     structure of at-the-money volatility, the 25-delta risk reversal per expiry (below zero: puts
     are richer) and a table with the expected move to each expiry, butterfly and max pain.
   - **Exposure:** open interest by strike (calls above, puts below) and dealer gamma by strike,

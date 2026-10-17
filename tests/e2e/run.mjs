@@ -1236,7 +1236,14 @@ const S = {
     await page.waitForSelector('.opt-mod .ox-chart svg path.ox-series', { timeout: 10000 });
     const smile = await page.$$eval('.opt-mod .ox-chart svg path.ox-series', (p) => p.filter((x) => (x.getAttribute('d') || '').length > 20).length);
     check(smile >= 3, `volatility smiles of several expiries (${smile})`);
+    const surface = await page.$$eval('.opt-mod .ot-surface td:not(.blank)', (c) => c.map((x) => parseFloat(x.textContent || '')).filter(Number.isFinite));
+    check(surface.length >= 20 && surface.every((v) => v > 5 && v < 400), `volatility surface (${surface.length} cells, ${Math.min(...surface)}–${Math.max(...surface)}%)`);
+    await page.locator('.stack:has(.opt-mod) .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized .opt-mod', { timeout: 5000 });
+    await wait(600);
     await shot('54-options-smile');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
     await page.click('.opt-mod .tabs .tab:has-text("Exposure")');
     await page.waitForSelector('.opt-mod .ox-bar path[d^="M"]', { timeout: 60000 });
     const bars = await page.$$eval('.opt-mod .ox-bar path[d^="M"]', (b) => b.length);

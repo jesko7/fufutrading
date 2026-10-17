@@ -13,7 +13,7 @@ import { Spinner, SymbolPicker, Segmented, Tabs, Empty } from '../../components/
 import { clsx, fmtNum, fmtCompact, fmtTime } from '../../lib/format';
 import { fmtExpiry, fmtDte, pctIV, fmtPremium } from './fmt';
 import type { SymbolId } from '../../../shared/symbols';
-import { byStrike, constantMaturityVol, exposureByStrike, expirySummaries, gammaFlip, maxPain, smile, yearsTo, type ExpirySummary, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
+import { byStrike, constantMaturityVol, exposureByStrike, expirySummaries, forwardOf, gammaFlip, maxPain, smile, yearsTo, type ExpirySummary, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
 import { XYLines, StrikeBars, Legend, type LineSeries } from './charts';
 import { Builder } from './builder';
 import './options.css';
@@ -227,6 +227,91 @@ function Chain({ s, expiry, mode, onAdd }: { s: OptionsSnapshot; expiry: number;
 
 // ------------------------------------------------------------------ smile & term structure
 
+/** One-hue sequential ramp (blue 100 → 700); dark mode anchors low values at the dark end. */
+const RAMP = ['#cde2fb', '#b7d3f6', '#9ec5f4', '#86b6ef', '#6da7ec', '#5598e7', '#3987e5', '#2a78d6', '#256abf', '#1c5cab', '#184f95', '#104281', '#0d366b'];
+const rampColor = (t: number, dark: boolean): string => {
+  const k = Math.round(Math.max(0, Math.min(1, t)) * (RAMP.length - 1));
+  return RAMP[dark ? RAMP.length - 1 - k : k];
+};
+/** Ink or white, whichever reads on the cell. */
+const inkOn = (hex: string): string => {
+  const c = (i: number) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * c(1) + 0.7152 * c(3) + 0.0722 * c(5) > 0.36 ? '#0b0b0b' : '#ffffff';
+};
+const MONEYNESS = [0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2, 1.25, 1.3];
+
+/** Implied volatility by moneyness (strike ÷ forward) and expiry, interpolated along each smile. */
+function VolSurface({ s, sums }: { s: OptionsSnapshot; sums: ExpirySummary[] }) {
+  const dark = document.documentElement.dataset.theme !== 'light';
+  const rows = sums
+    .filter((e) => e.t * 365 >= 0.5)
+    .slice(0, 10)
+    .map((e) => {
+      const sm = smile(
+        s.rows.filter((r) => r.expiry === e.expiry),
+        s.index,
+        s.rf,
+        s.t,
+      );
+      const F = forwardOf(s.index, s.rf, e.t);
+      const at = (K: number) => {
+        if (sm.length < 2 || K < sm[0].strike || K > sm[sm.length - 1].strike) return NaN;
+        for (let k = 1; k < sm.length; k++) if (K <= sm[k].strike) return sm[k - 1].iv + ((sm[k].iv - sm[k - 1].iv) * (K - sm[k - 1].strike)) / (sm[k].strike - sm[k - 1].strike);
+        return NaN;
+      };
+      return { e, F, cells: MONEYNESS.map((m) => at(F * m)) };
+    });
+  const vals = rows.flatMap((r) => r.cells).filter(Number.isFinite);
+  if (!vals.length) return null;
+  const lo = Math.min(...vals);
+  const hi = Math.max(...vals);
+  return (
+    <div className="ot-card">
+      <div className="ot-card-head">
+        <b>Volatility surface</b>
+        <span className="faint">
+          Implied volatility by strike as a share of the forward price (columns) and expiry (rows); darker is {dark ? 'lower' : 'higher'}. Range {pctIV(lo, 0)} – {pctIV(hi, 0)}.
+        </span>
+      </div>
+      <div className="ot-scroll-x">
+        <table className="ot-surface">
+          <thead>
+            <tr>
+              <th />
+              {MONEYNESS.map((m) => (
+                <th key={m} className={clsx(m === 1 && 'atm')}>
+                  {m === 1 ? 'ATM' : `${Math.round(m * 100)}%`}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.e.expiry}>
+                <th>
+                  {fmtExpiry(r.e.expiry)} <span className="faint">{fmtDte(r.e.t * 365)}</span>
+                </th>
+                {r.cells.map((v, k) => {
+                  if (!Number.isFinite(v)) return <td key={k} className="blank" />;
+                  const bg = rampColor(hi > lo ? (v - lo) / (hi - lo) : 0.5, dark);
+                  return (
+                    <td key={k} style={{ background: bg, color: inkOn(bg) }} data-tip={`${fmtExpiry(r.e.expiry)} · strike ${fmtNum(r.F * MONEYNESS[k], 0)} (${Math.round(MONEYNESS[k] * 100)}% of the forward) · IV ${pctIV(v)}`}>
+                      {(v * 100).toFixed(0)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function SmileView({ s, sums, expiry, range, hidden, setHidden }: { s: OptionsSnapshot; sums: ExpirySummary[]; expiry: number; range: number; hidden: Set<number>; setHidden: (h: number[]) => void }) {
   // the nearest expiries with more than a day left, the selected one always
   const shown = sums.filter((e) => e.t * 365 >= 1 || e.expiry === expiry).slice(0, SERIES.length);
@@ -271,6 +356,7 @@ function SmileView({ s, sums, expiry, range, hidden, setHidden }: { s: OptionsSn
         <Legend items={legendItems} onToggle={toggle} off={new Set([...hidden].map(String))} />
         <XYLines label="Implied volatility by strike per expiry" series={series} height={240} xDomain={[lo, hi]} xFmt={fmtStrike} yFmt={(v) => `${(v * 100).toFixed(0)}%`} vlines={[{ x: s.index, label: 'Index', strong: true }]} emptyText="No volatility data for these expiries" />
       </div>
+      <VolSurface s={s} sums={sums} />
       <div className="ot-grid2">
         <div className="ot-card">
           <div className="ot-card-head">
