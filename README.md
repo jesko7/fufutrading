@@ -18,13 +18,16 @@ an AI assistant that builds and tests strategies inside the app.
   - drawings (with trendline alerts, Ctrl+Z / Ctrl+Y and Ctrl+C / Ctrl+V), volume profile,
     compare and multi-timeframe overlays, options levels (walls, gamma flip, max pain, expected
     move), synced crosshairs, candlestick pattern detection (choose the patterns)
-  - log and percentage scales; drag to pan (flicks glide on), wheel or pinch to zoom, a "+" at
-    the crosshair price for orders, alerts and lines, and one click back to the latest bar
+  - log and percentage scales; drag to pan (a flick glides briefly, also up and down; it can be
+    turned off), wheel or pinch to zoom, a "+" at the crosshair price for orders, alerts and
+    lines, and one click back to the latest bar
 - **Order flow:** live order book with grouping and imbalance, depth chart, liquidity heatmap
   with large-order tracking, time & sales.
-- **Workspaces:** dockable, multi-window layouts and presets, any panel maximized over the
-  workspace (double-click its tab or Alt+Enter, Esc restores), a command palette (Ctrl+K) and keyboard
-  shortcuts that never fire while you type, light and dark themes.
+- **Workspaces:** dockable, multi-window layouts and presets. Panels move by their tab or header
+  (drop on an edge to split, on a tab strip to join or reorder, outside the window to detach), and
+  any panel can be maximized over the workspace (double-click its tab or Alt+Enter, Esc
+  restores). A command palette (Ctrl+K) and keyboard shortcuts that never fire while you type,
+  light and dark themes.
 - **Scripting:**
   - Pine Script v3–v6 (including v4's un-namespaced built-ins, drawings with linefills,
     polylines and chart points, maps, matrices; honest about what isn't supported) and Python
@@ -84,6 +87,9 @@ an AI assistant that builds and tests strategies inside the app.
 - **Alerts:** price, moves, indicators, script conditions, order-book conditions, futures
   data (liquidations, open interest, funding) and options (implied volatility, skew, put/call,
   the gamma flip and other levels), with desktop notifications and webhooks.
+- **News:** headlines from crypto news feeds, filtered by coin, with Claude's read of each one
+  (green for likely bullish, red for likely bearish; model, effort and thinking chosen in the
+  module).
 - **AI Studio:** Claude Code (your subscription) with model, mode, effort and thinking settings.
   It researches like a quant through the app's own tools:
   - writes, compiles and runs scripts, measuring their predictive value
@@ -133,7 +139,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

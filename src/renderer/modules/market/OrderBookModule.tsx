@@ -82,9 +82,9 @@ export function OrderBookModule({ module }: ModuleProps) {
         <Select
           value={String(cfg.group || 0)}
           onChange={(v) => set({ group: +v })}
-          options={GROUPS[cfg.symbol].map((g) => ({ value: String(g), label: g === 0 ? `Tick ${SYMBOL_SPECS[cfg.symbol][cfg.market].tickSize}` : String(g) }))}
-          style={{ height: 24, fontSize: 12, minWidth: 92 }}
-          title="Price grouping"
+          options={GROUPS[cfg.symbol].map((g) => ({ value: String(g), label: g === 0 ? String(SYMBOL_SPECS[cfg.symbol][cfg.market].tickSize) : String(g) }))}
+          style={{ height: 24, fontSize: 12, minWidth: 64 }}
+          title="Price grouping (the first is the tick size), as on Binance"
         />
         <ImbalanceSettings method={imb.method} param={imb.param} onChange={(mm, p) => set({ imbalance: { method: mm, param: p } })} />
       </HeadControls>

@@ -488,7 +488,8 @@ export function Toasts() {
 
 // ------------------------------------------------------------------------- instrument pickers
 
-export function SymbolPicker({ symbol, market, onChange, showMarket = true }: { symbol: SymbolId; market: Market; onChange: (s: SymbolId, m: Market) => void; showMarket?: boolean }) {
+/** Coin and market picker; `markets` limits the list to the markets the module can show. */
+export function SymbolPicker({ symbol, market, onChange, showMarket = true, markets = ['spot', 'futures'] }: { symbol: SymbolId; market: Market; onChange: (s: SymbolId, m: Market) => void; showMarket?: boolean; markets?: Market[] }) {
   const pop = usePopover();
   const ref = useRef<HTMLButtonElement>(null);
   return (
@@ -501,9 +502,9 @@ export function SymbolPicker({ symbol, market, onChange, showMarket = true }: { 
       </button>
       {pop.anchor && (
         <Popover anchor={pop.anchor} onClose={pop.close} width={230}>
-          {(['spot', 'futures'] as Market[]).map((m) => (
+          {markets.map((m) => (
             <div key={m}>
-              <div className="menu-title">{m === 'spot' ? 'Spot' : 'USDⓈ-M Perpetual'}</div>
+              {(markets.length > 1 || showMarket) && <div className="menu-title">{m === 'spot' ? 'Spot' : 'USDⓈ-M Perpetual'}</div>}
               {SYMBOLS.map((s) => (
                 <div
                   key={s}

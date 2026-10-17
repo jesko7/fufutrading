@@ -580,7 +580,7 @@ function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
         <div className="bs-section">
           <div className="bs-title">Market</div>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <SymbolPicker symbol={d.symbol} market={v.market} showMarket={false} onChange={(s) => patch({ symbol: s })} />
+            <SymbolPicker symbol={d.symbol} market={v.market} showMarket={false} markets={[v.market]} onChange={(s) => patch({ symbol: s })} />
             <TimeframePicker tf={d.tf} onChange={(tf) => patch({ tf })} />
             <Select value={d.chartType} options={[{ value: 'candles', label: 'Candles' }, { value: 'heikinashi', label: 'Heikin-Ashi' }, { value: 'renko', label: 'Renko' }]} onChange={(t) => patch({ chartType: t })} />
           </div>

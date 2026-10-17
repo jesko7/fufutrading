@@ -532,7 +532,7 @@ export function OptionsModule({ module }: ModuleProps) {
   return (
     <div className="opt-mod" ref={rootRef}>
       <HeadControls>
-        <SymbolPicker symbol={symbol} market="spot" showMarket={false} onChange={(x) => set({ symbol: x, expiry: null })} />
+        <SymbolPicker symbol={symbol} market="spot" showMarket={false} markets={['spot']} onChange={(x) => set({ symbol: x, expiry: null })} />
         <button className="icon-btn" onClick={() => void import('../alerts/editor').then((m) => m.openAlertEditor({ kind: 'options', symbol, market: 'spot' }))} data-tip="New options alert: implied volatility, skew, put/call or the index crossing the gamma flip, max pain or a wall">
           <Icon name="bell" size={15} />
         </button>

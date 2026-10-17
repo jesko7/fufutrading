@@ -84,7 +84,7 @@ export function DerivativesModule({ module }: ModuleProps) {
   return (
     <div className="mod-scroll deriv">
       <HeadControls>
-        <SymbolPicker symbol={symbol} market="futures" onChange={(s) => set({ symbol: s })} />
+        <SymbolPicker symbol={symbol} market="futures" markets={['futures']} onChange={(s) => set({ symbol: s })} />
         <div className="spacer" />
         <span className="faint small">Binance USDⓈ-M perpetual</span>
       </HeadControls>

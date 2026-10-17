@@ -128,6 +128,8 @@ export function ChartModule({ module }: ModuleProps) {
       footprint: () => e.footprint?.bars.size ?? 0,
       levels: () => e.levels.map((l) => ({ id: l.id, price: l.price, label: l.label })),
       tradeLines: () => e.tradeLines.map((l) => ({ id: l.id, kind: l.kind, price: l.price, label: l.label })),
+      // pane geometry inside the chart host (CSS px): the main price pane first
+      panes: () => ({ plotW: e.plotW, panes: e.panes.map((p) => ({ top: p.top, height: p.height })) }),
       drawings: () => ((useApp.getState().workspace?.modules[module.id]?.config.drawings || []) as Drawing[]).map((d) => ({ id: d.id, type: d.type, locked: !!d.locked, hidden: !!d.hidden })),
     };
     const onTheme = () => e.setTheme(chartTheme(useApp.getState().settings));

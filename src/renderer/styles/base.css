@@ -781,6 +781,9 @@ html[data-theme='dark'] .popover {
   transition: width var(--t-med) var(--ease);
 }
 .spinner {
+  /* a span: inline-block so its size holds in running text too (not only in flex rows) */
+  display: inline-block;
+  vertical-align: -2px;
   width: 14px;
   height: 14px;
   border-radius: 50%;

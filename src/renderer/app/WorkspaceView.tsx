@@ -262,7 +262,8 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
       onMouseDownCapture={() => useApp.getState().setFocused(activeId)}
     >
       <div className="stack-head" onDoubleClick={(e) => (e.target as HTMLElement).closest('.stack-tabs, .head-grip') && toggleMax()}>
-        {/* the other tabs keep at least their icons, the active one (most of) its title */}
+        {/* the other tabs keep at least their icons, the active one (most of) its title; a lone tab
+            may shrink to its icon (its title repeats what the module shows) */}
         <div
           className="stack-tabs"
           ref={stripRef}
@@ -271,7 +272,7 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
             if (!stripRef.current?.contains(e.relatedTarget as Node)) setTabDrop(null);
           }}
           onDrop={onStripDrop}
-          style={{ minWidth: Math.round((Math.min(node.modules.length, 8) - 1) * 30 + Math.min(120, 36 + (mod ? moduleTitle(mod).length : 0) * 6.6)) }}>
+          style={{ minWidth: node.modules.length === 1 ? 30 : Math.round((Math.min(node.modules.length, 8) - 1) * 30 + Math.min(120, 36 + (mod ? moduleTitle(mod).length : 0) * 6.6)) }}>
           {node.modules.map((mid, i) => {
             const m = ws.modules[mid];
             if (!m) return null;

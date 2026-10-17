@@ -1089,11 +1089,20 @@ const S = {
     console.log('scenario: drawings');
     const id = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
     const before = await page.evaluate((id) => window.__charts[id].drawings().length, id);
-    const box = await page.locator('.chart-host').first().boundingBox();
+    // earlier scenarios stacked indicator panes under the price: work on the maximized chart, in its price pane
+    await page.locator('.stack:has(.chart-host) .stack-tab.on').first().dblclick();
+    await page.waitForSelector('.stack.maximized .chart-host', { timeout: 5000 });
+    await wait(400);
+    const box = await page.locator('.stack.maximized .chart-host').boundingBox();
+    const geo = await page.evaluate((id) => window.__charts[id].panes(), id);
+    const main = geo.panes[0];
+    /** A point in the price pane, as fractions of its width and height. */
+    const P = (fx, fy) => ({ x: box.x + geo.plotW * fx, y: box.y + main.top + main.height * fy });
     // a ray with two clicks (it continues to the right, so an alert can follow it)
-    await page.locator('button[data-tip^="Ray"]').first().click();
-    const a = { x: box.x + box.width * 0.35, y: box.y + box.height * 0.62 };
-    const b = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.42 };
+    await page.locator('.stack.maximized button[data-tip^="Ray"]').first().click();
+    // left of the drawing's style toolbar (top centre) and below the legend
+    const a = P(0.08, 0.82);
+    const b = P(0.3, 0.62);
     await page.mouse.click(a.x, a.y);
     await page.mouse.click(b.x, b.y);
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, before], { timeout: 5000 });
@@ -1130,7 +1139,8 @@ const S = {
     check(true, 'drawing deleted after unlocking');
     await page.evaluate((aid) => window.fufu.invoke('alerts:delete', aid), la?.id);
     // the "+" beside the price axis follows the crosshair: orders, an alert or a line at that price
-    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
+    const hl = P(0.82, 0.3);
+    await page.mouse.move(hl.x, hl.y);
     await page.waitForSelector('.chart-plus', { timeout: 5000 });
     await page.click('.chart-plus');
     await page.waitForSelector('.menu-item:has-text("Horizontal line at")', { timeout: 5000 });
@@ -1141,15 +1151,21 @@ const S = {
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
     check(true, 'horizontal line added from the "+" menu');
     // keyboard editing on the focused chart: undo, redo, copy and paste
-    await page.locator('.chart-host').first().click({ position: { x: 30, y: 30 } });
+    await page.locator('.stack.maximized .chart-host').click({ position: { x: 30, y: Math.round(main.top + 30) } });
     await page.keyboard.press('Escape');
+    // Esc with nothing to cancel on the chart restores the maximized panel: maximize it again
+    if (!(await page.isVisible('.stack.maximized'))) {
+      await page.locator('.stack:has(.chart-host) .stack-tab.on').first().dblclick();
+      await page.waitForSelector('.stack.maximized .chart-host', { timeout: 5000 });
+      await page.locator('.stack.maximized .chart-host').click({ position: { x: 30, y: Math.round(main.top + 30) } });
+    }
     await page.keyboard.press('Control+z');
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n, [id, n0], { timeout: 5000 });
     await page.keyboard.press('Control+y');
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
     check(true, 'Ctrl+Z undoes and Ctrl+Y redoes a drawing change');
     // select the horizontal line from the "+" menu (it spans the chart at that height) and copy it with Ctrl+C / Ctrl+V
-    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.3);
+    await page.mouse.click(P(0.9, 0).x, hl.y);
     await page.waitForSelector('.drawing-editor', { timeout: 5000 });
     await page.keyboard.press('Control+c');
     await page.keyboard.press('Control+v');
@@ -1158,9 +1174,10 @@ const S = {
     await page.keyboard.press('Control+z');
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
     // drag into the past: a button brings the chart back to the latest bar
-    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.55);
+    const py = P(0, 0.6).y;
+    await page.mouse.move(P(0.2, 0).x, py);
     await page.mouse.down();
-    for (let k = 1; k <= 12; k++) await page.mouse.move(box.x + box.width * (0.2 + k * 0.05), box.y + box.height * 0.55);
+    for (let k = 1; k <= 12; k++) await page.mouse.move(P(0.2 + k * 0.05, 0).x, py);
     await page.mouse.up();
     await page.waitForSelector('.chart-latest', { timeout: 5000 });
     await shot('49-chart-navigation');
@@ -1185,6 +1202,10 @@ const S = {
     check(/Spinning top/.test(choice || '') && /Prior trend/.test(choice || ''), 'pattern settings: choose the patterns and the trend filter');
     await shot('50-candlestick-patterns');
     await page.keyboard.press('Escape');
+    await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+    // restore the layout for the scenarios after this one
+    if (await page.isVisible('.stack.maximized')) await page.locator('.stack.maximized .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
   },
   async derivatives() {
     console.log('scenario: derivatives');
@@ -1198,6 +1219,12 @@ const S = {
     check(/\$\d/.test(vals[0]) && /%/.test(vals[1]), `open interest, funding, long/short and taker data (${vals.join(' | ')})`);
     await page.waitForFunction(() => !!document.querySelector('.deriv-card .spark path'), null, { timeout: 30000 });
     check(true, 'open interest history drawn');
+    // its coin picker lists the perpetuals only (derivatives data exists for those)
+    await page.locator('.stack:has(.deriv) .stack-head .sym-btn').first().click();
+    const sections = await page.$$eval('.popover .menu-title', (t) => t.map((x) => x.textContent || ''));
+    const picks = await page.$$eval('.popover .menu-item', (t) => t.length);
+    check(sections.join() === 'USDⓈ-M Perpetual' && picks === 3, `derivatives picker: perpetuals only (${sections.join(', ')}; ${picks} coins)`);
+    await page.keyboard.press('Escape');
     await wait(1500);
     await shot('29b-derivatives');
     // positioning history from the futures data series (price vs open interest, ratios, funding)
