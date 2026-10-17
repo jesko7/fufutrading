@@ -1179,7 +1179,7 @@ const S = {
     await page.click('.menu-item:has-text("Open in Strategy Tester")');
     const opened = await page.waitForSelector('.lookahead-banner', { timeout: 120000 }).then(() => true).catch(() => false);
     check(opened, 'the Strategy Tester warns about the lookahead above the results');
-    const notLive = await page.waitForSelector('.lookahead-banner:has-text("Not reproducible live")', { timeout: 90000 }).then(() => true).catch(() => false);
+    const notLive = await page.waitForSelector('.lookahead-banner:has-text("Confirmed by the live replay")', { timeout: 90000 }).then(() => true).catch(() => false);
     check(notLive, 'the live replay confirms it: a bot would have traded differently');
     if (opened) await shot('50-tester-lookahead');
   },

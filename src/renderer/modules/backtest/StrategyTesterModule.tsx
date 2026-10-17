@@ -841,6 +841,7 @@ function LookaheadBanner({ rec }: { rec: BacktestRecord }) {
       <Icon name="alert" size={15} />
       <div className="grow">
         <b>Lookahead</b> ({look.map((w) => (w.line ? `line ${w.line}` : 'see details')).join(', ')}): this strategy uses data that did not exist yet at the time, so these results are better than anything achievable live — a bot would trade differently.
+        {rec.replay?.ok && rec.replay.differing > 0 && ` Confirmed by the live replay: at ${rec.replay.differing} of ${rec.replay.checked} replayed bar closes a bot held a different position or orders.`}
       </div>
       <button className="btn small" onClick={() => checkRepaint(rec)} data-tip="What looks ahead, and a replay of the most recent bars as a bot saw them compared with the backtest">
         <Icon name="replay" size={13} /> Details
@@ -852,7 +853,8 @@ function LookaheadBanner({ rec }: { rec: BacktestRecord }) {
 /** A bot replaying the recent bars would have traded differently: as prominent as a lookahead. */
 function ReplayBanner({ rec }: { rec: BacktestRecord }) {
   const r = rec.replay;
-  if (!r || !r.ok || !r.differing) return null;
+  // with a lookahead found in the code, its banner carries this result
+  if (!r || !r.ok || !r.differing || (rec.scriptWarnings || []).some((w) => w.kind === 'lookahead')) return null;
   const d = r.diffs.find((x) => x.kind === 'strategy') || r.diffs[0];
   return (
     <div className="callout danger lookahead-banner">
