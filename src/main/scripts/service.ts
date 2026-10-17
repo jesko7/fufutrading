@@ -391,7 +391,7 @@ export class ScriptService {
    * history (see engine/repaint). Loads request.security data (and chart-timeframe bars of other
    * instruments to rebuild forming higher-timeframe bars) as the worker asks for them.
    */
-  async repaintCheck(o: { scriptId?: string; code?: string; language?: ScriptLanguage; inputs?: Record<string, unknown>; spec: SeriesSpec; bars?: number; window?: number; strategy?: Partial<BrokerConfig> | null }): Promise<RepaintReport> {
+  async repaintCheck(o: { scriptId?: string; code?: string; language?: ScriptLanguage; inputs?: Record<string, unknown>; spec: SeriesSpec; bars?: number; window?: number; strategy?: Partial<BrokerConfig> | null; budgetMs?: number; maxChecks?: number }): Promise<RepaintReport> {
     let code = o.code;
     let lang: ScriptLanguage = o.language === 'python' ? 'python' : 'pine';
     if (code === undefined) {
@@ -420,8 +420,8 @@ export class ScriptService {
           data,
           security,
           window: Math.max(20, Math.min(1000, Math.round(+(o.window ?? 0)) || 300)),
-          budgetMs: lang === 'python' ? 30000 : 12000,
-          maxChecks: lang === 'python' ? 40 : 150,
+          budgetMs: o.budgetMs ?? (lang === 'python' ? 30000 : 12000),
+          maxChecks: o.maxChecks ?? (lang === 'python' ? 40 : 150),
         },
         { timeoutMs: 120000 },
       );

@@ -147,5 +147,12 @@ without lookahead only reveals bars that had closed. The compiler and editor war
 constructs that leak future data or behave differently live (see the Pine and Python docs).
 
 When the code looks ahead, a red banner sits above the results: they are better than anything
-achievable live. **Assumptions → Check with a live replay** replays the most recent bars as a bot
-saw them and compares its position and orders after every bar close with the backtest.
+achievable live.
+
+After every backtest, a **live replay** runs in the background. It replays up to 60 of the last
+150 bar closes of the instrument as a bot sees them (only the bars up to that moment, other
+timeframes cut at the same time) and compares the strategy's position and working orders with
+the backtest's. The overview then says **Reproducible live**. If a bot would have traded
+differently, a red **Not reproducible live** banner shows the bar where it happened. This catches
+future data that no static check sees, in Pine and Python alike. **Assumptions → Check with a
+live replay** runs the full check on demand.

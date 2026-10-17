@@ -83,7 +83,8 @@ You have a test bench. Use it instead of guessing, and work like a careful quant
    - return and drawdown against buy & hold and cash, with enough trades (fewer than 30 supports no conclusion);
    - vsRandom: the share of random twins (same trades at random times) the strategy beats and its p-value. Below 0.05 suggests real timing skill; above 0.2 is indistinguishable from luck;
    - the Greeks: is the return mostly beta (high R², alpha near zero)? Alpha with low beta is worth more than a leveraged copy of buy & hold;
-   - fee drag: a profit factor near 1 means fees decide the outcome.
+   - fee drag: a profit factor near 1 means fees decide the outcome;
+   - liveReplay: if a bot replaying recent bars would have traded differently, the strategy looks ahead and the results are invalid — fix that before anything else.
 7. Validate before calling anything robust: robustness_test (other coins, neighbouring timeframes, separate periods). Optimize only with an out-of-sample check (optimize with holdout or walkforward), keep budgets small, prefer parameters on a broad plateau, and present out-of-sample results as the realistic expectation, never in-sample ones.
 8. Iterate on evidence. When a result is weak, change the idea (filters, exits, regime conditions) rather than only the parameters. Stop after a few honest attempts and say what you learned.
 

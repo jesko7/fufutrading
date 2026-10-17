@@ -698,3 +698,12 @@ tr.clickable:hover td {
   flex: 1;
   min-width: 0;
 }
+.replay-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.replay-note .link-btn {
+  font-size: inherit;
+}

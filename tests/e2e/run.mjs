@@ -387,6 +387,14 @@ const S = {
     await page.waitForSelector('.kpis .kpi', { timeout: 180000 });
     const kpis = await page.$$eval('.kpi', (k) => k.map((x) => x.textContent || ''));
     check(kpis.length >= 8, `KPIs shown (${kpis.slice(0, 3).join(' | ')})`);
+    // a few seconds later: the live replay confirms the backtest is reproducible
+    const replayed = await page.waitForSelector('.replay-note:has-text("Reproducible live")', { timeout: 90000 }).then(() => true).catch(() => false);
+    if (!replayed) {
+      const list = await page.evaluate(() => window.fufu.invoke('backtests:list'));
+      const recd = await page.evaluate((id) => window.fufu.invoke('backtests:get', id), list[0]?.id);
+      console.log('    debug replay:', JSON.stringify(recd?.replay), 'created', recd?.created, 'now', Date.now(), 'notes', await page.$$eval('.replay-note', (n) => n.map((x) => x.textContent)));
+    }
+    check(replayed, `the backtest replays live (${((await page.textContent('.overview').catch(() => '')) || '').match(/Reproducible live[^.]*\./)?.[0] || 'no verdict'})`);
     await wait(500);
     await shot('11-backtest-overview');
     await page.click('.results .tabs .tab:has-text("Trades")');
@@ -808,6 +816,7 @@ const S = {
     const m = bt.result.metrics;
     check(bt.result.ok && m.exposurePct >= 0 && m.exposurePct <= 100 && Math.abs(m.cagrPct) < 1000, `backtest units (exposure ${m.exposurePct}%, CAGR ${m.cagrPct}%)`);
     check(!!m.greeks && typeof m.greeks.beta === 'number', `Greeks for the AI (alpha ${m.greeks?.alphaPctPerYear}%/yr, beta ${m.greeks?.beta})`);
+    check(bt.result.liveReplay?.reproducibleLive === true && bt.result.liveReplay.replayedRecentBars > 20, `live replay for the AI: reproducible ${bt.result.liveReplay?.reproducibleLive} (${bt.result.liveReplay?.replayedRecentBars} bars)`);
     check(!!m.vsRandom && m.vsRandom.twins >= 200, `random twins for the AI: ${m.vsRandom?.verdict} (beats ${m.vsRandom?.timing.beatsReturnPct}%, p ${m.vsRandom?.timing.pReturn})`);
     const run = await call('run_script', { id: 'builtin:rsi', symbol: 'BTCUSDT', tf: '1h', bars: 2000 });
     check(run.result.ok && run.result.plots.some((p) => typeof p.icNext5Bars === 'number'), `information coefficient (${run.result.plots.map((p) => `${p.title}: ${p.icNext5Bars}`).join(', ')})`);
@@ -1154,6 +1163,8 @@ const S = {
     await page.click('.menu-item:has-text("Open in Strategy Tester")');
     const opened = await page.waitForSelector('.lookahead-banner', { timeout: 120000 }).then(() => true).catch(() => false);
     check(opened, 'the Strategy Tester warns about the lookahead above the results');
+    const notLive = await page.waitForSelector('.lookahead-banner:has-text("Not reproducible live")', { timeout: 90000 }).then(() => true).catch(() => false);
+    check(notLive, 'the live replay confirms it: a bot would have traded differently');
     if (opened) await shot('50-tester-lookahead');
   },
   async options() {

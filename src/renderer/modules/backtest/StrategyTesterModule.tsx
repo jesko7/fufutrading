@@ -91,6 +91,19 @@ export function StrategyTesterModule({ module }: ModuleProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg.runId]);
 
+  // the live-replay check finishes after the run: pick up the updated record
+  useEffect(
+    () =>
+      api.on('backtests:changed', (p: { id?: string }) => {
+        if (p?.id && p.id === cfg.runId)
+          void api
+            .call<BacktestRecord>('backtests:get', p.id)
+            .then((r) => r && setRec(r))
+            .catch(() => {});
+      }),
+    [cfg.runId],
+  );
+
   useEffect(() => {
     const t = rec ? `Tester · ${rec.script.name}` : 'Strategy Tester';
     if (cfg.title !== t) setCfg({ title: t });
@@ -379,6 +392,7 @@ function Results({ rec, tab, setTab, onAddToChart, onRerun }: { rec: BacktestRec
         )}
       </div>
       <LookaheadBanner rec={rec} />
+      <ReplayBanner rec={rec} />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -448,6 +462,7 @@ function Overview({ rec, setTab }: { rec: BacktestRecord; setTab: (t: string) =>
           />
         )}
       </div>
+      <ReplayNote rec={rec} />
       {rec.warnings.length > 0 && (
         <div className="callout warn">
           {rec.warnings.slice(0, 4).map((w, k) => (
@@ -829,6 +844,45 @@ function LookaheadBanner({ rec }: { rec: BacktestRecord }) {
       </div>
       <button className="btn small" onClick={() => checkRepaint(rec)} data-tip="What looks ahead, and a replay of the most recent bars as a bot saw them compared with the backtest">
         <Icon name="replay" size={13} /> Details
+      </button>
+    </div>
+  );
+}
+
+/** A bot replaying the recent bars would have traded differently: as prominent as a lookahead. */
+function ReplayBanner({ rec }: { rec: BacktestRecord }) {
+  const r = rec.replay;
+  if (!r || !r.ok || !r.differing) return null;
+  const d = r.diffs.find((x) => x.kind === 'strategy') || r.diffs[0];
+  return (
+    <div className="callout danger lookahead-banner">
+      <Icon name="replay" size={15} />
+      <div className="grow">
+        <b>Not reproducible live:</b> at {r.differing} of {r.checked} replayed bar closes (of the last {r.window}), a bot would have held a different position or orders than this backtest shows
+        {d ? ` (${fmtDateTime(d.example.time)}: bot ${d.example.live}, backtest ${d.example.history})` : ''}. The strategy uses information that did not exist yet when a bar closed.
+      </div>
+      <button className="btn small" onClick={() => checkRepaint(rec)}>
+        <Icon name="replay" size={13} /> Details
+      </button>
+    </div>
+  );
+}
+
+/** The live-replay result in one line (or that it is still running). */
+function ReplayNote({ rec }: { rec: BacktestRecord }) {
+  const r = rec.replay;
+  if (!r) return Date.now() - rec.created < 3 * 60000 ? (
+    <div className="muted small replay-note">
+      <Spinner size={11} /> Replaying the most recent bars as a bot to check that the backtest is reproducible live…
+    </div>
+  ) : null;
+  if (!r.ok) return <div className="faint small replay-note">Live replay not checked: {r.error}</div>;
+  if (r.differing) return null;
+  return (
+    <div className="muted small replay-note" data-tip="The strategy ran on the bars up to each moment only (other timeframes cut at the same time), like a bot when the bar closes; its position and working orders matched this backtest every time">
+      <Icon name="check" size={12} /> Reproducible live: replayed as a bot at {r.checked} of the last {r.window} {rec.request.tf} bar closes, the strategy held the same position and orders as in the backtest.{' '}
+      <button className="link-btn" onClick={() => checkRepaint(rec)}>
+        Details
       </button>
     </div>
   );

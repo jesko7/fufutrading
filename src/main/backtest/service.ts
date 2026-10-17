@@ -85,6 +85,11 @@ export interface BacktestRecord {
   warnings: string[];
   /** Lookahead and repainting patterns found in the script (with lines). */
   scriptWarnings?: import('../../engine/types').ScriptWarning[];
+  /**
+   * Live replay after the run: the most recent bars of the instrument replayed as a bot sees them,
+   * the strategy's position and orders compared with the backtest's (see engine/repaint).
+   */
+  replay?: { ok: boolean; error?: string; checked: number; window: number; differing: number; diffs: import('../../engine/repaint').RepaintDiff[]; at: number };
   /** security: other data the script requested (symbols, timeframes, futures data), for people. */
   info: { bars: number; warmup: number; source: string; fills: string; funding: number; mark: boolean; ms: number; config: Record<string, unknown>; security?: string[] };
   logs: { bar: number; time: number; level: string; msg: string }[];
@@ -170,6 +175,8 @@ function downsample(m: Metrics['curves']): BacktestRecord['curves'] {
 export class BacktestService {
   private store: DocStore<BacktestRecord>;
   private funding: FundingCache;
+  /** Live-replay checks still running, by record id. */
+  private replays = new Map<string, Promise<void>>();
 
   constructor(
     private core: AppCore,
@@ -430,8 +437,48 @@ export class BacktestService {
     if (!req.ephemeral) {
       this.store.put(rec, true);
       this.core.router.broadcast('backtests:changed', { id: rec.id });
+      if (rec.ok && rec.metrics && req.chartType !== 'renko') {
+        const p = this.replayCheck(rec, P).finally(() => this.replays.delete(rec.id));
+        this.replays.set(rec.id, p);
+      }
     }
     return rec;
+  }
+
+  /**
+   * In the background after a run: replay the most recent bars as a bot sees them and compare the
+   * strategy's position and orders with the backtest's — a lookahead check of the code itself.
+   */
+  private async replayCheck(rec: BacktestRecord, P: Prepared): Promise<void> {
+    const q = rec.request;
+    let replay: NonNullable<BacktestRecord['replay']>;
+    try {
+      const r = await this.scripts.repaintCheck({
+        code: P.code,
+        language: P.language,
+        inputs: q.inputs || {},
+        spec: { symbol: q.symbol, market: q.market, tf: q.tf, chartType: q.chartType === 'heikinashi' ? 'heikinashi' : 'candles' },
+        strategy: { market: q.market },
+        window: 150,
+        budgetMs: P.language === 'python' ? 20000 : 6000,
+        maxChecks: P.language === 'python' ? 16 : 60,
+      });
+      replay = { ok: r.ok, error: r.error, checked: r.checked, window: r.window, differing: r.badTimes.length, diffs: r.diffs.slice(0, 6), at: Date.now() };
+    } catch (e) {
+      replay = { ok: false, error: (e as Error).message.replace(/^Validation: /, ''), checked: 0, window: 0, differing: 0, diffs: [], at: Date.now() };
+    }
+    const cur = this.store.get(rec.id);
+    if (!cur) return;
+    cur.replay = replay;
+    this.store.put(cur, true);
+    this.core.router.broadcast('backtests:changed', { id: rec.id });
+  }
+
+  /** The record once its live-replay check finished (or after `timeoutMs`). */
+  async withReplay(id: string, timeoutMs = 30000): Promise<BacktestRecord | null> {
+    const p = this.replays.get(id);
+    if (p) await Promise.race([p, new Promise((r) => setTimeout(r, timeoutMs))]);
+    return this.getRecord(id);
   }
 
   /** A saved backtest record (null when unknown). */

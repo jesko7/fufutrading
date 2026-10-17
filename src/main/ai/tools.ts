@@ -55,6 +55,19 @@ export interface AiTool extends McpTool {
 
 const r2 = (x: number) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
 
+/** The live-replay check of a backtest, for Claude. */
+const replayOf = (rec: BacktestRecord) =>
+  !rec.replay
+    ? 'not checked yet'
+    : !rec.replay.ok
+      ? `not checked: ${rec.replay.error || 'unavailable'}`
+      : {
+          reproducibleLive: rec.replay.differing === 0,
+          replayedRecentBars: rec.replay.checked,
+          barsWhereABotDiffered: rec.replay.differing,
+          differences: rec.replay.diffs.map((d) => ({ output: d.title, bars: d.count, example: { time: new Date(d.example.time).toISOString().slice(0, 16), live: d.example.live, backtest: d.example.history } })),
+        };
+
 /** A backtest's warnings with the script's lookahead/repainting findings first. */
 const recWarnings = (rec: BacktestRecord): string[] => [...(rec.scriptWarnings || []).map((w) => `${w.line ? `line ${w.line}: ` : ''}[${w.kind}] ${w.message}`), ...rec.warnings];
 const r4 = (x: number) => (Number.isFinite(x) ? Math.round(x * 10000) / 10000 : null);
@@ -509,7 +522,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'backtest',
       readOnly: true,
       description:
-        'Backtest a strategy on Binance history with realistic costs (Binance fees + slippage by default, funding on futures) and report performance against buy & hold and cash: return, CAGR, max drawdown, Sharpe/Sortino/Calmar, trades, win rate, profit factor, long/short split, yearly returns and market regimes; the Greeks against buy & hold (alpha, beta, correlation, volatility, omega, capture ratios, VaR); and vsRandom: how many of 1,000 random twins (same trades, holding times, sizes and costs at random times; and coin-flip directions at the same times) the strategy beats, with p-values. The run is saved in the Strategy Tester history. Use robustness_test before calling a strategy robust.',
+        'Backtest a strategy on Binance history with realistic costs (Binance fees + slippage by default, funding on futures) and report performance against buy & hold and cash: return, CAGR, max drawdown, Sharpe/Sortino/Calmar, trades, win rate, profit factor, long/short split, yearly returns and market regimes; the Greeks against buy & hold (alpha, beta, correlation, volatility, omega, capture ratios, VaR); and vsRandom: how many of 1,000 random twins (same trades, holding times, sizes and costs at random times; and coin-flip directions at the same times) the strategy beats, with p-values; and liveReplay: whether a bot replaying the most recent bars would have held the same position and orders at every bar close (false means the code uses future information, so the backtest cannot be trusted). The run is saved in the Strategy Tester history. Use robustness_test before calling a strategy robust.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -546,8 +559,10 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           broker: { initialCapital: Math.max(10, Number(args.capital) || 10000), ...(ins.market === 'futures' ? { leverage: Math.max(1, Math.min(125, Math.round(Number(args.leverage) || 1))) } : {}) },
           label: `AI · ${src.name}`,
         };
-        const rec = await deps.backtests.run(req, () => {}, { cancelled: false });
-        if (!rec.ok) return { ok: false, error: rec.error, recordId: rec.id };
+        const ran = await deps.backtests.run(req, () => {}, { cancelled: false });
+        if (!ran.ok) return { ok: false, error: ran.error, recordId: ran.id };
+        // the live replay (lookahead check) finishes a few seconds later
+        const rec = (await deps.backtests.withReplay(ran.id, 30000)) || ran;
         return {
           ok: true,
           recordId: rec.id,
@@ -557,6 +572,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           metrics: summarizeMetrics(rec),
           sampleTrades: rec.trades.slice(-6).map((t) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
           warnings: recWarnings(rec).slice(0, 8),
+          liveReplay: replayOf(rec),
           assumptions: rec.info.fills,
           data: [rec.info.source, ...(rec.info.security || [])],
         };
@@ -583,6 +599,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           metrics: summarizeMetrics(rec),
           sampleTrades: rec.trades.slice(-8).map((t: BacktestRecord['trades'][number]) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
           warnings: recWarnings(rec).slice(0, 8),
+          liveReplay: replayOf(rec),
           assumptions: rec.info.fills,
           data: [rec.info.source, ...(rec.info.security || [])],
         };
