@@ -12,6 +12,8 @@ export interface ChartStyle {
   priceLine: boolean;
   volumeOpacity: number;
   font: number;
+  /** Touchpad swipes and Shift+wheel move the chart the other way (dragging always follows the pointer). */
+  reverseScroll?: boolean;
 }
 
 export interface AppSettings {

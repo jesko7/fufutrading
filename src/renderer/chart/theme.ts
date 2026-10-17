@@ -26,5 +26,6 @@ export function chartTheme(s: AppSettings): ChartTheme {
     volumeOpacity: s.chart.volumeOpacity,
     hollowUp: s.chart.hollowUp,
     showGrid: s.chart.grid,
+    reverseScroll: !!s.chart.reverseScroll,
   };
 }

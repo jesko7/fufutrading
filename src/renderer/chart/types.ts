@@ -18,6 +18,8 @@ export interface ChartTheme {
   volumeOpacity: number;
   hollowUp: boolean;
   showGrid: boolean;
+  /** Horizontal wheel / touchpad scrolling reversed. */
+  reverseScroll?: boolean;
 }
 
 export interface ChartBars {

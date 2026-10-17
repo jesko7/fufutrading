@@ -77,6 +77,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               <Row label="Volume opacity">
                 <input type="range" min={0.05} max={0.8} step={0.05} value={s.chart.volumeOpacity} onChange={(e) => upd({ chart: { ...s.chart, volumeOpacity: +e.target.value } })} />
               </Row>
+              <Row label="Reverse horizontal scrolling" hint="Touchpad swipes and Shift+wheel move the chart the other way. Dragging always moves the chart with the pointer; the wheel zooms.">
+                <Toggle value={!!s.chart.reverseScroll} onChange={(v) => upd({ chart: { ...s.chart, reverseScroll: v } })} />
+              </Row>
               <Row label="Chart font size">
                 <Segmented value={String(s.chart.font)} onChange={(v) => upd({ chart: { ...s.chart, font: +v } })} options={['10', '11', '12', '13'].map((v) => ({ value: v, label: v }))} />
               </Row>

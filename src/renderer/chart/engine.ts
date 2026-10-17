@@ -1231,7 +1231,7 @@ export class ChartEngine {
       return;
     }
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY) || e.shiftKey) {
-      const d = e.shiftKey ? e.deltaY : e.deltaX;
+      const d = (e.shiftKey ? e.deltaY : e.deltaX) * (this.theme.reverseScroll ? -1 : 1);
       this.rightOffset += d / this.barSpacing / 2;
       this.clampOffset();
       this.invalidate();
