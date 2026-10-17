@@ -90,6 +90,8 @@
   min-height: 0;
   position: relative;
   padding: 4px;
+  /* a single panel (no split) fills the whole workspace */
+  display: flex;
 }
 .split {
   display: flex;
@@ -231,8 +233,27 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow: hidden;
+}
+/* the empty part of a panel header: drag to move the panel, double-click to maximize */
+.stack-head .head-grip {
+  flex: 1 1 0;
+  min-width: 6px;
+  align-self: stretch;
+  cursor: grab;
+}
+.stack-tabs {
+  position: relative;
+}
+.tab-drop-marker {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
 }
 .stack-body {
   flex: 1;

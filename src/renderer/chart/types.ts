@@ -20,6 +20,8 @@ export interface ChartTheme {
   showGrid: boolean;
   /** Horizontal wheel / touchpad scrolling reversed. */
   reverseScroll?: boolean;
+  /** Keep moving briefly after a flick (default on). */
+  momentum?: boolean;
 }
 
 export interface ChartBars {

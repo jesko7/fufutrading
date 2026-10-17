@@ -336,7 +336,7 @@ function ScriptFields({ a, set }: { a: IndicatorAlert | ScriptAlert; set: (p: Pa
     <>
       <div className="ae-row">
         <span className="ae-label">Script</span>
-        <Select value={a.scriptId} onChange={(id) => set({ scriptId: id, scriptName: list.find((s) => s.id === id)?.name, inputs: {}, plot: '' } as Partial<IndicatorAlert>)} options={[{ value: '', label: 'Choose…' }, ...list.map((s) => ({ value: s.id, label: `${s.name}${s.kind === 'strategy' ? ' (strategy)' : ''}${s.language === 'python' ? ' · Py' : ''}` }))]} style={{ flex: 1, minWidth: 0 }} />
+        <Select value={a.scriptId} onChange={(id) => set({ scriptId: id, scriptName: list.find((s) => s.id === id)?.name, inputs: {}, plot: '' } as Partial<IndicatorAlert>)} placeholder="Choose a script…" options={list.map((s) => ({ value: s.id, label: `${s.name}${s.kind === 'strategy' ? ' (strategy)' : ''}${s.language === 'python' ? ' · Py' : ''}` }))} style={{ flex: 1, minWidth: 0 }} />
       </div>
       <div className="ae-row">
         <span className="ae-label">Timeframe</span>

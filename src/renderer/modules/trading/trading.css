@@ -242,3 +242,16 @@
 .scaled-preview .row.crossing {
   color: var(--warn);
 }
+/* the market the panel trades: spot or the perpetual (picks an account of that market) */
+.trade-panel .market-switch {
+  display: flex;
+  width: 100%;
+}
+.trade-panel .market-switch button {
+  flex: 1;
+}
+.trade-panel .avbl-row {
+  justify-content: space-between;
+  font-size: 11px;
+  margin-bottom: -4px;
+}

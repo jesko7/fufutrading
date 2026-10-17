@@ -529,7 +529,7 @@ function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
         <div className="bs-section">
           <div className="bs-title">Strategy</div>
           <div className="row" style={{ gap: 6 }}>
-            <Select value={d.scriptId || ''} options={[{ value: '', label: strategies.length ? 'Choose a strategy…' : 'No strategies in the library' }, ...strategies.map((s) => ({ value: s.id, label: `${s.name}${s.language === 'python' ? ' (Python)' : ''}` }))]} onChange={(id) => patch({ scriptId: id, params: {} })} style={{ flex: 1, minWidth: 0 }} />
+            <Select value={d.scriptId || ''} placeholder={strategies.length ? 'Choose a strategy…' : 'No strategies in the library'} options={strategies.map((s) => ({ value: s.id, label: `${s.name}${s.language === 'python' ? ' (Python)' : ''}` }))} onChange={(id) => patch({ scriptId: id, params: {} })} style={{ flex: 1, minWidth: 0 }} />
             <button className="icon-btn" disabled={!d.scriptId} onClick={() => void openScriptInEditor(d.scriptId)} data-tip="Open in the editor">
               <Icon name="code" />
             </button>

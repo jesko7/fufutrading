@@ -176,6 +176,20 @@
 .ind-item .ind-actions {
   display: none;
   gap: 1px;
+  /* larger buttons without making the row taller when they appear */
+  margin: -3px 0;
+  padding: 0 2px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel-2) 92%, transparent);
+}
+.ind-item .ind-actions .icon-btn {
+  width: 23px;
+  height: 23px;
+  border-radius: 5px;
+  color: var(--text-2);
+}
+.ind-item .ind-actions .icon-btn:hover {
+  color: var(--text);
 }
 .ind-item:hover .ind-actions {
   display: inline-flex;

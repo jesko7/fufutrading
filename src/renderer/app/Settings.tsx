@@ -80,6 +80,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               <Row label="Reverse horizontal scrolling" hint="Touchpad swipes and Shift+wheel move the chart the other way. Dragging always moves the chart with the pointer; the wheel zooms.">
                 <Toggle value={!!s.chart.reverseScroll} onChange={(v) => upd({ chart: { ...s.chart, reverseScroll: v } })} />
               </Row>
+              <Row label="Momentum" hint="A chart you flick keeps moving for a moment after you let go, sideways and (when you move the price) up and down.">
+                <Toggle value={s.chart.momentum !== false} onChange={(v) => upd({ chart: { ...s.chart, momentum: v } })} />
+              </Row>
               <Row label="Chart font size">
                 <Segmented value={String(s.chart.font)} onChange={(v) => upd({ chart: { ...s.chart, font: +v } })} options={['10', '11', '12', '13'].map((v) => ({ value: v, label: v }))} />
               </Row>

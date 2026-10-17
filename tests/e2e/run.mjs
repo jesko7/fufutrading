@@ -130,6 +130,17 @@ const S = {
       await wait(1500);
       await shot(file);
     }
+    // a workspace with a single chart: the panel fills the whole height
+    await openPreset('Empty');
+    await page.click('.module-card:has(.mc-title:text-is("Chart"))');
+    await page.waitForSelector('.stack .chart-host canvas', { timeout: 30000 });
+    const fill = await page.evaluate(() => {
+      const w = document.querySelector('.workspace').getBoundingClientRect();
+      const st = document.querySelector('.stack').getBoundingClientRect();
+      return { ws: Math.round(w.height), stack: Math.round(st.height) };
+    });
+    check(fill.stack >= fill.ws - 12, `a single chart fills the workspace (${fill.stack} of ${fill.ws} px)`);
+    await shot('03-single-chart');
     // later scenarios expect the Trader layout from the smoke test
     await openPreset('Trader');
     await page.waitForSelector('.trade-panel, .empty-title:has-text("No paper account")', { timeout: 30000 });
@@ -246,6 +257,21 @@ const S = {
     await page.click('.modal button:has-text("Create account")');
     await page.waitForSelector('.trade-panel button:has-text("Open long")', { timeout: 15000 });
     check(true, 'futures paper account created from the trade panel');
+    // the trade window's market switch: the account decides the market, so choosing spot without a
+    // spot account offers to create one, and the panel stays on the perpetual until then
+    check(/USDⓈ-M Perpetual/.test((await page.textContent('.trade-panel .market-switch button.on')) || ''), 'trade window shows the perpetual of the futures account');
+    await page.click('.trade-panel .market-switch button:has-text("Spot")');
+    await page.waitForSelector('.modal:has-text("New paper account")', { timeout: 5000 });
+    check(true, 'choosing spot without a spot account offers to create one');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
+    check(/Perpetual/.test((await page.textContent('.trade-panel .market-switch button.on')) || ''), 'the panel stays on the perpetual');
+    await page.locator('.stack:has(.trade-panel) .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized .trade-panel', { timeout: 5000 });
+    await wait(500);
+    await shot('04a-trade-window');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
     await page.click('.trade-panel button:has-text("25%")');
     await wait(500);
     await page.click('.trade-panel button:has-text("Open long")');
@@ -1256,6 +1282,48 @@ const S = {
     await page.waitForFunction(() => document.querySelectorAll('.tester .kpi, .tester .stat').length > 3, null, { timeout: 180000 });
     check(true, 'builder strategy saved and backtested in the Strategy Tester');
     await shot('33-builder-backtest');
+  },
+  async layout() {
+    console.log('scenario: layout (drag panels and tabs)');
+    await openPreset('Trader');
+    await page.waitForSelector('.stack-tab:has-text("Tape")', { timeout: 30000 });
+    const stacks = () => page.$$eval('.stack', (x) => x.length);
+    const n0 = await stacks();
+    // drag the Tape tab to the right edge of the chart panel: a new panel beside the chart
+    const chartBody = await page.locator('.stack:has(.chart-host) .stack-body').first().boundingBox();
+    await page.dragAndDrop('.stack-tab:has-text("Tape")', '.stack:has(.chart-host) .stack-body', { targetPosition: { x: chartBody.width - 12, y: chartBody.height / 2 } });
+    await page.waitForFunction((n) => document.querySelectorAll('.stack').length === n + 1, n0, { timeout: 5000 }).catch(() => {});
+    const n1 = await stacks();
+    const tapeBeside = await page.evaluate(() => {
+      const tape = [...document.querySelectorAll('.stack')].find((x) => x.querySelector('.stack-tab.on')?.textContent?.includes('Tape'));
+      const chart = document.querySelector('.stack:has(.chart-host)');
+      if (!tape || !chart) return false;
+      const a = tape.getBoundingClientRect();
+      const b = chart.getBoundingClientRect();
+      return a.left >= b.right - 2 && Math.abs(a.top - b.top) < 4;
+    });
+    check(n1 === n0 + 1 && tapeBeside, `a tab dragged to a panel's edge becomes a panel beside it (${n0} → ${n1} panels)`);
+    await shot('60-layout-drag');
+    // drop it on the Book panel's tab strip, before the Book tab: it joins that panel as the first tab
+    await page.dragAndDrop('.stack-tab:has-text("Tape")', '.stack:has(.stack-tab:has-text("Book")) .stack-tabs', { targetPosition: { x: 3, y: 12 } });
+    await page.waitForFunction(() => /Tape/.test(document.querySelector('.stack:has(.stack-tab:has-text("Book")) .stack-tab')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    const order = await page.$$eval('.stack:has(.stack-tab:has-text("Book")) .stack-tab', (t) => t.map((x) => (x.textContent || '').trim()));
+    check(order.length === 2 && /Tape/.test(order[0]) && /Book/.test(order[1]) && (await stacks()) === n0, `a tab dropped on a tab strip goes where it was dropped (${order.join(' | ')})`);
+    // a panel moves by the empty part of its header too: the watchlist below the chart
+    const chartBox = await page.locator('.stack:has(.chart-host) .stack-body').first().boundingBox();
+    await page.dragAndDrop('.stack:has(.watch-row) .head-grip', '.stack:has(.chart-host) .stack-body', { targetPosition: { x: chartBox.width / 2, y: chartBox.height - 10 } });
+    await page.waitForFunction(() => {
+      const w = document.querySelector('.stack:has(.watch-row)')?.getBoundingClientRect();
+      const c = document.querySelector('.stack:has(.chart-host)')?.getBoundingClientRect();
+      return !!w && !!c && w.top >= c.bottom - 2 && w.left < c.right && w.right > c.left;
+    }, null, { timeout: 5000 }).then(() => true).catch(() => false);
+    const below = await page.evaluate(() => {
+      const w = document.querySelector('.stack:has(.watch-row)')?.getBoundingClientRect();
+      const c = document.querySelector('.stack:has(.chart-host)')?.getBoundingClientRect();
+      return !!w && !!c && w.top >= c.bottom - 2 && w.left < c.right && w.right > c.left;
+    });
+    check(below, 'a panel dragged by its header lands below the chart');
+    await shot('61-layout-header-drag');
   },
   async help() {
     console.log('scenario: help');

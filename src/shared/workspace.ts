@@ -251,8 +251,8 @@ export function removeModule(node: LayoutNode | null, moduleId: string): LayoutN
 
 export type DropPos = 'left' | 'right' | 'top' | 'bottom' | 'center';
 
-/** Insert module relative to target stack. */
-export function insertModule(node: LayoutNode | null, moduleId: string, targetStackId: string | null, pos: DropPos): LayoutNode {
+/** Insert module relative to target stack (`index`: the tab position for 'center', default last). */
+export function insertModule(node: LayoutNode | null, moduleId: string, targetStackId: string | null, pos: DropPos, index?: number): LayoutNode {
   if (!node) return stack([moduleId]);
   if (!targetStackId) {
     // append to the right of the root
@@ -261,7 +261,12 @@ export function insertModule(node: LayoutNode | null, moduleId: string, targetSt
   const rec = (n: LayoutNode): LayoutNode => {
     if (n.type === 'stack') {
       if (n.id !== targetStackId) return n;
-      if (pos === 'center') return { ...n, modules: [...n.modules, moduleId], active: n.modules.length };
+      if (pos === 'center') {
+        const at = index === undefined || !Number.isFinite(index) ? n.modules.length : Math.max(0, Math.min(n.modules.length, Math.round(index)));
+        const modules = n.modules.slice();
+        modules.splice(at, 0, moduleId);
+        return { ...n, modules, active: at };
+      }
       const ns = stack([moduleId]);
       const dir = pos === 'left' || pos === 'right' ? 'row' : 'col';
       const first = pos === 'left' || pos === 'top';

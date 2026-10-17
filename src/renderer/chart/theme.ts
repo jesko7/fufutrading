@@ -27,5 +27,6 @@ export function chartTheme(s: AppSettings): ChartTheme {
     hollowUp: s.chart.hollowUp,
     showGrid: s.chart.grid,
     reverseScroll: !!s.chart.reverseScroll,
+    momentum: s.chart.momentum !== false,
   };
 }

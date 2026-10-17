@@ -65,6 +65,10 @@ export interface RenderCtx {
   dpr: number;
 }
 
+/** Momentum after a flick: the release velocity is scaled down and decays with this time constant (ms). */
+const GLIDE_SCALE = 0.5;
+const GLIDE_MS = 140;
+
 export interface EngineCallbacks {
   onCrosshair?(info: CrosshairInfo | null): void;
   onNeedHistory?(): void;
@@ -140,11 +144,11 @@ export class ChartEngine {
     kindSub?: 'sl' | 'tp';
     /** pan: undecided until the pointer moved a few pixels; 'x' scrolls time only, 'free' moves the price too. */
     axis?: 'undecided' | 'x' | 'free';
-    /** pan: recent (time, offset) samples for momentum after release. */
-    trail?: [number, number][];
+    /** pan: recent (time, right offset, price-scale minimum) samples for momentum after release. */
+    trail?: [number, number, number][];
   } = null;
-  /** Momentum scrolling after a flick (bars per ms, decaying). */
-  private glide: { v: number; last: number; raf: number } | null = null;
+  /** Momentum after a flick: bars per ms sideways, price units per ms up and down (decaying). */
+  private glide: { v: number; vy: number; last: number; raf: number } | null = null;
   /** Smooth scroll to a right offset. */
   private scrollAnim = 0;
   private ro: ResizeObserver;
@@ -370,10 +374,10 @@ export class ChartEngine {
     this.glide = null;
   }
 
-  /** Keep scrolling after a flick, slowing down like a physical scroll. */
-  private startGlide(v: number): void {
+  /** Keep moving briefly after a flick, slowing down quickly (a short, light glide). */
+  private startGlide(v: number, vy: number): void {
     this.stopGlide();
-    const g = { v, last: performance.now(), raf: 0 };
+    const g = { v, vy, last: performance.now(), raf: 0 };
     this.glide = g;
     const step = () => {
       if (this.glide !== g || this.destroyed) return;
@@ -381,13 +385,24 @@ export class ChartEngine {
       const dt = Math.min(48, now - g.last);
       g.last = now;
       const before = this.rightOffset;
-      this.rightOffset += g.v * dt;
-      this.clampOffset();
-      g.v *= Math.exp(-dt / 325);
+      if (g.v) {
+        this.rightOffset += g.v * dt;
+        this.clampOffset();
+        if (this.rightOffset === before) g.v = 0;
+      }
+      const main = this.mainScale;
+      if (g.vy && !main.auto) {
+        main.min += g.vy * dt;
+        main.max += g.vy * dt;
+      }
+      const decay = Math.exp(-dt / GLIDE_MS);
+      g.v *= decay;
+      g.vy *= decay;
       this.invalidate();
       this.cb.onViewChange?.();
-      // stop when slow, or at the ends
-      if (Math.abs(g.v * this.barSpacing) < 0.02 || this.rightOffset === before) {
+      // stop when slow (under 0.02 px per ms both ways) or at the ends
+      const pxY = main.max > main.min ? (Math.abs(g.vy) / (main.max - main.min)) * main.height : 0;
+      if (Math.abs(g.v * this.barSpacing) < 0.02 && pxY < 0.02) {
         this.glide = null;
         return;
       }
@@ -1102,7 +1117,7 @@ export class ChartEngine {
       this.invalidateOverlay();
       return;
     }
-    this.drag = { kind: 'pan', x0: x, y0: y, v0: this.rightOffset, v1: this.mainScale.min, axis: 'undecided', trail: [[performance.now(), this.rightOffset]] };
+    this.drag = { kind: 'pan', x0: x, y0: y, v0: this.rightOffset, v1: this.mainScale.min, axis: 'undecided', trail: [[performance.now(), this.rightOffset, NaN]] };
     this.over.style.cursor = 'grabbing';
   }
 
@@ -1142,7 +1157,7 @@ export class ChartEngine {
           main.max = main.min + span;
         }
         const trail = d.trail!;
-        trail.push([performance.now(), this.rightOffset]);
+        trail.push([performance.now(), this.rightOffset, d.axis === 'free' ? main.min : NaN]);
         if (trail.length > 8) trail.shift();
         this.invalidate();
         this.cb.onViewChange?.();
@@ -1200,15 +1215,22 @@ export class ChartEngine {
     if (!d) return;
     if (d.kind === 'pan') {
       this.over.style.cursor = 'crosshair';
-      // a flick keeps scrolling: velocity over the last ~80 ms
+      // a flick keeps moving briefly (both ways when the price moved too): velocity over the last ~80 ms
       const trail = d.trail || [];
       const now = performance.now();
       const recent = trail.filter(([t]) => now - t < 80);
-      if (recent.length >= 2) {
-        const [t0, o0] = recent[0];
-        const [t1, o1] = recent[recent.length - 1];
-        const v = (o1 - o0) / Math.max(1, t1 - t0);
-        if (now - t1 < 40 && Math.abs(v * this.barSpacing) > 0.35) this.startGlide(v);
+      if (this.theme.momentum !== false && recent.length >= 2) {
+        const [t0, o0, m0] = recent[0];
+        const [t1, o1, m1] = recent[recent.length - 1];
+        const dt = Math.max(1, t1 - t0);
+        const main = this.mainScale;
+        let v = ((o1 - o0) / dt) * GLIDE_SCALE;
+        let vy = Number.isFinite(m0) && Number.isFinite(m1) && !main.auto ? ((m1 - m0) / dt) * GLIDE_SCALE : 0;
+        // only a real flick glides (over 0.6 px per ms at release)
+        const pxY = main.max > main.min ? (Math.abs(vy) / (main.max - main.min)) * main.height : 0;
+        if (Math.abs(v * this.barSpacing) < 0.6 * GLIDE_SCALE) v = 0;
+        if (pxY < 0.6 * GLIDE_SCALE) vy = 0;
+        if (now - t1 < 40 && (v || vy)) this.startGlide(v, vy);
       }
     }
     if (d.kind === 'tradeLine' && d.id && d.price !== undefined && Math.abs(d.price - d.v0) > 1e-9) this.cb.onTradeLineDrag?.(d.id, roundTo(d.price, this.tick));

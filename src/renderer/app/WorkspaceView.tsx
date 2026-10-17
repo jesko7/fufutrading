@@ -105,6 +105,8 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
   const dragModule = useApp((s) => s.dragModule);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [dropPos, setDropPos] = useState<DropPos | null>(null);
+  /** A tab being dragged over this tab strip: where it would go. */
+  const [tabDrop, setTabDrop] = useState<{ index: number; x: number } | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const active = Math.min(node.active, node.modules.length - 1);
@@ -176,6 +178,52 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
     return 'center';
   };
 
+  // a panel is dragged by its tab, or by the empty part of its header
+  const startDrag = (e: React.DragEvent, mid: string) => {
+    e.dataTransfer.setData('application/x-fufu-module', mid);
+    e.dataTransfer.effectAllowed = 'move';
+    useApp.getState().setDragModule(mid);
+  };
+  const endDrag = (e: React.DragEvent, mid: string) => {
+    useApp.getState().setDragModule(null);
+    setTabDrop(null);
+    const outside = e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight;
+    if (e.dataTransfer.dropEffect === 'none' && outside) void api.call('ws:detach', mid, { x: e.screenX - 80, y: e.screenY - 18, width: 760, height: 520 });
+  };
+  /** Dragging over a tab strip: the tab goes between the tabs under the pointer. */
+  const onStripOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/x-fufu-module')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const strip = stripRef.current;
+    if (!strip) return;
+    const dragging = useApp.getState().dragModule;
+    const tabs = [...strip.querySelectorAll<HTMLElement>('.stack-tab')].filter((t) => t.dataset.mid !== dragging);
+    const left = strip.getBoundingClientRect().left;
+    let index = tabs.findIndex((t) => {
+      const r = t.getBoundingClientRect();
+      return e.clientX < r.left + r.width / 2;
+    });
+    if (index < 0) index = tabs.length;
+    const x = Math.round(index < tabs.length ? tabs[index].getBoundingClientRect().left - left - 2 : tabs.length ? tabs[tabs.length - 1].getBoundingClientRect().right - left + 1 : 2);
+    if (!tabDrop || tabDrop.index !== index || tabDrop.x !== x) setTabDrop({ index, x });
+  };
+  const onStripDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = e.dataTransfer.getData('application/x-fufu-module');
+    const index = tabDrop?.index;
+    setTabDrop(null);
+    useApp.getState().setDragModule(null);
+    if (!id || index === undefined) return;
+    try {
+      await api.call('ws:op', { kind: 'moveModule', moduleId: id, windowId: useApp.getState().windowId, targetStack: node.id, pos: 'center', index });
+    } catch (err) {
+      useApp.getState().toast({ title: 'Could not move module', body: errorMessage(err), kind: 'error' });
+    }
+  };
+
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const id = e.dataTransfer.getData('application/x-fufu-module');
@@ -213,9 +261,17 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
       data-stack-id={node.id}
       onMouseDownCapture={() => useApp.getState().setFocused(activeId)}
     >
-      <div className="stack-head" onDoubleClick={(e) => (e.target as HTMLElement).closest('.stack-tabs') && toggleMax()}>
+      <div className="stack-head" onDoubleClick={(e) => (e.target as HTMLElement).closest('.stack-tabs, .head-grip') && toggleMax()}>
         {/* the other tabs keep at least their icons, the active one (most of) its title */}
-        <div className="stack-tabs" ref={stripRef} style={{ minWidth: Math.round((Math.min(node.modules.length, 8) - 1) * 30 + Math.min(120, 36 + (mod ? moduleTitle(mod).length : 0) * 6.6)) }}>
+        <div
+          className="stack-tabs"
+          ref={stripRef}
+          onDragOver={onStripOver}
+          onDragLeave={(e) => {
+            if (!stripRef.current?.contains(e.relatedTarget as Node)) setTabDrop(null);
+          }}
+          onDrop={onStripDrop}
+          style={{ minWidth: Math.round((Math.min(node.modules.length, 8) - 1) * 30 + Math.min(120, 36 + (mod ? moduleTitle(mod).length : 0) * 6.6)) }}>
           {node.modules.map((mid, i) => {
             const m = ws.modules[mid];
             if (!m) return null;
@@ -223,22 +279,13 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
               <div
                 key={mid}
                 className={clsx('stack-tab', i === active && 'on', node.modules.length === 1 && 'only')}
+                data-mid={mid}
                 draggable
                 onClick={() => setActive(i)}
                 onAuxClick={(e) => e.button === 1 && api.call('ws:op', { kind: 'removeModule', moduleId: mid })}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData('application/x-fufu-module', mid);
-                  e.dataTransfer.effectAllowed = 'move';
-                  useApp.getState().setDragModule(mid);
-                }}
-                onDragEnd={(e) => {
-                  useApp.getState().setDragModule(null);
-                  const outside = e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight;
-                  if (e.dataTransfer.dropEffect === 'none' && outside) {
-                    void api.call('ws:detach', mid, { x: e.screenX - 80, y: e.screenY - 18, width: 760, height: 520 });
-                  }
-                }}
-                data-tip={node.modules.length > 1 ? moduleTitle(m) : 'Drag to rearrange · drag outside to detach'}
+                onDragStart={(e) => startDrag(e, mid)}
+                onDragEnd={(e) => endDrag(e, mid)}
+                data-tip={node.modules.length > 1 ? `${moduleTitle(m)} · drag to move or reorder` : 'Drag to rearrange · drag outside to detach'}
               >
                 {m.link && <span className="link-dot" style={{ background: LINK_COLORS[m.link] }} />}
                 <Icon name={MODULE_INFO[m.type]?.icon || 'grid'} size={14} />
@@ -246,8 +293,11 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
               </div>
             );
           })}
+          {tabDrop && <span className="tab-drop-marker" style={{ left: tabDrop.x }} />}
         </div>
         <div className="head-controls" ref={setSlot} />
+        {/* the empty part of the header moves the panel too */}
+        {mod && <div className="head-grip" draggable onDragStart={(e) => startDrag(e, mod.id)} onDragEnd={(e) => endDrag(e, mod.id)} data-tip="Drag to move this panel · double-click to maximize" />}
         <button className="icon-btn small" onClick={(e) => addMenu.toggle(e.currentTarget)} data-tip="Add module here">
           <Icon name="plus" size={15} />
         </button>

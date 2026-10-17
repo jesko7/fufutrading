@@ -278,9 +278,16 @@ export function Toggle({ value, onChange, title }: { value: boolean; onChange: (
   return <button className={clsx('toggle', value && 'on')} onClick={() => onChange(!value)} role="switch" aria-checked={value} data-tip={title} />;
 }
 
-export function Select<T extends string>({ value, options, onChange, style, title }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; style?: CSSProperties; title?: string }) {
+/** A drop-down; `placeholder` shows while nothing is chosen and is not itself a choice. */
+export function Select<T extends string>({ value, options, onChange, style, title, placeholder }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; style?: CSSProperties; title?: string; placeholder?: string }) {
+  const empty = placeholder !== undefined && !options.some((o) => o.value === value);
   return (
-    <select className="select" value={value} onChange={(e) => onChange(e.target.value as T)} style={style} data-tip={title}>
+    <select className={clsx('select', empty && 'placeholder')} value={empty ? '' : value} onChange={(e) => onChange(e.target.value as T)} style={style} data-tip={title}>
+      {placeholder !== undefined && (
+        <option value="" disabled hidden>
+          {placeholder}
+        </option>
+      )}
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
@@ -290,8 +297,7 @@ export function Select<T extends string>({ value, options, onChange, style, titl
   );
 }
 
-/** Numeric input that commits on blur/enter and supports arrow-key stepping. */
-/** A number input; it reports on blur and Enter, or with `live` on every valid keystroke (for previews that follow the typing). */
+/** A number input (arrow keys step); it reports on blur and Enter, or with `live` on every valid keystroke (for previews that follow the typing). */
 export function NumberField({ value, onChange, step = 1, min, max, decimals, style, suffix, placeholder, disabled, live }: { value: number | null; onChange: (v: number) => void; step?: number; min?: number; max?: number; decimals?: number; style?: CSSProperties; suffix?: string; placeholder?: string; disabled?: boolean; live?: boolean }) {
   const fmt = (v: number | null) => (v === null || !isFinite(v) ? '' : decimals !== undefined ? v.toFixed(decimals) : String(v));
   const [text, setText] = useState(fmt(value));

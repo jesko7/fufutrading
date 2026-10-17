@@ -30,9 +30,23 @@ export function OrderEntryModule({ module }: ModuleProps) {
   useEffect(() => {
     if (replay && !replayId) void api.call('replay:account', cfg.market).catch(() => {});
   }, [replay?.id, replayId, cfg.market]);
-  const accountId = replay ? replayId : resolveAccountId(cfg.accountId, accounts);
+  const accountId = replay ? replayId : resolveAccountId(cfg.accountId, accounts, cfg.market);
   const acct = useAccount(accountId);
   const market: Market = replay ? cfg.market : acct?.config.market || cfg.market;
+  /**
+   * The paper account decides the market (spot or USDⓈ-M perpetual), so choosing the other market
+   * switches to an account of that market, or offers to create one.
+   */
+  const pickInstrument = (s: SymbolId, m: Market) => {
+    if (replay || m === market) return set({ symbol: s, market: m });
+    const usable = accounts.filter((a) => a.config.market === m && !a.config.archived && a.config.kind !== 'bot');
+    const prev = (cfg as { lastAccount?: Partial<Record<Market, string>> }).lastAccount || {};
+    const keep = { ...prev, ...(accountId ? { [market]: accountId } : {}) };
+    const next = usable.find((a) => a.config.id === prev[m]) || usable[0];
+    if (next) return set({ symbol: s, market: m, accountId: next.config.id, lastAccount: keep });
+    toast({ title: `No ${m === 'spot' ? 'spot' : 'futures'} paper account yet`, body: 'Create one to trade this market.', kind: 'info' });
+    openCreateAccount((id) => set({ symbol: s, market: m, accountId: id, lastAccount: keep }), { market: m });
+  };
   const symbol = cfg.symbol;
   const ticker = useTicker(symbol, market);
   const last = replay ? (replay.prices[`${market}:${symbol}`] ?? NaN) : ticker?.last || NaN;
@@ -139,6 +153,13 @@ export function OrderEntryModule({ module }: ModuleProps) {
     return null;
   }, [type, scaled, scFrom, scTo, spec, reduceOnly, market, last, symbol]);
   const scaledCrossing = type === 'scaled' && last > 0 ? scaled.filter((o) => (side === 'buy' ? o.price >= last : o.price <= last)).length : 0;
+  // Binance's "Max": the most this order could be with the available balance (and the leverage)
+  const maxQty = useMemo(() => {
+    if (!acct || !(refPrice > 0)) return 0;
+    if (market === 'spot') return side === 'sell' ? pos?.qty || 0 : floorToStep(acct.available / (refPrice * (1 + acct.config.costs.takerFee)), spec.stepSize);
+    if (reduceOnly) return pos && pos.side !== (side === 'buy' ? 1 : -1) ? pos.qty : 0;
+    return floorToStep((acct.available * lev) / refPrice, spec.stepSize);
+  }, [acct, refPrice, market, side, pos, reduceOnly, lev, spec.stepSize]);
   const notional = type === 'scaled' && scaled.length ? scaled.reduce((a, o) => a + o.qty * o.price, 0) : qty * (refPrice || 0);
   const fillPrice = type === 'scaled' && scaled.length && qty > 0 ? notional / qty : refPrice;
   const feeRate = acct ? (type === 'limit' || type === 'scaled' ? acct.config.costs.makerFee : acct.config.costs.takerFee) : 0;
@@ -254,13 +275,22 @@ export function OrderEntryModule({ module }: ModuleProps) {
             <Icon name="replay" size={11} /> Replay account
           </span>
         ) : (
-          <AccountSelect value={accountId} onChange={(id) => set({ accountId: id })} compact />
+          <AccountSelect value={accountId} onChange={(id) => set({ accountId: id, market: accounts.find((a) => a.config.id === id)?.config.market || market })} compact />
         )}
-        <SymbolPicker symbol={symbol} market={market} onChange={(s, m) => set(replay ? { symbol: s, market: m } : { symbol: s })} showMarket={!!replay} />
+        <SymbolPicker symbol={symbol} market={market} onChange={pickInstrument} />
         <div className="spacer" />
         {acct && statusBadge(acct)}
       </HeadControls>
       {acct?.rules && acct.status !== 'active' && <div className={clsx('callout', acct.status === 'breached' ? 'danger' : 'warn')}>{acct.statusReason}</div>}
+      <Segmented
+        className="market-switch"
+        value={market}
+        onChange={(m) => pickInstrument(symbol, m)}
+        options={[
+          { value: 'spot', label: 'Spot', title: replay ? 'Trade spot in the replay' : 'Trade spot with a spot paper account' },
+          { value: 'futures', label: 'USDⓈ-M Perpetual', title: replay ? 'Trade the perpetual in the replay' : 'Trade the perpetual with a futures paper account (leverage, shorts, funding)' },
+        ]}
+      />
       {market === 'futures' && !replay && <FundingRow symbol={symbol} pd={pd} />}
       <div className="seg buy-sell" style={{ width: '100%', display: 'flex' }}>
         <button className={clsx('b', side === 'buy' && 'on')} style={{ flex: 1, height: 28 }} onClick={() => setSide('buy')}>
@@ -358,6 +388,12 @@ export function OrderEntryModule({ module }: ModuleProps) {
           </div>
         </>
       )}
+      <div className="row avbl-row">
+        <span className="faint">Available</span>
+        <span className="num">
+          {acct ? fmtNum(market === 'spot' && side === 'sell' ? pos?.qty || 0 : acct.available, market === 'spot' && side === 'sell' ? qd : 2) : '—'} {market === 'spot' && side === 'sell' ? SYMBOL_SPECS[symbol].base : 'USDT'}
+        </span>
+      </div>
       <div className="row">
         <span className="muted" style={{ width: 70 }}>
           Size
@@ -366,7 +402,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <Segmented size="sm" value={unit} onChange={(u) => setUnit(u)} options={[{ value: 'quote', label: 'USDT' }, { value: 'base', label: SYMBOL_SPECS[symbol].base }, { value: 'pct', label: '%' }]} />
       </div>
       <div className="row" style={{ gap: 4 }}>
-        {[10, 25, 50, 100].map((p) => (
+        {[10, 25, 50, 75, 100].map((p) => (
           <button
             key={p}
             className="btn small grow"
@@ -433,7 +469,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <Row k={market === 'futures' ? 'Initial margin' : 'Cost'} v={fmtUsd(margin)} />
         <Row k={`Fee (${(type === 'limit' || type === 'scaled') && postOnly ? 'maker' : type === 'limit' || type === 'scaled' ? 'maker if resting' : 'taker'})`} v={fmtUsd(fee)} />
         {market === 'futures' && <Row k="Est. liquidation" v={isFinite(estLiq) && estLiq > 0 ? fmtNum(estLiq, pd) : '—'} />}
-        <Row k="Available" v={acct ? fmtUsd(acct.available) : '—'} />
+        <Row k="Max" v={`${fmtNum(maxQty, qd)} ${SYMBOL_SPECS[symbol].base}`} />
       </div>
       <button className={clsx('btn large', side === 'buy' ? 'buy' : 'sell')} disabled={!canSubmit} onClick={submit}>
         {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : type === 'scaled' && scaled.length ? ` (${scaled.length} orders)` : ''}`}

@@ -29,7 +29,7 @@ export type WorkspaceOp =
   | { kind: 'setModuleLink'; moduleId: string; link: string | null }
   | { kind: 'addModule'; windowId: string; module: ModuleState; targetStack: string | null; pos: DropPos }
   | { kind: 'removeModule'; moduleId: string }
-  | { kind: 'moveModule'; moduleId: string; windowId: string; targetStack: string | null; pos: DropPos }
+  | { kind: 'moveModule'; moduleId: string; windowId: string; targetStack: string | null; pos: DropPos; index?: number }
   | { kind: 'duplicateModule'; moduleId: string }
   | { kind: 'rename'; name: string };
 
@@ -181,9 +181,12 @@ export class WorkspaceService extends EventEmitter {
         break;
       }
       case 'moveModule': {
+        // a panel dropped onto itself stays where it is (removing it would delete the target)
+        const own = ws.windows.map((x) => findStackNode(x.root, op.moduleId)).find(Boolean);
+        if (own && own.id === op.targetStack && own.modules.length === 1) return ws;
         for (const w of ws.windows) w.root = removeModule(w.root, op.moduleId);
         const w = ws.windows.find((x) => x.id === op.windowId) || ws.windows[0];
-        w.root = insertModule(w.root, op.moduleId, op.targetStack, op.pos);
+        w.root = insertModule(w.root, op.moduleId, op.targetStack, op.pos, op.index);
         const empty = ws.windows.filter((x) => !x.main && !x.root);
         if (empty.length) {
           ws.windows = ws.windows.filter((x) => x.main || x.root);
@@ -261,6 +264,16 @@ export class WorkspaceService extends EventEmitter {
     this.currentFile.flush();
     this.saved.flush();
   }
+}
+
+function findStackNode(node: LayoutNode | null, moduleId: string): Extract<LayoutNode, { type: 'stack' }> | null {
+  if (!node) return null;
+  if (node.type === 'stack') return node.modules.includes(moduleId) ? node : null;
+  for (const c of node.children) {
+    const r = findStackNode(c, moduleId);
+    if (r) return r;
+  }
+  return null;
 }
 
 function findStackId(root: LayoutNode | null, moduleId: string): string | null {

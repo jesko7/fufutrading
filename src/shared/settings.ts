@@ -14,6 +14,8 @@ export interface ChartStyle {
   font: number;
   /** Touchpad swipes and Shift+wheel move the chart the other way (dragging always follows the pointer). */
   reverseScroll?: boolean;
+  /** A flicked chart keeps moving briefly after the release (default on). */
+  momentum?: boolean;
 }
 
 export interface AppSettings {

@@ -249,6 +249,12 @@ button {
   border-radius: var(--r-md);
 }
 
+.select.placeholder {
+  color: var(--text-3);
+}
+.select option {
+  color: var(--text);
+}
 .icon-btn {
   display: inline-flex;
   align-items: center;

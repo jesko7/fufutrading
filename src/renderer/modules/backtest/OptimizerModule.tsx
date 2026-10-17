@@ -193,7 +193,7 @@ export function OptimizerModule({ module }: ModuleProps) {
         </button>
       </HeadControls>
       <div className="mod-toolbar tester-bar">
-        <Select value={cfg.scriptId || ''} options={[{ value: '', label: strategies.length ? 'Choose strategy…' : 'No strategies' }, ...strategies.map((s) => ({ value: s.id, label: `${s.name}${s.language === 'python' ? ' (Py)' : ''}` }))]} onChange={(v) => setCfg({ scriptId: v || null, inputs: {}, space: undefined })} style={{ maxWidth: 240 }} />
+        <Select value={cfg.scriptId || ''} placeholder={strategies.length ? 'Choose strategy…' : 'No strategies'} options={strategies.map((s) => ({ value: s.id, label: `${s.name}${s.language === 'python' ? ' (Py)' : ''}` }))} onChange={(v) => setCfg({ scriptId: v || null, inputs: {}, space: undefined })} style={{ maxWidth: 240 }} />
         <SymbolPicker symbol={cfg.symbol} market={cfg.market} onChange={(s, m) => setCfg({ symbol: s, market: m })} />
         <TimeframePicker tf={cfg.tf} onChange={(tf) => setCfg({ tf })} />
         <Segmented size="sm" value={(cfg.range?.preset || '1Y') as RangePreset} options={(['3M', '6M', '1Y', '2Y', '3Y', '5Y'] as RangePreset[]).map((p) => ({ value: p, label: p }))} onChange={(p) => setCfg({ range: { preset: p } })} />

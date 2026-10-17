@@ -190,7 +190,7 @@ export function StrategyTesterModule({ module }: ModuleProps) {
         </button>
       </HeadControls>
       <div className="mod-toolbar tester-bar">
-        <Select value={cfg.scriptId || ''} options={[{ value: '', label: strategies.length ? 'Choose strategy…' : 'No strategies' }, ...strategies.map((s) => ({ value: s.id, label: `${s.name}${s.language === 'python' ? ' (Py)' : ''}` }))]} onChange={(v) => setCfg({ scriptId: v || null, inputs: {} })} style={{ maxWidth: 240 }} title="Strategy" />
+        <Select value={cfg.scriptId || ''} placeholder={strategies.length ? 'Choose strategy…' : 'No strategies'} options={strategies.map((s) => ({ value: s.id, label: `${s.name}${s.language === 'python' ? ' (Py)' : ''}` }))} onChange={(v) => setCfg({ scriptId: v || null, inputs: {} })} style={{ maxWidth: 240 }} title="Strategy" />
         <SymbolPicker symbol={cfg.symbol} market={cfg.market} onChange={(s, m) => setCfg({ symbol: s, market: m })} />
         <TimeframePicker tf={cfg.tf} onChange={(tf) => setCfg({ tf })} />
         <Segmented size="sm" value={(cfg.range?.preset || '1Y') as RangePreset} options={(['1M', '3M', '6M', '1Y', '2Y', '5Y', 'custom'] as RangePreset[]).map((p) => ({ value: p, label: p === 'custom' ? 'Custom' : p }))} onChange={(p) => (p === 'custom' ? settings.open(document.querySelector(`[data-tester-settings="${module.id}"]`)) : setCfg({ range: { preset: p } }))} />
