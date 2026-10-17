@@ -375,6 +375,30 @@ export function ShortcutsModal({ onClose }: { onClose: () => void }) {
             <span className="grow">Delete selected drawing</span>
             <kbd>Del</kbd>
           </div>
+          <div className="row muted" style={{ padding: '3px 0' }}>
+            <span className="grow">Undo / redo a drawing change</span>
+            <kbd>Ctrl</kbd>
+            <kbd>Z</kbd>
+            <span className="faint">/</span>
+            <kbd>Ctrl</kbd>
+            <kbd>Y</kbd>
+          </div>
+          <div className="row muted" style={{ padding: '3px 0' }}>
+            <span className="grow">Copy / paste the selected drawing</span>
+            <kbd>Ctrl</kbd>
+            <kbd>C</kbd>
+            <span className="faint">/</span>
+            <kbd>Ctrl</kbd>
+            <kbd>V</kbd>
+          </div>
+          <div className="row muted" style={{ padding: '3px 0' }}>
+            <span className="grow">Back to the latest bar</span>
+            <kbd>Home</kbd>
+          </div>
+          <div className="row muted" style={{ padding: '3px 0' }}>
+            <span className="grow">Cancel a drawing or tool; restore a maximized panel</span>
+            <kbd>Esc</kbd>
+          </div>
         </div>
       </div>
       <div className="hint" style={{ marginTop: 8 }}>
