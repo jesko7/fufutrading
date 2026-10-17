@@ -104,6 +104,26 @@ function betaOf(ra: number[], rb: number[], idx: number[]): number {
   return v > 0 ? c / v : NaN;
 }
 
+/**
+ * Greeks of a live account: its end-of-day equity (the last sample of each UTC day) against the
+ * same day's close of a benchmark, over the days that have both. Days without samples (the app
+ * was closed) turn into one multi-day return on both sides.
+ */
+export function accountGreeks(equity: ArrayLike<ArrayLike<number>>, closes: { t: number; c: number }[], rfAnnual = 0): { greeks: Greeks | null; days: number; from: number; to: number } {
+  const eod = new Map<number, number>();
+  for (let i = 0; i < equity.length; i++) if (equity[i][1] > 0) eod.set(Math.floor(equity[i][0] / DAY), equity[i][1]);
+  const cl = new Map<number, number>();
+  for (const k of closes) if (k.c > 0) cl.set(Math.floor(k.t / DAY), k.c);
+  const days = [...eod.keys()].filter((d) => cl.has(d)).sort((a, b) => a - b);
+  const ra: number[] = [];
+  const rb: number[] = [];
+  for (let k = 1; k < days.length; k++) {
+    ra.push(eod.get(days[k])! / eod.get(days[k - 1])! - 1);
+    rb.push(cl.get(days[k])! / cl.get(days[k - 1])! - 1);
+  }
+  return { greeks: computeGreeks(ra, rb, rfAnnual), days: ra.length, from: days.length ? days[0] * DAY : NaN, to: days.length ? days[days.length - 1] * DAY : NaN };
+}
+
 /** Greeks of daily strategy returns `ra` against benchmark returns `rb` (same days). */
 export function computeGreeks(ra: number[], rb: number[], rfAnnual = 0): Greeks | null {
   const n = Math.min(ra.length, rb.length);

@@ -3,12 +3,14 @@ import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { useSize } from '../../lib/hooks';
-import { Tabs, Menu, usePopover, confirmDialog, promptDialog, NumberField, Empty } from '../../components/ui';
+import { Tabs, Menu, usePopover, confirmDialog, promptDialog, NumberField, Empty, Segmented, Spinner } from '../../components/ui';
 import { Icon, CoinIcon } from '../../components/Icon';
 import { AccountSelect, useAccounts, useAccount, resolveAccountId, statusBadge, openCreateAccount, usePresets, ProfileSummary } from './accounts';
 import type { AccountSnapshot, ClosedTrade, Fill, AccountEvent } from '../../../shared/trading/types';
-import { SYMBOL_SPECS, priceDecimals, qtyDecimals } from '../../../shared/symbols';
-import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtDuration, fmtTime } from '../../lib/format';
+import { SYMBOL_SPECS, SYMBOLS, priceDecimals, qtyDecimals, type SymbolId } from '../../../shared/symbols';
+import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDate, fmtDateTime, fmtDuration, fmtTime } from '../../lib/format';
+import type { Greeks } from '../../../engine/backtest/benchmarks';
+import { GreekCards } from '../backtest/benchmarkViews';
 import { describeOrderUi } from './util';
 import { bus } from '../../lib/bus';
 import { useReplayView } from '../chart/replay';
@@ -149,7 +151,7 @@ export function AccountModule({ module }: ModuleProps) {
         {tab === 'positions' && <Positions a={a} />}
         {tab === 'orders' && <Orders a={a} />}
         {tab === 'trades' && <Trades trades={history?.trades || []} accountId={a.config.id} accountName={a.config.name} />}
-        {tab === 'equity' && <EquityChart points={history?.equity || []} initial={a.config.initialBalance} />}
+        {tab === 'equity' && <EquityTab accountId={a.config.id} points={history?.equity || []} initial={a.config.initialBalance} />}
         {tab === 'events' && <Events events={history?.events || []} />}
         {tab === 'rules' && a.rules && <RulesDetail a={a} />}
       </div>
@@ -596,6 +598,58 @@ export function Events({ events }: { events: AccountEvent[] }) {
             <span style={{ lineHeight: 1.45 }}>{e.message}</span>
           </div>
         ))}
+    </div>
+  );
+}
+
+/** The equity curve and the account's Greeks against buy & hold of a coin. */
+export function EquityTab({ accountId, points, initial }: { accountId: string; points: [number, number, number][]; initial: number }) {
+  const [bench, setBench] = useState<SymbolId | null>(null);
+  const [res, setRes] = useState<{ symbol: SymbolId; greeks: Greeks | null; days: number; from: number; to: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // recompute when a new day of equity arrives or the benchmark changes
+  const lastDay = points.length ? Math.floor(points[points.length - 1][0] / 86400000) : 0;
+  useEffect(() => {
+    let alive = true;
+    setErr(null);
+    api
+      .call<{ symbol: SymbolId; greeks: Greeks | null; days: number; from: number; to: number }>('trading:greeks', accountId, bench)
+      .then((r) => alive && setRes(r))
+      .catch((e) => alive && setErr(errorMessage(e)));
+    return () => {
+      alive = false;
+    };
+  }, [accountId, bench, lastDay, points.length > 1]);
+  const sym = res?.symbol || bench || 'BTCUSDT';
+  const base = SYMBOL_SPECS[sym].base;
+  return (
+    <div className="equity-tab">
+      <div className="equity-chart">
+        <EquityChart points={points} initial={initial} />
+      </div>
+      <div className="equity-greeks">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <span className="section-title" style={{ margin: 0 }}>
+            Greeks against {base} buy & hold
+          </span>
+          <span className="spacer" />
+          <Segmented size="sm" value={sym} onChange={(v) => setBench(v)} options={SYMBOLS.map((s) => ({ value: s, label: SYMBOL_SPECS[s].base }))} />
+        </div>
+        {err ? (
+          <div className="muted small">{err}</div>
+        ) : !res ? (
+          <Spinner size={13} />
+        ) : res.greeks ? (
+          <>
+            <GreekCards g={res.greeks} bench={`${base} buy & hold`} />
+            <div className="faint small">
+              From {res.days} daily returns ({fmtDate(res.from)} – {fmtDate(res.to)}): the account's equity at the end of each day against {base}'s close.
+            </div>
+          </>
+        ) : (
+          <div className="muted small">The Greeks need at least five daily returns of this account (six days with equity data){res.days ? `; there are ${res.days} so far` : ''}. Equity is recorded while the app runs.</div>
+        )}
+      </div>
     </div>
   );
 }

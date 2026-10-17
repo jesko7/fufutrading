@@ -15,6 +15,7 @@ import { setBrackets, parseBracketResponse, bracketsInfo, DEFAULT_BRACKETS } fro
 import { PROFILES, profileById } from '../../shared/propfirm/profiles';
 import { SYMBOL_SPECS, SYMBOLS, isSymbol, parseExchangeInfo, applyFilterTable, type FilterTable, type Market, type SymbolId } from '../../shared/symbols';
 import type { MarkInfo } from '../market/hub';
+import { accountGreeks } from '../../engine/backtest/benchmarks';
 
 const COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#ef4444', '#6366f1'];
 
@@ -502,6 +503,26 @@ export function registerTrading(core: AppCore): TradingEngine {
       return true;
     }),
   );
+  // alpha, beta & co. of an account's daily equity against buy & hold of a coin (default: the one it trades most)
+  r.handle('trading:greeks', async ([id, bench]) => {
+    const rt = eng.get(String(id));
+    let symbol: SymbolId = 'BTCUSDT';
+    if (isSymbol(bench)) symbol = bench;
+    else {
+      const notional = new Map<SymbolId, number>();
+      for (const f of rt.fills) notional.set(f.symbol, (notional.get(f.symbol) || 0) + f.qty * f.price);
+      const top = [...notional.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (top) symbol = top[0];
+    }
+    const eq = rt.equity;
+    if (eq.length < 2) return { symbol, greeks: null, days: 0, from: NaN, to: NaN };
+    const DAY = 86400000;
+    const from = Math.floor(eq[0][0] / DAY) * DAY;
+    const daily = await core.hub.rest.klines('spot', symbol, '1d', { startTime: from, limit: 1000 });
+    const closes: { t: number; c: number }[] = [];
+    for (let i = 0; i < daily.length; i++) closes.push({ t: daily.t[i], c: daily.c[i] });
+    return { symbol, ...accountGreeks(eq, closes) };
+  });
   r.handle('trading:history', ([id]) => {
     const rt = eng.get(id);
     return { fills: rt.fills.slice(-1000), trades: rt.trades.slice(-2000), events: rt.events.slice(-500), equity: rt.equity, orders: [] };

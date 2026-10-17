@@ -47,6 +47,15 @@ example "breakout", "fomo") and a 1–5 rating for how well it followed the plan
 shows the number of trades, win rate, net and average P&L, profit factor and the average rating
 per tag, so you can see which setups work. **CSV** exports the trades with the journal.
 
+### Equity and the Greeks
+
+The **Equity** tab (in the Account module, and for each bot in the Bots module) draws the
+equity curve and measures the account against buy & hold of a coin (by default the one it trades
+most; switch between BTC, ETH and SOL). It compares end-of-day equity with that day's close: α
+(return beta doesn't explain), β, correlation, R², volatility and Ω, as in the Strategy Tester's
+Greeks. Equity is recorded while the app runs. The figures need at least five daily returns, and
+the more days the more they mean.
+
 ## Futures margin, leverage and liquidation
 
 Futures accounts follow Binance's rules for USDⓈ-M perpetuals:

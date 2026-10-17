@@ -197,3 +197,20 @@
 .star-btn.on {
   color: var(--warn);
 }
+
+/* equity tab: curve and Greeks */
+.equity-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 12px 12px;
+}
+.equity-chart {
+  height: 220px;
+  flex: none;
+}
+.equity-greeks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { alignedDailyReturns, computeGreeks, randomBenchmark, type RandomBenchmarkTrade } from '../../src/engine/backtest/benchmarks';
+import { accountGreeks, alignedDailyReturns, computeGreeks, randomBenchmark, type RandomBenchmarkTrade } from '../../src/engine/backtest/benchmarks';
 
 const DAY = 86400000;
 const HOUR = 3600000;
@@ -187,5 +187,38 @@ describe('trade-order Monte Carlo', () => {
     expect(mc.resampled.probLossPct).toBeGreaterThan(0);
     expect(mc.ddOver.map((d) => d.level)).toEqual([10, 20, 30, 50]);
     expect(tradeMonteCarlo([0.01, 0.02])).toBeNull();
+  });
+});
+
+describe('account Greeks', () => {
+  it('compares end-of-day equity with the same days of the benchmark, gaps included', () => {
+    const DAY = 86400000;
+    const t0 = Date.UTC(2026, 8, 1);
+    let seed = 3;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) - 0.5;
+    const closes: { t: number; c: number }[] = [];
+    let px = 100;
+    for (let d = 0; d < 40; d++) {
+      px *= 1 + rnd() * 0.06;
+      closes.push({ t: t0 + d * DAY, c: px });
+    }
+    // an account holding twice its equity in the coin, rebalanced daily: samples during each
+    // day, the last one at the close
+    const equity: [number, number, number][] = [];
+    let eq = 10000;
+    for (let d = 0; d < 40; d++) {
+      if (d > 0) eq *= 1 + 2 * (closes[d].c / closes[d - 1].c - 1);
+      if (d >= 10 && d < 13) continue; // the app was closed for three days
+      equity.push([t0 + d * DAY + 3600000, 1, 1]); // an intraday sample, superseded by the later one
+      equity.push([t0 + d * DAY + 23 * 3600000, eq, 0]);
+    }
+    const res = accountGreeks(equity, closes);
+    expect(res.days).toBe(36);
+    expect(res.from).toBe(t0);
+    // exactly 2x on consecutive days; the one three-day gap compounds slightly differently
+    expect(res.greeks!.beta).toBeGreaterThan(1.95);
+    expect(res.greeks!.beta).toBeLessThan(2.05);
+    expect(res.greeks!.correlation).toBeGreaterThan(0.999);
+    expect(accountGreeks(equity.slice(0, 8), closes).greeks).toBeNull();
   });
 });

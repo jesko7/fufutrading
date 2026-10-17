@@ -10,14 +10,14 @@ import { useScripts, openScriptInEditor, type AnalyzeResult } from '../scripts/c
 import { InputControl, ParamSetPicker } from '../chart/indicators';
 import { openRepaintCheck } from '../scripts/repaint';
 import { openCreateAccount, useAccount } from '../trading/accounts';
-import { Stat, Positions, Orders, Trades, Events } from '../trading/AccountModule';
+import { Stat, Positions, Orders, Trades, Events, EquityTab } from '../trading/AccountModule';
 import { openModule } from '../../app/moduleOps';
 import { newId } from '../../../shared/workspace';
 import type { AccountEvent, BotConfig, BotView, ClosedTrade } from '../../../shared/trading/types';
 import { SYMBOL_SPECS, qtyDecimals } from '../../../shared/symbols';
 import './bots.css';
 
-type BotTab = 'activity' | 'signals' | 'orders' | 'state' | 'logs' | 'trades';
+type BotTab = 'activity' | 'signals' | 'orders' | 'state' | 'logs' | 'trades' | 'equity';
 
 function useBots(): BotView[] | null {
   const [list, setList] = useState<BotView[] | null>(null);
@@ -343,11 +343,13 @@ function BotDetail({ id, tab, setTab }: { id: string; tab: BotTab; setTab: (t: B
             { value: 'state', label: 'State' },
             { value: 'logs', label: 'Logs', badge: v.sim?.logs.length || undefined },
             { value: 'trades', label: 'Trades' },
+            { value: 'equity', label: 'Equity' },
           ]}
         />
       </div>
       <div className="mod-scroll">
         {tab === 'activity' && <Activity id={id} version={evVersion} />}
+        {tab === 'equity' && <BotEquity id={id} initial={a.config.initialBalance} />}
         {tab === 'signals' && <Signals v={v} />}
         {tab === 'orders' && (
           <>
@@ -612,6 +614,27 @@ function Activity({ id, version }: { id: string; version: number }) {
   }, [id, version]);
   if (!events) return <div className="empty"><Spinner /></div>;
   return <Events events={events} />;
+}
+
+/** The bot account's equity curve and its Greeks against buy & hold. */
+function BotEquity({ id, initial }: { id: string; initial: number }) {
+  const [points, setPoints] = useState<[number, number, number][] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      api
+        .call<{ equity: [number, number, number][] }>('trading:history', id)
+        .then((h) => alive && setPoints(h.equity))
+        .catch(() => {});
+    void load();
+    const t = setInterval(load, 10000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [id]);
+  if (!points) return <div className="empty"><Spinner /></div>;
+  return <EquityTab accountId={id} points={points} initial={initial} />;
 }
 
 function BotTrades({ id, since }: { id: string; since?: number }) {

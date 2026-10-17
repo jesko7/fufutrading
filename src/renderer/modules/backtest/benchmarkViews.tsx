@@ -278,6 +278,24 @@ function greekCards(g: Greeks, bench: string) {
   ];
 }
 
+/** The six headline Greeks as cards (α β ρ R² σ Ω) against a named benchmark. */
+export function GreekCards({ g, bench }: { g: Greeks; bench: string }) {
+  return (
+    <div className="greek-grid">
+      {greekCards(g, bench).map((c) => (
+        <div key={c.name} className="greek-card">
+          <div className="greek-head">
+            <span className="greek-sym">{c.sym}</span>
+            <span className="greek-name">{c.name}</span>
+          </div>
+          <div className={clsx('greek-value', c.cls)}>{c.value}</div>
+          <div className="greek-text">{c.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function GreeksView({ rec }: { rec: BacktestRecord }) {
   const g = rec.metrics?.greeks;
   const base = SYMBOL_SPECS[rec.request.symbol].base;
@@ -306,18 +324,7 @@ export function GreeksView({ rec }: { rec: BacktestRecord }) {
   ];
   return (
     <div className="analysis greeks-view">
-      <div className="greek-grid">
-        {greekCards(g, bench).map((c) => (
-          <div key={c.name} className="greek-card">
-            <div className="greek-head">
-              <span className="greek-sym">{c.sym}</span>
-              <span className="greek-name">{c.name}</span>
-            </div>
-            <div className={clsx('greek-value', c.cls)}>{c.value}</div>
-            <div className="greek-text">{c.text}</div>
-          </div>
-        ))}
-      </div>
+      <GreekCards g={g} bench={bench} />
       <div className="section-title">Relative to {bench}</div>
       <table className="table">
         <tbody>

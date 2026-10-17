@@ -257,6 +257,15 @@ const S = {
     check(/breakout/.test(setups || '') && /4\.0 ★/.test(setups || ''), 'journal tag, note and rating saved; stats per setup');
     await shot('05b-journal');
     await page.click('.acct button:has-text("Trades") >> nth=0');
+    // the equity tab: the curve and the account's Greeks against buy & hold
+    await page.click('.acct .tabs .tab:has-text("Equity")');
+    await page.waitForSelector('.acct .equity-greeks:has-text("Greeks against BTC buy & hold")', { timeout: 15000 });
+    const eqText = await page.textContent('.acct .equity-greeks');
+    check(/at least five daily returns|α/.test(eqText || ''), `account Greeks against buy & hold (${(eqText || '').replace(/\s+/g, ' ').slice(0, 90)})`);
+    const ids = await page.evaluate(() => window.fufu.invoke('trading:list'));
+    const g = await page.evaluate((id) => window.fufu.invoke('trading:greeks', id, 'ETHUSDT'), ids[0].id ?? ids[0].config?.id);
+    check(g.symbol === 'ETHUSDT' && g.days === 0 && g.greeks === null, `a new account has no Greeks yet (${g.days} days)`);
+    await page.click('.acct .tabs .tab:has-text("Positions")');
   },
   async scripts() {
     console.log('scenario: scripts');
