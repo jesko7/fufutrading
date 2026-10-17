@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { useApp, toast } from '../../state/store';
-import { useTopicValue } from '../../lib/hooks';
+import { useSize, useTopicValue } from '../../lib/hooks';
 import { Icon } from '../../components/Icon';
 import { Spinner, SymbolPicker, Segmented, Tabs, Empty } from '../../components/ui';
 import { clsx, fmtNum, fmtCompact, fmtTime } from '../../lib/format';
@@ -74,7 +74,7 @@ function at30(sums: ExpirySummary[], pick: (e: ExpirySummary) => number): number
   return pick(pts[pts.length - 1]);
 }
 
-function Summary({ s, sums, expiry }: { s: OptionsSnapshot; sums: ExpirySummary[]; expiry: number }) {
+function Summary({ s, sums, expiry, compact }: { s: OptionsSnapshot; sums: ExpirySummary[]; expiry: number; compact?: boolean }) {
   const iv30 = constantMaturityVol(sums.map((e) => ({ t: e.t, iv: e.atm })), 30);
   const rr30 = at30(sums, (e) => e.rr25);
   const ex = useMemo(() => exposureByStrike(s.rows, s.index), [s]);
@@ -84,7 +84,7 @@ function Summary({ s, sums, expiry }: { s: OptionsSnapshot; sums: ExpirySummary[
   const flip = useMemo(() => gammaFlip(s.rows, s.index, s.rf, s.t), [s]);
   const sel = sums.find((e) => e.expiry === expiry);
   return (
-    <div className="ot-tiles">
+    <div className={clsx('ot-tiles', compact && 'compact')}>
       <Tile label="Index" value={fmtNum(s.index, s.index >= 1000 ? 0 : 2)} sub={`${s.base} options settle against it`} tip="Binance's options index (a basket of spot prices); prices and Greeks are computed on it" />
       <Tile label="IV 30 days" value={pctIV(iv30)} sub={Number.isFinite(iv30) ? `±${(iv30 * Math.sqrt(30 / 365) * 100).toFixed(1)}% expected move` : undefined} tip="At-the-money implied volatility for 30 days, interpolated in total variance between the expiries around it (like a volatility index). The expected move is one standard deviation." />
       <Tile label="Skew 25Δ" value={Number.isFinite(rr30) ? `${signedPts(rr30)} pts` : '—'} sub={Number.isFinite(rr30) ? (rr30 < -0.005 ? 'puts richer' : rr30 > 0.005 ? 'calls richer' : 'balanced') : undefined} tip="25-delta risk reversal at 30 days: implied volatility of the 25-delta call minus that of the 25-delta put. Below zero, downside protection is in demand; above zero, upside calls are." />
@@ -441,6 +441,9 @@ export function OptionsModule({ module }: ModuleProps) {
   const tab: OptTab = cfg.tab || 'chain';
   const set = (p: Partial<OptionsCfg>) => useApp.getState().setModuleConfig(module.id, p);
   const s = useTopicValue<OptionsSnapshot>('options', { underlying: symbol }, [symbol]);
+  // short panes: the summary becomes one row so the chain stays in view
+  const [rootRef, size] = useSize<HTMLDivElement>();
+  const compact = size.height > 0 && size.height < 560;
   const sums = useMemo(() => (s && s.rows.length ? expirySummaries(s) : []), [s]);
   // default: the first expiry with at least a day left
   const expiry = s && cfg.expiry && s.expiries.includes(cfg.expiry) ? cfg.expiry : (sums.find((e) => e.t * 365 >= 1) || sums[0])?.expiry ?? null;
@@ -454,7 +457,7 @@ export function OptionsModule({ module }: ModuleProps) {
     toast({ title: `${act === 'sell' ? 'Sell' : 'Buy'} 1 ${r.symbol}`, body: `at ${fmtPremium(price)} USDT — added to the position builder (${legs.length + 1} leg${legs.length ? 's' : ''})`, kind: 'ok' });
   };
   return (
-    <div className="opt-mod">
+    <div className="opt-mod" ref={rootRef}>
       <HeadControls>
         <SymbolPicker symbol={symbol} market="spot" showMarket={false} onChange={(x) => set({ symbol: x, expiry: null })} />
         <div className="spacer" />
@@ -477,7 +480,7 @@ export function OptionsModule({ module }: ModuleProps) {
       ) : (
         <div className="opt-body">
           {s.error && <div className="callout warn">{s.error} — showing the last data.</div>}
-          <Summary s={s} sums={sums} expiry={expiry!} />
+          <Summary s={s} sums={sums} expiry={expiry!} compact={compact} />
           <Tabs
             value={tab}
             onChange={(t) => set({ tab: t })}

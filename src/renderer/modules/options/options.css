@@ -480,3 +480,21 @@ html[data-theme='light'] .opt-mod {
 .ot-scroll-x {
   overflow-x: auto;
 }
+.ot-tiles.compact {
+  display: flex;
+  overflow-x: auto;
+  gap: 6px;
+  scrollbar-width: thin;
+  flex: none;
+}
+.ot-tiles.compact .ot-tile {
+  flex: 1 0 104px;
+  padding: 4px 8px;
+}
+.ot-tiles.compact .ot-value {
+  font-size: 14px;
+  margin-top: 0;
+}
+.ot-tiles.compact .ot-sub {
+  display: none;
+}

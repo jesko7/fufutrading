@@ -159,6 +159,20 @@ const S = {
     await shot('46-light-futures-alert');
     await page.keyboard.press('Escape');
     check(true, 'derivatives and the futures alert editor render in the light theme');
+    // options: the smile (series colours have light-theme steps) and the chain
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Options');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.opt-mod .oc-table tbody tr td.oc-strike', { timeout: 90000 });
+    await page.locator('.opt-mod .tabs .tab:has-text("Smile")').last().click();
+    await page.waitForSelector('.opt-mod .ox-chart svg path.ox-series', { timeout: 15000 });
+    await wait(800);
+    await shot('46b-light-options-smile');
+    await page.locator('.opt-mod .tabs .tab:has-text("Chain")').last().click();
+    await wait(500);
+    await shot('46c-light-options-chain');
+    check(true, 'the options module renders in the light theme');
     await page.click('button[data-tip="Toggle light / dark"]');
   },
   async perf() {
