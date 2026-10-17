@@ -370,6 +370,41 @@ export function expirySummaries(s: OptionsSnapshot): ExpirySummary[] {
   });
 }
 
+/** Price levels options traders watch, for chart overlays. */
+export interface OptionLevels {
+  /** Strikes with the most call / put open interest among expiries within the horizon. */
+  callWall: number;
+  putWall: number;
+  /** Index level where dealer gamma of those expiries changes sign. */
+  flip: number;
+  /** Max pain of the nearest expiry with at least a day left. */
+  maxPain: { strike: number; expiry: number } | null;
+  /** ±1 standard deviation to the first expiry at least five days out (from its ATM volatility). */
+  move: { expiry: number; lo: number; hi: number; pct: number } | null;
+}
+
+export function optionLevels(s: OptionsSnapshot, horizonDays = 45): OptionLevels {
+  const near = s.rows.filter((r) => r.expiry <= s.t + horizonDays * DAY);
+  const ex = exposureByStrike(near, s.index);
+  let call: StrikeExposure | null = null;
+  let put: StrikeExposure | null = null;
+  for (const e of ex) {
+    if (e.callOI > 0 && (!call || e.callOI > call.callOI)) call = e;
+    if (e.putOI > 0 && (!put || e.putOI > put.putOI)) put = e;
+  }
+  const sums = expirySummaries(s);
+  const mp = sums.find((e) => e.t * 365 >= 1 && Number.isFinite(e.maxPain));
+  const mv = sums.find((e) => e.t * 365 >= 5 && Number.isFinite(e.atm));
+  const pct = mv ? mv.atm * Math.sqrt(mv.t) : NaN;
+  return {
+    callWall: call?.strike ?? NaN,
+    putWall: put?.strike ?? NaN,
+    flip: gammaFlip(near, s.index, s.rf, s.t),
+    maxPain: mp ? { strike: mp.maxPain, expiry: mp.expiry } : null,
+    move: mv ? { expiry: mv.expiry, lo: s.index * (1 - pct), hi: s.index * (1 + pct), pct } : null,
+  };
+}
+
 // ------------------------------------------------------------------ positions
 
 export interface OptionLeg {

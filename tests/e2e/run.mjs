@@ -52,6 +52,23 @@ async function shot(name) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** A legend row of the first chart; on a crowded chart it may sit in the "+N more" list. */
+async function legendRow(name, timeout = 30000) {
+  const inLegend = page.locator('.chart-legend .ind-item', { hasText: name }).first();
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await inLegend.isVisible().catch(() => false)) return inLegend;
+    const more = page.locator('.chart-legend .ind-more').first();
+    if (await more.isVisible().catch(() => false)) {
+      if (!(await page.locator('.ind-more-list').isVisible().catch(() => false))) await more.click();
+      const r = page.locator('.ind-more-list .ind-item', { hasText: name }).first();
+      if (await r.isVisible().catch(() => false)) return r;
+    }
+    await wait(250);
+  }
+  throw new Error(`legend row "${name}" not found`);
+}
+
 const S = {
   async smoke() {
     console.log('scenario: smoke');
@@ -1101,7 +1118,7 @@ const S = {
     await wait(200);
     await page.keyboard.press('Enter');
     await page.keyboard.press('Escape');
-    const warnBtn = page.locator('.ind-item', { hasText: 'E2E lookahead' }).locator('.ind-warn.lookahead');
+    const warnBtn = (await legendRow('E2E lookahead')).locator('.ind-warn.lookahead');
     await warnBtn.waitFor({ timeout: 30000 });
     check(true, 'the legend marks the lookahead in red');
     await warnBtn.click();
@@ -1129,7 +1146,8 @@ const S = {
     await wait(200);
     await page.keyboard.press('Enter');
     await page.keyboard.press('Escape');
-    const srow = page.locator('.ind-item', { hasText: 'E2E future strategy' });
+    await page.waitForFunction(() => window.__charts && [...document.querySelectorAll('.ind-item, .ind-more')].length > 0, null, { timeout: 30000 });
+    const srow = await legendRow('E2E future strategy', 60000);
     await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /E2E future strategy/.test(r.textContent || '') && /trades/.test(r.textContent || '')), null, { timeout: 60000 });
     await srow.hover();
     await srow.locator('button[data-tip="More"]').click();
@@ -1183,6 +1201,15 @@ const S = {
     const mp = await page.$$eval('.opt-mod .ot-tile', (t) => t.find((x) => /Max pain/.test(x.textContent || ''))?.querySelector('.ot-value')?.textContent);
     check(/\d/.test(mp || ''), `max pain from the open interest (${mp})`);
     await shot('55-options-exposure');
+    // the chart's options levels: walls, gamma flip, max pain and the expected move
+    await page.locator('button[data-tip^="Volume profile, higher-timeframe"]').first().click();
+    await page.locator('.popover .row:has-text("Options levels") [role=switch]').click();
+    await page.keyboard.press('Escape');
+    const cid = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
+    await page.waitForFunction((id) => (window.__charts[id].levels() || []).length >= 4, cid, { timeout: 30000 });
+    const levels = await page.evaluate((id) => window.__charts[id].levels(), cid);
+    check(['cw', 'pw', 'mp', 'em+'].every((k) => levels.some((l) => l.id === k)), `options levels on the chart (${levels.map((l) => l.label).join(' | ')})`);
+    await shot('56-options-levels');
     const ai = await page.evaluate(() => window.fufu.invoke('ai:testTool', 'options_snapshot', { symbol: 'ETHUSDT' }));
     const r = ai.result;
     check(r && r.iv30Pct > 5 && r.iv30Pct < 300 && r.expiries.length >= 3 && Number.isFinite(r.putCallOpenInterest), `options data for Claude: ETH IV30 ${r?.iv30Pct}%, P/C ${r?.putCallOpenInterest}, ${r?.expiries?.length} expiries, gamma ${r?.dealerGamma?.regime}`);

@@ -93,6 +93,10 @@ export interface ChartModuleConfig {
   mtf: { tf: string; style: 'boxes' | 'line'; color?: string }[];
   showVolume: boolean;
   showExecutions: boolean;
+  /** Options levels from Binance's options: call/put walls, gamma flip, max pain, expected move. */
+  optionLevels?: boolean;
+  /** The overlay indicators' legend is folded into one line. */
+  legendCollapsed?: boolean;
   volumeProfile?: { mode: 'off' | 'visible' | 'fixed' | 'session'; rows: number; valueArea: number; from?: number; to?: number };
   footprint?: { group: number; mode: 'bidask' | 'delta' | 'volume'; imbalanceRatio: number };
   accountId?: string | null;
@@ -354,14 +358,15 @@ export function presetWorkspaces(): Workspace[] {
       const w = add(mod('watchlist'));
       return split('row', [split('col', [split('row', [stack([a]), stack([b])]), split('row', [stack([c]), stack([d])])]), stack([w])], [0.82, 0.18]);
     }),
-    makeWs('Order Flow', 'Heatmap, footprint, book, depth and tape for short-term reading.', (add) => {
+    makeWs('Order Flow', 'Heatmap, footprint, book, depth and tape for short-term reading, with futures and options positioning.', (add) => {
       const fp = add(mod('chart', defaultChartConfig({ tf: '1m', chartType: 'footprint' })));
       const heat = add(mod('heatmap'));
       const book = add(mod('orderbook', { levels: 24 }));
       const depth = add(mod('depth'));
       const tape = add(mod('trades'));
       const deriv = add(mod('derivatives'));
-      return split('row', [split('col', [stack([heat]), stack([fp])], [0.5, 0.5]), split('col', [stack([book]), stack([depth, tape, deriv])], [0.6, 0.4])], [0.74, 0.26]);
+      const options = add(mod('options'));
+      return split('row', [split('col', [stack([heat]), stack([fp])], [0.5, 0.5]), split('col', [stack([book]), stack([depth, tape, deriv, options])], [0.6, 0.4])], [0.74, 0.26]);
     }),
     makeWs('Strategy Lab', 'Chart, AI Studio, script editor, strategy builder, tester and optimizer.', (add) => {
       const chart = add(mod('chart', defaultChartConfig({ tf: '1h' })));

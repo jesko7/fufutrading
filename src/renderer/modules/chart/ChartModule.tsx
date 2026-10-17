@@ -5,7 +5,7 @@ import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { ChartEngine } from '../../chart/engine';
 import { BarStore } from '../../chart/barStore';
 import { chartTheme } from '../../chart/theme';
-import type { Drawing, DrawingType, IndicatorOutput, MtfSeries, SeriesStyle, TradeLine, Execution, FootprintBar } from '../../chart/types';
+import type { Drawing, DrawingType, IndicatorOutput, MtfSeries, SeriesStyle, TradeLine, Execution, FootprintBar, LevelLine, LevelBand } from '../../chart/types';
 import type { ChartModuleConfig } from '../../../shared/workspace';
 import type { SeriesInfo, SeriesStatus, ChartType } from '../../../shared/marketTypes';
 import { SYMBOL_SPECS, SYMBOLS, priceDecimals, type Market, type SymbolId } from '../../../shared/symbols';
@@ -16,7 +16,8 @@ import { clsx, fmtNum, fmtPct, fmtDateTime } from '../../lib/format';
 import { priceLevelAt, type AlertLine } from '../../../shared/alerts';
 import { formatVolume } from '../../chart/scale';
 import { bus } from '../../lib/bus';
-import { usePersistentState } from '../../lib/hooks';
+import { usePersistentState, useTopicValue } from '../../lib/hooks';
+import { optionLevels, type OptionsSnapshot } from '../../../shared/options';
 import { DrawingToolbar, DrawingEditor } from './DrawingTools';
 import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, openIndicatorSettings, addIndicator, type PaneGeo } from './indicators';
 import { useChartTrading } from './trading';
@@ -125,6 +126,7 @@ export function ChartModule({ module }: ModuleProps) {
         return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null };
       },
       footprint: () => e.footprint?.bars.size ?? 0,
+      levels: () => e.levels.map((l) => ({ id: l.id, price: l.price, label: l.label })),
       drawings: () => ((useApp.getState().workspace?.modules[module.id]?.config.drawings || []) as Drawing[]).map((d) => ({ id: d.id, type: d.type, locked: !!d.locked, hidden: !!d.hidden })),
     };
     const onTheme = () => e.setTheme(chartTheme(useApp.getState().settings));
@@ -236,6 +238,7 @@ export function ChartModule({ module }: ModuleProps) {
 
   // ---------------------------------------------------------------- compare & MTF overlays
   useCompareAndMtf(eng, cfg, dataVersion);
+  useOptionLevels(eng, cfg, replay.active);
 
   // ---------------------------------------------------------------- indicators
   const indicators = useChartIndicators(module.id, cfg, storeRef, dataVersion, liveTick, replay);
@@ -517,7 +520,7 @@ export function ChartModule({ module }: ModuleProps) {
         }} />}
         <div className="chart-host-wrap">
           <div ref={hostRef} className="chart-host" />
-          <div className="chart-legend">
+          <div className="chart-legend" style={panes[0] ? { maxHeight: Math.max(24, panes[0].top + panes[0].height - 12) } : undefined}>
             <div className="legend-row">
               <button className="legend-title" onClick={() => setShowTools(!showTools)} data-tip="Toggle drawing tools">
                 <CoinIcon symbol={cfg.symbol} size={14} />
@@ -528,7 +531,7 @@ export function ChartModule({ module }: ModuleProps) {
               {li >= 0 && store.length > 0 && <OhlcLegend store={store} i={li} symbol={cfg.symbol} market={cfg.market} />}
             </div>
             {info?.error && <div className="legend-error">{info.error}</div>}
-            <IndicatorLegend moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} />
+            <IndicatorLegend moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} maxRows={panes[0] ? Math.max(1, Math.floor((panes[0].top + panes[0].height - 40 - (info?.error ? 34 : 0)) / 21)) : 99} />
           </div>
           <PaneLegends moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} panes={panes} />
           {replay.overlay}
@@ -748,11 +751,49 @@ function OverlaysButton({ cfg, update }: { cfg: ChartModuleConfig; update: (p: P
               <span className="grow">Paper-trade executions</span>
               <Toggle value={cfg.showExecutions !== false} onChange={(v) => update({ showExecutions: v })} />
             </div>
+            <div className="row" data-tip="From Binance's options on this coin, live: the strikes with the most call and put open interest (next 45 days), the gamma flip, max pain of the next expiry and the ±1σ move to the next weekly expiry">
+              <span className="grow">Options levels</span>
+              <Toggle value={!!cfg.optionLevels} onChange={(v) => update({ optionLevels: v })} />
+            </div>
           </div>
         </Popover>
       )}
     </>
   );
+}
+
+/**
+ * Options levels on the chart (live only; Binance has no history of them): the strikes with the
+ * most call and put open interest, the gamma flip, max pain and the expected move to the next
+ * weekly expiry.
+ */
+function useOptionLevels(eng: ChartEngine | null, cfg: ChartModuleConfig, replaying: boolean) {
+  const on = !!cfg.optionLevels && !replaying;
+  const s = useTopicValue<OptionsSnapshot>(on ? 'options' : null, { underlying: cfg.symbol }, [on, cfg.symbol]);
+  useEffect(() => {
+    if (!eng) return;
+    if (!on || !s || !s.rows.length || !(s.index > 0)) {
+      eng.setLevels([], []);
+      return;
+    }
+    const L = optionLevels(s);
+    const day = (t: number) => {
+      const d = new Date(t);
+      return `${d.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]}`;
+    };
+    const px = (v: number) => fmtNum(v, v >= 1000 ? 0 : 2);
+    const lines: LevelLine[] = [];
+    const bands: LevelBand[] = [];
+    if (Number.isFinite(L.callWall)) lines.push({ id: 'cw', price: L.callWall, label: `Call wall ${px(L.callWall)}`, color: 'up' });
+    if (Number.isFinite(L.putWall)) lines.push({ id: 'pw', price: L.putWall, label: `Put wall ${px(L.putWall)}`, color: 'down' });
+    if (Number.isFinite(L.flip)) lines.push({ id: 'gf', price: L.flip, label: `Gamma flip ${px(L.flip)}`, color: '#c98500' });
+    if (L.maxPain && Number.isFinite(L.maxPain.strike)) lines.push({ id: 'mp', price: L.maxPain.strike, label: `Max pain ${px(L.maxPain.strike)} · ${day(L.maxPain.expiry)}`, color: '#8a7de6' });
+    if (L.move) {
+      bands.push({ from: L.move.lo, to: L.move.hi, color: 'accent' });
+      lines.push({ id: 'em+', price: L.move.hi, label: `+1σ ${px(L.move.hi)} · ${day(L.move.expiry)}`, color: 'accent' }, { id: 'em-', price: L.move.lo, label: `−1σ ${px(L.move.lo)}`, color: 'accent' });
+    }
+    eng.setLevels(lines, bands);
+  }, [eng, on, s]);
 }
 
 /** Subscribe to compare and higher-timeframe series and feed them to the engine. */

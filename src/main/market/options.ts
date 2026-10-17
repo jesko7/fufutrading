@@ -135,6 +135,8 @@ export class OptionsService {
       this.pushAll();
     };
     const marks = async () => {
+      // the contract list failed (offline at start): retry it before the marks
+      if (!this.contractsAt) await contracts();
       const rows = await rest.eapi<MarkRow[]>('/eapi/v1/mark', {}, 5);
       for (const r of rows) this.marks.set(r.symbol, r);
       this.marksAt = Date.now();

@@ -104,6 +104,17 @@ per alert.
   The summary shows 30-day implied volatility, interpolated in total variance like a volatility
   index, with the expected move it implies. It also shows the 25-delta skew, the put/call
   open-interest ratio, max pain and dealer gamma.
+
+  **On the chart:** the **Options levels** switch in a chart's overlay menu draws live levels as
+  labelled lines:
+  - the call and put walls: the strikes with the most open interest among the expiries of the
+    next 45 days
+  - the gamma flip
+  - max pain of the next expiry
+  - the ±1σ expected move to the next weekly expiry, as a shaded band
+
+  Binance keeps no history of these values, so they show the current state and are off during
+  replays.
 - **Footprints** use Binance aggregate trades with their aggressor side (from the maker flag).
   They are cached per day and only the newest days are kept.
 - **Time:** bar closes follow Binance's server clock. The app measures its offset, so a

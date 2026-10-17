@@ -22,11 +22,13 @@ import type {
   ScaleMode,
   SeriesStyle,
   TradeLine,
+  LevelLine,
+  LevelBand,
   VolumeProfileOptions,
 } from './types';
 import { drawSeries, drawVolume } from './drawSeries';
 import { drawIndicatorBase, indicatorRange } from './drawPlots';
-import { drawCompare, drawMtf, drawVolumeProfile, drawTradeLines, drawExecutions, hitTradeLine, drawStrategyTrades } from './drawExtras';
+import { drawCompare, drawMtf, drawVolumeProfile, drawTradeLines, drawExecutions, hitTradeLine, drawStrategyTrades, drawLevels } from './drawExtras';
 import { DrawingLayer } from './drawings';
 import { drawFootprint } from './drawFootprint';
 import { fmtDateTime, timeParts } from '../lib/format';
@@ -255,6 +257,15 @@ export class ChartEngine {
 
   setMtf(list: MtfSeries[]): void {
     this.mtf = list;
+    this.invalidate();
+  }
+
+  levels: LevelLine[] = [];
+  levelBands: LevelBand[] = [];
+
+  setLevels(lines: LevelLine[], bands: LevelBand[]): void {
+    this.levels = lines;
+    this.levelBands = bands;
     this.invalidate();
   }
 
@@ -704,6 +715,7 @@ export class ChartEngine {
         for (const ind of pane.indicators) if (ind.visible) drawIndicatorBase(rc, ind);
         for (const ind of pane.indicators) if (ind.visible && ind.trades) drawStrategyTrades(rc, ind.trades);
         if (this.compare.length) drawCompare(rc, this.compare, this.mainScale);
+        if (this.levels.length || this.levelBands.length) drawLevels(rc, this.levels, this.levelBands, this, pane);
         if (this.executions.length) drawExecutions(rc, this.executions, this);
         this.drawLastPriceLine(ctx, pane);
       } else {

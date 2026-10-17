@@ -261,6 +261,9 @@ function brokerFromScript(c: CompiledPine, opts: PineRunOptions): Partial<Broker
   return cfg;
 }
 
+/** Compiled plot-offset expressions (from inputs) by source. */
+const offsetFns = new Map<string, (R: Runtime, b: typeof B) => unknown>();
+
 export class PineInstance {
   readonly R: Runtime;
   main: () => void;
@@ -299,7 +302,13 @@ export class PineInstance {
   private offsetOf(p: CompiledPine['plots'][number]): number {
     if (!p.offsetJs) return p.offset;
     try {
-      const v = Math.round(Number(new Function('R', 'B', `return (${p.offsetJs});`)(this.R, B)));
+      let f = offsetFns.get(p.offsetJs);
+      if (!f) {
+        f = new Function('R', 'B', `return (${p.offsetJs});`) as (R: Runtime, b: typeof B) => unknown;
+        if (offsetFns.size > 500) offsetFns.clear();
+        offsetFns.set(p.offsetJs, f);
+      }
+      const v = Math.round(Number(f(this.R, B)));
       return Number.isFinite(v) ? v : p.offset;
     } catch {
       return p.offset;

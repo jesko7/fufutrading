@@ -209,6 +209,21 @@ export interface TradeLine {
   pnl?: number;
 }
 
+/** A light horizontal level with a label at the right edge (options levels). Colors: hex, or 'up' / 'down' / 'accent'. */
+export interface LevelLine {
+  id: string;
+  price: number;
+  label: string;
+  color: string;
+}
+
+/** A shaded price range (expected move). */
+export interface LevelBand {
+  from: number;
+  to: number;
+  color: string;
+}
+
 export interface Execution {
   t: number;
   price: number;

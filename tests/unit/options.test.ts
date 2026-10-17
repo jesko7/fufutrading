@@ -15,6 +15,7 @@ import {
   positionGreeks,
   breakEvens,
   yearsTo,
+  optionLevels,
   type OptionRow,
   type OptionLeg,
 } from '../../src/shared/options';
@@ -195,5 +196,30 @@ describe('positions', () => {
     expect(g.vega).toBeGreaterThan(0);
     expect(g.theta).toBeLessThan(0);
     expect(positionPnl(legs, S, now, 0.05)).toBeCloseTo(0, 9);
+  });
+});
+
+describe('options levels for the chart', () => {
+  it('finds the walls, the flip, max pain of the next expiry and the expected move to the weekly', () => {
+    const now = Date.UTC(2026, 9, 1);
+    const daily = chain(100, now, now + 2 * DAY);
+    const weekly = chain(100, now, now + 7 * DAY);
+    const far = chain(100, now, now + 200 * DAY).map((r) => ({ ...r, oi: r.strike === 140 && r.side === 'C' ? 10000 : r.oi }));
+    // the biggest call strike near term: 110; the biggest put strike: 90
+    for (const r of [...daily, ...weekly]) {
+      if (r.side === 'C') r.oi = r.strike === 110 ? 500 : 20;
+      else r.oi = r.strike === 90 ? 400 : 15;
+    }
+    const s = { underlying: 'BTCUSDT' as const, base: 'BTC', index: 100, rf: 0.05, t: now, expiries: [now + 2 * DAY, now + 7 * DAY, now + 200 * DAY], rows: [...daily, ...weekly, ...far] };
+    const L = optionLevels(s);
+    expect(L.callWall).toBe(110); // the far expiry's 140 wall is beyond the horizon
+    expect(L.putWall).toBe(90);
+    expect(L.flip).toBeGreaterThan(90);
+    expect(L.flip).toBeLessThan(110);
+    expect(L.maxPain!.expiry).toBe(now + 2 * DAY);
+    expect(L.move!.expiry).toBe(now + 7 * DAY);
+    const iv = atmVol(weekly, 100, 0.05, now);
+    expect(L.move!.hi - 100).toBeCloseTo(100 * iv * Math.sqrt(7 / 365), 9);
+    expect(100 - L.move!.lo).toBeCloseTo(L.move!.hi - 100, 9);
   });
 });

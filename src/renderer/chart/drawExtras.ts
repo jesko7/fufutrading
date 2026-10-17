@@ -1,6 +1,6 @@
 import type { ChartEngine, RenderCtx } from './engine';
 import { compareValueAt, roundRect, measureCtx } from './engine';
-import type { CompareSeries, Execution, FootprintBar, MtfSeries, TradeLine, VolumeProfileOptions } from './types';
+import type { CompareSeries, Execution, FootprintBar, LevelBand, LevelLine, MtfSeries, TradeLine, VolumeProfileOptions } from './types';
 import type { PriceScale } from './scale';
 import { withAlpha } from './drawSeries';
 import { formatAxis, formatVolume } from './scale';
@@ -304,6 +304,50 @@ function layoutLine(eng: ChartEngine, ctx: CanvasRenderingContext2D, line: Trade
   }
   if (line.cancellable) res.cancel = { x: x + 2, w: 18 };
   return res;
+}
+
+/** Options levels: a shaded expected-move range and thin labelled lines (labels at the right edge). */
+export function drawLevels(rc: RenderCtx, lines: LevelLine[], bands: LevelBand[], eng: ChartEngine, pane: { top: number; height: number }): void {
+  const { ctx, theme } = rc;
+  const s = eng.mainScale;
+  const col = (c: string) => (c === 'up' ? theme.up : c === 'down' ? theme.down : c === 'accent' ? theme.accent : c);
+  for (const b of bands) {
+    const y0 = s.toY(b.from);
+    const y1 = s.toY(b.to);
+    if (!Number.isFinite(y0) || !Number.isFinite(y1)) continue;
+    ctx.fillStyle = withAlpha(col(b.color), 0.07);
+    ctx.fillRect(0, Math.min(y0, y1), eng.plotW, Math.abs(y1 - y0));
+  }
+  ctx.font = `${theme.fontSize - 1}px ${theme.font}`;
+  ctx.textBaseline = 'middle';
+  // labels stack upwards when levels sit within a few pixels of each other
+  const placed: number[] = [];
+  for (const l of [...lines].sort((a, b) => b.price - a.price)) {
+    const y = Math.round(s.toY(l.price)) + 0.5;
+    if (!Number.isFinite(y) || y < pane.top || y > pane.top + pane.height) continue;
+    const c = col(l.color);
+    ctx.strokeStyle = withAlpha(c, 0.8);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(eng.plotW, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    let ly = y;
+    while (placed.some((p) => Math.abs(p - ly) < 15)) ly += 15;
+    placed.push(ly);
+    const w = Math.ceil(ctx.measureText(l.label).width) + 10;
+    const x = eng.plotW - w - 8;
+    ctx.fillStyle = withAlpha(theme.bg, 0.88);
+    roundRect(ctx, x, ly - 8, w, 16, 3);
+    ctx.fill();
+    ctx.strokeStyle = withAlpha(c, 0.9);
+    roundRect(ctx, x + 0.5, ly - 7.5, w - 1, 15, 3);
+    ctx.stroke();
+    ctx.fillStyle = theme.textStrong;
+    ctx.fillText(l.label, x + 5, ly + 0.5);
+  }
 }
 
 export function drawTradeLines(rc: RenderCtx, lines: TradeLine[], hoverId: string | null, drag: { id: string; price: number; kind?: 'sl' | 'tp' } | null, eng: ChartEngine): void {

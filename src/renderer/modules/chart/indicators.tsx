@@ -16,7 +16,7 @@ import type { ScriptResult, ScriptInputDef, ScriptPlot } from '../../../engine/t
 import { applyPatch } from '../../../engine/patch';
 import { bus } from '../../lib/bus';
 import { Icon } from '../../components/Icon';
-import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover, promptDialog } from '../../components/ui';
+import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover, Popover, promptDialog } from '../../components/ui';
 import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd, orderIdLabel } from '../../lib/format';
 import { useScripts, openScriptInEditor, loadScripts, type ScriptMeta } from '../scripts/client';
 import { openRepaintCheck, warningKinds } from '../scripts/repaint';
@@ -425,15 +425,38 @@ export interface PaneGeo {
 }
 
 /** Legend rows for overlay indicators (rendered inside the main chart legend). */
-export function IndicatorLegend({ moduleId, cfg, outputs, lives, index, store, update }: { moduleId: string; cfg: ChartModuleConfig; outputs: IndicatorOutput[]; lives: Map<string, Live>; index: number; store: BarStore; update: (p: Partial<ChartModuleConfig>) => void }) {
+/**
+ * Legend rows for overlay indicators. They stay inside the main pane: rows that don't fit move
+ * into a "+N more" list, and the whole list can be collapsed to one line.
+ */
+export function IndicatorLegend({ moduleId, cfg, outputs, lives, index, store, update, maxRows = 99 }: { moduleId: string; cfg: ChartModuleConfig; outputs: IndicatorOutput[]; lives: Map<string, Live>; index: number; store: BarStore; update: (p: Partial<ChartModuleConfig>) => void; maxRows?: number }) {
+  const more = usePopover();
   const byId = new Map(outputs.map((o) => [o.id, o]));
   const rows = (cfg.indicators || []).filter((ind) => byId.get(ind.id)?.overlay !== false);
   if (!rows.length) return null;
+  const collapsed = !!cfg.legendCollapsed;
+  const fit = rows.length > maxRows ? Math.max(0, maxRows - 1) : rows.length;
+  const row = (ind: IndicatorInstance) => <LegendRow key={ind.id} moduleId={moduleId} ind={ind} live={lives.get(ind.id)} output={byId.get(ind.id)} index={index} store={store} cfg={cfg} update={update} />;
+  const warned = rows.some((ind) => (byId.get(ind.id)?.warnings || []).some((w) => w.kind === 'lookahead'));
   return (
     <div className="ind-legend">
-      {rows.map((ind) => (
-        <LegendRow key={ind.id} moduleId={moduleId} ind={ind} live={lives.get(ind.id)} output={byId.get(ind.id)} index={index} store={store} cfg={cfg} update={update} />
-      ))}
+      {(collapsed || rows.length > 1) && (
+        <button className={clsx('ind-collapse', warned && collapsed && 'warned')} onClick={() => update({ legendCollapsed: !collapsed })} data-tip={collapsed ? 'Show the indicator legend' : 'Collapse the indicator legend'}>
+          <Icon name={collapsed ? 'chevRight' : 'chevDown'} size={12} />
+          {collapsed && `${rows.length} indicator${rows.length > 1 ? 's' : ''}`}
+        </button>
+      )}
+      {!collapsed && rows.slice(0, fit).map(row)}
+      {!collapsed && fit < rows.length && (
+        <button className="ind-more" onClick={(e) => more.toggle(e.currentTarget)}>
+          +{rows.length - fit} more
+        </button>
+      )}
+      {more.anchor && (
+        <Popover anchor={more.anchor} onClose={more.close} width={420}>
+          <div className="ind-more-list">{rows.slice(fit).map(row)}</div>
+        </Popover>
+      )}
     </div>
   );
 }

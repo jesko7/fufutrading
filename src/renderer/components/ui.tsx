@@ -21,8 +21,20 @@ export function anchorOf(el: Element | null): Anchor {
   return { x: r.left, y: r.top, w: r.width, h: r.height };
 }
 
+/** Open popovers, oldest first: a click inside one opened later (a menu from a popover's row) keeps the earlier ones open. */
+const popoverStack: HTMLElement[] = [];
+
 export function Popover({ anchor, onClose, children, align = 'start', width, className, style }: { anchor: Anchor; onClose: () => void; children: ReactNode; align?: 'start' | 'end'; width?: number; className?: string; style?: CSSProperties }) {
   const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    popoverStack.push(el);
+    return () => {
+      const k = popoverStack.indexOf(el);
+      if (k >= 0) popoverStack.splice(k, 1);
+    };
+  }, []);
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: anchor.x, top: anchor.y + (anchor.h || 0) + 4 });
   useLayoutEffect(() => {
     const el = ref.current;
@@ -37,7 +49,11 @@ export function Popover({ anchor, onClose, children, align = 'start', width, cla
   }, [anchor.x, anchor.y, anchor.w, anchor.h, align]);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+      const el = ref.current;
+      if (!el || el.contains(e.target as Node)) return;
+      const above = popoverStack.slice(popoverStack.indexOf(el) + 1);
+      if (above.some((p) => p.contains(e.target as Node))) return;
+      onClose();
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
