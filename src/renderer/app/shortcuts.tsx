@@ -6,7 +6,7 @@ import { api } from '../api';
 import { bus } from '../lib/bus';
 import { Icon } from '../components/Icon';
 import { Modal, openModal } from '../components/ui';
-import { MODULE_INFO, type ModuleType, newId, defaultModuleConfig } from '../../shared/workspace';
+import { MODULE_INFO, type ModuleType, newId, defaultModuleConfig, findStackOf } from '../../shared/workspace';
 import { SYMBOLS, SYMBOL_SPECS, type SymbolId } from '../../shared/symbols';
 import { parseTimeframe, tfToString, STANDARD_TIMEFRAMES, tfLongLabel } from '../../shared/timeframes';
 import { clsx } from '../lib/format';
@@ -97,6 +97,19 @@ export function buildActions(): Action[] {
     { id: 'module.close', label: 'Close focused module', group: 'Workspace', keys: 'mod+w', icon: 'x', run: () => focusedModule() && api.call('ws:op', { kind: 'removeModule', moduleId: focusedModule()!.id }) },
     { id: 'module.duplicate', label: 'Duplicate focused module', group: 'Workspace', keys: 'mod+shift+d', icon: 'copy', run: () => focusedModule() && api.call('ws:op', { kind: 'duplicateModule', moduleId: focusedModule()!.id }) },
     { id: 'module.detach', label: 'Open focused module in new window', group: 'Workspace', keys: 'mod+shift+n', icon: 'detach', run: () => focusedModule() && api.call('ws:detach', focusedModule()!.id) },
+    {
+      id: 'module.maximize',
+      label: 'Maximize / restore focused panel',
+      group: 'Workspace',
+      keys: 'alt+enter',
+      icon: 'max',
+      run: () => {
+        const m = focusedModule();
+        const win = st().workspace?.windows.find((w) => w.id === st().windowId);
+        const stack = m && win ? findStackOf(win.root, m.id) : null;
+        if (stack) st().setMaximizedStack(st().maximizedStack === stack.id ? null : stack.id);
+      },
+    },
     { id: 'sym.btc', label: 'Chart: Bitcoin', group: 'Chart', keys: 'alt+1', icon: 'chart', run: () => setChart({ symbol: 'BTCUSDT' }) },
     { id: 'sym.eth', label: 'Chart: Ethereum', group: 'Chart', keys: 'alt+2', icon: 'chart', run: () => setChart({ symbol: 'ETHUSDT' }) },
     { id: 'sym.sol', label: 'Chart: Solana', group: 'Chart', keys: 'alt+3', icon: 'chart', run: () => setChart({ symbol: 'SOLUSDT' }) },

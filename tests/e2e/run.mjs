@@ -1207,6 +1207,12 @@ const S = {
     await page.keyboard.press('Escape');
     await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
     check(true, 'Esc restores the layout');
+    await page.click('.opt-mod .ot-tile >> nth=0');
+    await page.keyboard.press('Alt+Enter');
+    await page.waitForSelector('.stack.maximized .opt-mod', { timeout: 5000 });
+    await page.keyboard.press('Alt+Enter');
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
+    check(true, 'Alt+Enter maximizes and restores the focused panel');
     await page.click('.opt-mod .seg button:has-text("Greeks")');
     const greeks = await page.$$eval('.opt-mod .oc-table thead tr:nth-child(2) th', (t) => t.map((x) => x.textContent).join(' '));
     check(/Δ Γ Θ ν Strike Δ Γ Θ ν/.test(greeks.split(' ').reverse().join(' ')) || /ν Θ Γ Δ Strike Δ Γ Θ ν/.test(greeks), `Greeks columns (${greeks})`);

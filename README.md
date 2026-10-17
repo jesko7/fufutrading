@@ -22,7 +22,7 @@ an AI assistant that builds and tests strategies inside the app.
 - **Order flow:** live order book with grouping and imbalance, depth chart, liquidity heatmap
   with large-order tracking, time & sales.
 - **Workspaces:** dockable, multi-window layouts and presets, any panel maximized over the
-  workspace (double-click its tab, Esc restores), a command palette (Ctrl+K) and keyboard
+  workspace (double-click its tab or Alt+Enter, Esc restores), a command palette (Ctrl+K) and keyboard
   shortcuts that never fire while you type, light and dark themes.
 - **Scripting:**
   - Pine Script v3–v6 (including v4's un-namespaced built-ins, drawings with linefills,
