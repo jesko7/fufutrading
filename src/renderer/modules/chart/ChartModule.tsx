@@ -127,6 +127,7 @@ export function ChartModule({ module }: ModuleProps) {
       },
       footprint: () => e.footprint?.bars.size ?? 0,
       levels: () => e.levels.map((l) => ({ id: l.id, price: l.price, label: l.label })),
+      tradeLines: () => e.tradeLines.map((l) => ({ id: l.id, kind: l.kind, price: l.price, label: l.label })),
       drawings: () => ((useApp.getState().workspace?.modules[module.id]?.config.drawings || []) as Drawing[]).map((d) => ({ id: d.id, type: d.type, locked: !!d.locked, hidden: !!d.hidden })),
     };
     const onTheme = () => e.setTheme(chartTheme(useApp.getState().settings));
@@ -801,6 +802,10 @@ function OverlaysButton({ cfg, update }: { cfg: ChartModuleConfig; update: (p: P
             <div className="row">
               <span className="grow">Paper-trade executions</span>
               <Toggle value={cfg.showExecutions !== false} onChange={(v) => update({ showExecutions: v })} />
+            </div>
+            <div className="row" data-tip="The open position's break-even price: where closing makes its P&L zero after the fees paid so far (funding not included), as on Binance">
+              <span className="grow">Break-even line</span>
+              <Toggle value={!!cfg.showBreakEven} onChange={(v) => update({ showBreakEven: v })} />
             </div>
             <div className="row" data-tip="From Binance's options on this coin, live: the strikes with the most call and put open interest (next 45 days), the gamma flip, max pain of the next expiry and the ±1σ move to the next weekly expiry">
               <span className="grow">Options levels</span>

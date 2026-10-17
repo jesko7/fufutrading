@@ -240,10 +240,31 @@ const S = {
     const posText = await page.textContent('.acct table.table tbody tr');
     check(/Long/.test(posText || ''), `position shown in account module (${(posText || '').replace(/\s+/g, ' ').slice(0, 80)})`);
     await wait(1500);
+    // Binance's columns: break-even just above the entry of a long (the opening fee), margin ratio in %
+    const heads = await page.$$eval('.acct table.table thead th', (t) => t.map((x) => (x.textContent || '').trim()));
+    const row0 = await page.$$eval('.acct table.table tbody tr:first-child td', (t) => t.map((x) => (x.textContent || '').trim()));
+    const col = (name) => row0[heads.indexOf(name)] || '';
+    const num = (x) => parseFloat(x.replace(/,/g, ''));
+    const entry = num(col('Entry'));
+    const be = num(col('Break-even'));
+    check(be > entry && (be - entry) / entry < 0.002, `break-even ${be} just above the entry ${entry} (the opening fee)`);
+    check(/^\d+\.\d{2}%$/.test(col('Margin ratio')), `margin ratio per position (${col('Margin ratio')})`);
     await shot('04-position');
     // the Trader chart shows spot; it points at the perpetual position and switches over on click
     await page.waitForSelector('.stack-head .other-pos', { timeout: 10000 });
     check(/Perp long/.test((await page.textContent('.stack-head .other-pos')) || ''), 'spot chart points to the perp position');
+    // switch the chart to the perpetual and show the break-even line (a chart setting, off by default)
+    await page.click('.stack-head .other-pos');
+    const chartId = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
+    await page.waitForFunction((id) => window.__charts[id].tradeLines().some((l) => l.kind === 'position'), chartId, { timeout: 15000 });
+    check(!(await page.evaluate((id) => window.__charts[id].tradeLines().some((l) => l.kind === 'be'), chartId)), 'no break-even line by default');
+    await page.locator('button[data-tip^="Volume profile, higher-timeframe"]').first().click();
+    await page.locator('.popover .row:has-text("Break-even line") [role=switch]').click();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction((id) => window.__charts[id].tradeLines().some((l) => l.kind === 'be'), chartId, { timeout: 10000 });
+    const beLine = await page.evaluate((id) => window.__charts[id].tradeLines().find((l) => l.kind === 'be'), chartId);
+    check(Math.abs(beLine.price - be) < 0.05, `break-even line on the chart at ${beLine.price.toFixed(2)} (table ${be})`);
+    await shot('04b-break-even-line');
     // Binance lets a cross position change its leverage: raise it by one step with the keyboard
     const levText = () => page.textContent('.trade-panel .row:has(input[type=range]) b.num');
     const lev0 = parseInt((await levText()) || '0');
@@ -256,7 +277,7 @@ const S = {
     // set TP/SL via the account table editor
     await page.click('.acct td span[data-tip^="Edit"]');
     const fields = await page.$$('.acct td input.input');
-    const last = await page.evaluate(() => parseFloat((document.querySelectorAll('.acct tbody tr td')[3]?.textContent || '').replace(/,/g, '')));
+    const last = num(col('Mark'));
     await fields[0].fill(String(Math.round(last * 1.02)));
     await fields[1].fill(String(Math.round(last * 0.98)));
     await page.click('.acct td button.icon-btn:has(svg)');

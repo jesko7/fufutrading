@@ -199,7 +199,8 @@ export interface MtfSeries {
 
 export interface TradeLine {
   id: string;
-  kind: 'position' | 'limit' | 'stop' | 'sl' | 'tp' | 'liq' | 'alert';
+  /** 'be': the position's break-even price (a quiet line, not interactive). */
+  kind: 'position' | 'limit' | 'stop' | 'sl' | 'tp' | 'liq' | 'alert' | 'be';
   price: number;
   label: string;
   color: string;

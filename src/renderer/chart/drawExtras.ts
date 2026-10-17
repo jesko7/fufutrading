@@ -354,6 +354,27 @@ export function drawTradeLines(rc: RenderCtx, lines: TradeLine[], hoverId: strin
   const { ctx, theme } = rc;
   const pane = eng.panes[0];
   for (const line of lines) {
+    if (line.kind === 'be') {
+      // a dotted line with its name at the right edge: it sits next to the position line, whose label is on the left
+      const y = Math.round(eng.mainScale.toY(line.price)) + 0.5;
+      if (y < pane.top || y > pane.top + pane.height) continue;
+      ctx.strokeStyle = withAlpha(line.color, 0.8);
+      ctx.lineWidth = 1;
+      ctx.setLineDash([1, 3]);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(eng.plotW, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = `${theme.fontSize - 1}px ${theme.font}`;
+      ctx.textBaseline = 'bottom';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = line.color;
+      ctx.fillText(line.label, eng.plotW - 6, y - 2);
+      ctx.textAlign = 'left';
+      eng.axisLabel(ctx, y, formatAxis(line.price, eng.priceDecimals), line.color, pane);
+      continue;
+    }
     const dragging = drag && drag.id === line.id && !drag.kind;
     const price = dragging ? drag!.price : line.price;
     const lb = layoutLine(eng, ctx, line, price);
@@ -419,6 +440,7 @@ export function hitTradeLine(eng: ChartEngine, lines: TradeLine[], x: number, y:
   const ctx = measureCtx();
   for (let k = lines.length - 1; k >= 0; k--) {
     const line = lines[k];
+    if (line.kind === 'be') continue;
     const lb = layoutLine(eng, ctx, line);
     if (Math.abs(y - lb.y) > 10) continue;
     const inBox = (b?: { x: number; w: number }) => !!b && x >= b.x && x <= b.x + b.w;

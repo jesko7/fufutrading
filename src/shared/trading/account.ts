@@ -833,6 +833,7 @@ export class AccountRuntime {
     const l = this.ledger;
     const res = this.reserved(ctx);
     const eq = l.equity(marks);
+    const crossRatio = l.marginRatio(marks);
     const positions = [...l.positions.values()].map((p: Position) => {
       const mark = marks[p.symbol] || p.entry;
       const u = l.uPnl(p, mark);
@@ -840,7 +841,11 @@ export class AccountRuntime {
       const sl = this.orders.find((o) => o.symbol === p.symbol && o.bracket === 'sl')?.stopPrice;
       const tp = this.orders.find((o) => o.symbol === p.symbol && o.bracket === 'tp')?.stopPrice;
       const maxRemoveMargin = p.marginMode === 'isolated' ? this.maxRemovableMargin(p, mark) : undefined;
-      return { ...p, mark, uPnl: u, uPnlPct: im > 0 ? (u / (p.marginMode === 'isolated' ? p.isolatedMargin || im : im)) * 100 : 0, notional: p.qty * mark, liqPrice: l.liqPrice(p, marks), maintMargin: l.maintMargin(p, mark), sl, tp, maxRemoveMargin };
+      const mm = l.maintMargin(p, mark);
+      const breakEven = p.qty > 0 ? p.entry - (p.realizedPnl - p.fees) / (p.side * p.qty) : p.entry;
+      const isoBalance = p.isolatedMargin + u;
+      const marginRatio = this.config.market !== 'futures' ? 0 : p.marginMode === 'isolated' ? (mm === 0 ? 0 : isoBalance > 0 ? mm / isoBalance : Infinity) : crossRatio;
+      return { ...p, mark, uPnl: u, uPnlPct: im > 0 ? (u / (p.marginMode === 'isolated' ? p.isolatedMargin || im : im)) * 100 : 0, notional: p.qty * mark, liqPrice: l.liqPrice(p, marks), maintMargin: mm, breakEven, marginRatio, sl, tp, maxRemoveMargin };
     });
     const holdings =
       this.config.market === 'spot'
@@ -864,7 +869,7 @@ export class AccountRuntime {
       fundingPaid: l.fundingPaid,
       marginUsed: l.marginUsed(marks),
       maintenanceMargin: positions.reduce((a, p) => a + p.maintMargin, 0),
-      marginRatio: l.marginRatio(marks),
+      marginRatio: crossRatio,
       exposure: l.exposure(marks),
       positions,
       orders: this.orders.slice(),

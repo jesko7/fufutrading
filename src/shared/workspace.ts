@@ -93,6 +93,8 @@ export interface ChartModuleConfig {
   mtf: { tf: string; style: 'boxes' | 'line'; color?: string }[];
   showVolume: boolean;
   showExecutions: boolean;
+  /** The open position's break-even price as a line. */
+  showBreakEven?: boolean;
   /** Options levels from Binance's options: call/put walls, gamma flip, max pain, expected move. */
   optionLevels?: boolean;
   /** The overlay indicators' legend is folded into one line. */

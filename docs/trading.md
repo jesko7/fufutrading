@@ -76,7 +76,12 @@ Futures accounts follow Binance's rules for USDⓈ-M perpetuals:
   **mark price** reaches it. The clearance (liquidation) fee is charged and a bankrupt
   position's loss is capped as on Binance.
 - **Margin call** warning when the margin ratio reaches the account's threshold (default
-  80%; liquidation happens at 100%).
+  80%; liquidation happens at 100%). The positions table shows the margin ratio per position, as
+  Binance does: the account's for cross positions, and for an isolated position its maintenance
+  margin over its isolated margin plus unrealized PNL.
+- **Break-even price** per position, by Binance's formula: the price at which closing the rest
+  makes the position's P&L zero after the fees paid so far and the P&L of partial closes
+  (funding is not included). The chart settings can draw it as a line.
 - **Funding** is paid or received at Binance's funding times using the live (or, in
   backtests and replays, historical) funding rate.
 

@@ -320,8 +320,13 @@ export interface AccountSnapshot {
   maintenanceMargin: number;
   marginRatio: number;
   exposure: number;
-  /** maxRemoveMargin: how much isolated margin can be removed now (isolated positions only). */
-  positions: (Position & { mark: number; uPnl: number; uPnlPct: number; notional: number; liqPrice: number; maintMargin: number; sl?: number; tp?: number; maxRemoveMargin?: number })[];
+  /**
+   * maxRemoveMargin: how much isolated margin can be removed now (isolated positions only).
+   * breakEven: the price at which closing the rest makes the position's P&L zero after the fees paid
+   * so far and the P&L of partial closes (Binance's break-even price; funding is not included).
+   * marginRatio: maintenance margin / margin balance (the account's for cross, the position's for isolated).
+   */
+  positions: (Position & { mark: number; uPnl: number; uPnlPct: number; notional: number; liqPrice: number; maintMargin: number; breakEven: number; marginRatio: number; sl?: number; tp?: number; maxRemoveMargin?: number })[];
   orders: Order[];
   holdings: { symbol: SymbolId; qty: number; avgCost: number; value: number; uPnl: number }[];
   dayStartEquity: number;

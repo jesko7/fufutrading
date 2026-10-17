@@ -32,6 +32,7 @@ export function useChartTrading(cfg: ChartModuleConfig, replay: { active: boolea
   const down = css.getPropertyValue('--down').trim() || '#ef5350';
   const accent = css.getPropertyValue('--accent').trim() || '#3b82f6';
   const warn = css.getPropertyValue('--warn').trim() || '#f5a524';
+  const muted = css.getPropertyValue('--text-2').trim() || '#9aa4b2';
   const pd = priceDecimals(cfg.symbol, cfg.market);
 
   const lines = useMemo<TradeLine[]>(() => {
@@ -42,6 +43,7 @@ export function useChartTrading(cfg: ChartModuleConfig, replay: { active: boolea
     if (pos) {
       out.push({ id: `pos:${cfg.symbol}`, kind: 'position', price: pos.entry, label: `${pos.side === 1 ? 'LONG' : 'SHORT'} ${+pos.qty.toFixed(5)} ${base}  ${fmtSignedUsd(pos.uPnl)}`, color: pos.uPnl >= 0 ? up : down, draggable: false, cancellable: true, bracket: true, pnl: pos.uPnl });
       if (pos.liqPrice > 0 && acct.config.market === 'futures') out.push({ id: `liq:${cfg.symbol}`, kind: 'liq', price: pos.liqPrice, label: `LIQ ${fmtNum(pos.liqPrice, pd)}`, color: warn, draggable: false, cancellable: false });
+      if (cfg.showBreakEven && Number.isFinite(pos.breakEven)) out.push({ id: `be:${cfg.symbol}`, kind: 'be', price: pos.breakEven, label: 'Break-even', color: muted, draggable: false, cancellable: false });
     }
     for (const o of acct.orders) {
       if (o.symbol !== cfg.symbol) continue;
@@ -63,7 +65,7 @@ export function useChartTrading(cfg: ChartModuleConfig, replay: { active: boolea
       out.push({ id: `ord:${o.id}`, kind: o.type === 'limit' ? 'limit' : 'stop', price: px, label: `${o.side === 'buy' ? 'BUY' : 'SELL'} ${t} ${+(o.qty - o.filledQty).toFixed(5)}`, color: o.side === 'buy' ? accent : down, draggable: true, cancellable: true, side: o.side });
     }
     return out;
-  }, [acct, matches, cfg.symbol, up, down, accent, warn, pd]);
+  }, [acct, matches, cfg.symbol, cfg.showBreakEven, up, down, accent, warn, muted, pd]);
 
   const executions = useMemo<Execution[]>(() => (matches ? fills.filter((f) => f.symbol === cfg.symbol).map((f) => ({ t: f.t, price: f.price, side: f.side, qty: f.qty })) : []), [fills, matches, cfg.symbol]);
 

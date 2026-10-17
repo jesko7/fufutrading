@@ -129,7 +129,7 @@ export function AccountModule({ module }: ModuleProps) {
         <Stat k="Today" v={<span className={a.dayPnl >= 0 ? 'up' : 'down'}>{fmtSignedUsd(a.dayPnl)}</span>} />
         <Stat k="Fees" v={fmtUsd(a.feesPaid)} />
         {isFut && <Stat k="Funding" v={fmtSignedUsd(-a.fundingPaid)} />}
-        {isFut && <Stat k="Margin ratio" v={<span className={a.marginRatio >= a.config.futures.marginCallRatio ? 'down' : ''}>{isFinite(a.marginRatio) ? `${(a.marginRatio * 100).toFixed(1)}%` : '∞'}</span>} sub={<span className="faint">liq. at 100%</span>} />}
+        {isFut && <Stat k="Margin ratio" v={<span className={a.marginRatio >= a.config.futures.marginCallRatio ? 'down' : ''}>{isFinite(a.marginRatio) ? `${(a.marginRatio * 100).toFixed(2)}%` : '∞'}</span>} sub={<span className="faint">liq. at 100%</span>} />}
         <Stat k="Exposure" v={fmtUsd(a.exposure)} />
       </div>
       {a.rules && <RulesStrip a={a} onDetails={() => set({ tab: 'rules' })} />}
@@ -180,8 +180,16 @@ export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: bool
           <th>Symbol</th>
           <th className="r">Size</th>
           <th className="r">Entry</th>
+          <th className="r" data-tip="The price at which closing makes the position's P&L zero after the fees paid so far and the P&L of partial closes (funding not included), as Binance shows it">
+            Break-even
+          </th>
           <th className="r">Mark</th>
           {isFut && <th className="r">Liq. price</th>}
+          {isFut && (
+            <th className="r" data-tip="Maintenance margin / margin balance: the account's for cross positions, the position's for isolated ones. Liquidation at 100%.">
+              Margin ratio
+            </th>
+          )}
           {isFut && <th className="r">Margin</th>}
           <th className="r">P&L</th>
           <th>TP / SL</th>
@@ -203,8 +211,14 @@ export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: bool
               </td>
               <td className="r">{fmtNum(p.qty, qtyDecimals(p.symbol, a.config.market))}</td>
               <td className="r">{fmtNum(p.entry, pd)}</td>
+              <td className="r">{fmtNum(p.breakEven, pd)}</td>
               <td className="r">{fmtNum(p.mark, pd)}</td>
               {isFut && <td className="r" style={{ color: 'var(--warn)' }}>{p.liqPrice > 0 ? fmtNum(p.liqPrice, pd) : '—'}</td>}
+              {isFut && (
+                <td className={clsx('r', p.marginRatio >= 0.8 ? 'down' : p.marginRatio >= 0.5 ? 'warn-text' : 'up')}>
+                  {Number.isFinite(p.marginRatio) ? `${(p.marginRatio * 100).toFixed(2)}%` : '∞'}
+                </td>
+              )}
               {isFut && (
                 <td className="r">
                   {p.marginMode === 'isolated' ? fmtUsd(p.isolatedMargin) : fmtUsd(p.notional / p.leverage)}

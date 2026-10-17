@@ -233,3 +233,47 @@ describe('AccountRuntime Binance order rules', () => {
     expect(o.avgFillPrice).toBeCloseTo(50490, 6);
   });
 });
+
+describe('AccountRuntime break-even price and margin ratio', () => {
+  it("matches Binance's break-even example (fees paid, partial close; funding left out)", () => {
+    const { rt, ctx, m } = setup();
+    rt.config.costs = { ...rt.config.costs, makerFee: 0.0002, takerFee: 0.0002 };
+    for (const [px, qty] of [[20000, 0.5], [22000, 1.5], [25000, 0.5]]) {
+      m.px = px;
+      rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty }, ctx);
+    }
+    // (10,000 + 33,000 + 12,500 + 11.1 fees) / 2.5
+    expect(rt.snapshot(ctx).positions[0].breakEven).toBeCloseTo(22204.44, 2);
+    m.px = 25000;
+    rt.closePosition('BTCUSDT', ctx, 0.5);
+    // (55,511.1 + 2.5 − 12,500) / 2
+    expect(rt.snapshot(ctx).positions[0].breakEven).toBeCloseTo(21506.8, 2);
+  });
+
+  it('puts a short break-even below the entry by the fees', () => {
+    const { rt, ctx } = setup();
+    rt.config.costs = { ...rt.config.costs, makerFee: 0.0002, takerFee: 0.0005 };
+    rt.placeOrder({ symbol: 'BTCUSDT', side: 'sell', type: 'market', qty: 1 }, ctx);
+    const p = rt.snapshot(ctx).positions[0];
+    expect(p.breakEven).toBeCloseTo(50000 - 25, 6);
+  });
+
+  it("uses the account's ratio for cross and the position's own for isolated", () => {
+    const { rt, ctx, tick } = setup();
+    rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 1 }, ctx);
+    tick(48000);
+    const s = rt.snapshot(ctx);
+    expect(s.positions[0].marginRatio).toBe(s.marginRatio);
+    expect(s.marginRatio).toBeGreaterThan(0);
+    // isolated: maintenance margin / (isolated margin + unrealised P&L)
+    const iso = setup();
+    iso.rt.config.futures.marginModes = { BTCUSDT: 'isolated' };
+    iso.rt.placeOrder({ symbol: 'BTCUSDT', side: 'buy', type: 'market', qty: 1 }, iso.ctx);
+    iso.tick(48000);
+    const q = iso.rt.snapshot(iso.ctx);
+    const p = q.positions[0];
+    expect(p.marginMode).toBe('isolated');
+    expect(p.marginRatio).toBeCloseTo(p.maintMargin / (p.isolatedMargin + p.uPnl), 12);
+    expect(q.marginRatio).toBe(0);
+  });
+});
