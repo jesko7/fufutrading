@@ -1260,6 +1260,25 @@ const S = {
     const levels = await page.evaluate((id) => window.__charts[id].levels(), cid);
     check(['cw', 'pw', 'mp', 'em+'].every((k) => levels.some((l) => l.id === k)), `options levels on the chart (${levels.map((l) => l.label).join(' | ')})`);
     await shot('56-options-levels');
+    // an options alert fires on live data (30-day implied volatility is surely above 1%)
+    const al = await page.evaluate(() => window.fufu.invoke('alerts:save', { kind: 'options', name: '', symbol: 'BTCUSDT', market: 'spot', enabled: true, frequency: 'once', cooldownSec: 60, metric: 'iv30', condition: 'above', value: 1, notify: { desktop: false, sound: false }, created: 0, updated: 0, triggerCount: 0, status: 'active' }));
+    const firedOpt = await page.waitForFunction((id) => window.fufu.invoke('alerts:log').then((l) => l.find((e) => e.alertId === id)?.message || null), al.id, { timeout: 30000, polling: 1000 }).then((h) => h.jsonValue()).catch(() => null);
+    check(/30-day implied volatility \d+\.\d% is above 1%/.test(firedOpt || ''), `an options alert fires (${firedOpt})`);
+    await page.evaluate((id) => window.fufu.invoke('alerts:delete', id), al.id);
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Alerts');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.alerts', { timeout: 15000 });
+    await page.click('.stack-head button:has-text("New alert")');
+    await page.click('.menu-item:has-text("Options")');
+    await page.waitForSelector('.alert-editor .ae-row:has-text("Measure")', { timeout: 10000 });
+    await page.locator('.alert-editor select').first().selectOption('level');
+    const prev = await page.textContent('.alert-editor .ae-preview');
+    check(/BTC index crosses the gamma flip/.test(prev || ''), `the alert editor builds options alerts (${(prev || '').replace(/\s+/g, ' ').trim()})`);
+    await wait(400);
+    await shot('57-options-alert');
+    await page.keyboard.press('Escape');
     const ai = await page.evaluate(() => window.fufu.invoke('ai:testTool', 'options_snapshot', { symbol: 'ETHUSDT' }));
     const r = ai.result;
     check(r && r.iv30Pct > 5 && r.iv30Pct < 300 && r.expiries.length >= 3 && Number.isFinite(r.putCallOpenInterest), `options data for Claude: ETH IV30 ${r?.iv30Pct}%, P/C ${r?.putCallOpenInterest}, ${r?.expiries?.length} expiries, gamma ${r?.dealerGamma?.regime}`);

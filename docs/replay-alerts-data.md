@@ -54,6 +54,10 @@ indicator's menu ("Add alert…"):
 - **Futures data:** liquidations within N minutes (longs, shorts or both), an open interest
   rise or fall of X% within N minutes, the funding rate above or below a level, or the
   long/short ratio above or below a level.
+- **Options:** Binance's options on the coin. Alert on 30-day implied volatility above or below
+  a level (spikes come with fear and big moves), the 25-delta skew (strongly negative: demand
+  for downside protection), put/call open interest, or the index crossing (or being above or
+  below) the gamma flip, max pain or the call or put wall.
 
 Each alert has a frequency (once, once per bar, at most once a minute, every time with a
 pause), optional expiry, a message template (`{{symbol}} {{price}} {{value}} {{name}}

@@ -13,7 +13,7 @@ import { Spinner, SymbolPicker, Segmented, Tabs, Empty } from '../../components/
 import { clsx, fmtNum, fmtCompact, fmtTime } from '../../lib/format';
 import { fmtExpiry, fmtDte, pctIV, fmtPremium } from './fmt';
 import type { SymbolId } from '../../../shared/symbols';
-import { byStrike, constantMaturityVol, exposureByStrike, expirySummaries, forwardOf, gammaFlip, maxPain, smile, yearsTo, type ExpirySummary, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
+import { byStrike, constantMaturityVol, exposureByStrike, expirySummaries, forwardOf, gammaFlip, marketFigures, maxPain, smile, yearsTo, type ExpirySummary, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
 import { XYLines, StrikeBars, Legend, type LineSeries } from './charts';
 import { Builder } from './builder';
 import './options.css';
@@ -64,22 +64,9 @@ function Tile({ label, value, sub, tip }: { label: string; value: ReactNode; sub
   );
 }
 
-/** One value at 30 days from per-expiry values (linear in time). */
-function at30(sums: ExpirySummary[], pick: (e: ExpirySummary) => number): number {
-  const pts = sums.filter((e) => e.t > 1 / 365 && Number.isFinite(pick(e)));
-  const T = 30 / 365;
-  if (!pts.length) return NaN;
-  if (T <= pts[0].t) return pick(pts[0]);
-  for (let k = 1; k < pts.length; k++) if (T <= pts[k].t) return pick(pts[k - 1]) + ((pick(pts[k]) - pick(pts[k - 1])) * (T - pts[k - 1].t)) / (pts[k].t - pts[k - 1].t);
-  return pick(pts[pts.length - 1]);
-}
-
 function Summary({ s, sums, expiry, compact }: { s: OptionsSnapshot; sums: ExpirySummary[]; expiry: number; compact?: boolean }) {
-  const iv30 = constantMaturityVol(sums.map((e) => ({ t: e.t, iv: e.atm })), 30);
-  const rr30 = at30(sums, (e) => e.rr25);
+  const { iv30, skew30: rr30, callOI: calls, putOI: puts } = marketFigures(s, sums);
   const ex = useMemo(() => exposureByStrike(s.rows, s.index), [s]);
-  const calls = ex.reduce((a, e) => a + (e.callOI || 0), 0);
-  const puts = ex.reduce((a, e) => a + (e.putOI || 0), 0);
   const gex = ex.reduce((a, e) => a + (Number.isFinite(e.gex) ? e.gex : 0), 0);
   const flip = useMemo(() => gammaFlip(s.rows, s.index, s.rf, s.t), [s]);
   const sel = sums.find((e) => e.expiry === expiry);

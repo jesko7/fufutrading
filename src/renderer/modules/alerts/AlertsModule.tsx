@@ -23,7 +23,7 @@ export function useAlerts(): { alerts: Alert[]; log: AlertEvent[] } | null {
 
 const fail = (title: string) => (e: unknown) => toast({ title, body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' });
 
-const KIND_ICON: Record<AlertKind, string> = { price: 'hline', move: 'trend', indicator: 'flow', script: 'code', book: 'book', futures: 'zap' };
+const KIND_ICON: Record<AlertKind, string> = { price: 'hline', move: 'trend', indicator: 'flow', script: 'code', book: 'book', futures: 'zap', options: 'greek' };
 
 const FREQ: Record<Alert['frequency'], string> = { once: 'once', perBar: 'once per bar', perMinute: 'max. once a minute', every: 'every time' };
 

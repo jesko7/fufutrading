@@ -16,11 +16,13 @@ import { DocStore, uid, readJson, writeJsonAtomic } from './storage/jsonStore';
 import { applyPatch } from '../engine/patch';
 import type { ScriptResult } from '../engine/types';
 import type { TradeTick } from '../shared/live';
-import { alertTitle, describeAlert, instrumentLabel, priceLevelAt, renderMessage, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
-import { isSymbol, type Market, type SymbolId } from '../shared/symbols';
+import { alertTitle, describeAlert, instrumentLabel, priceLevelAt, renderMessage, OPTIONS_LEVEL_LABEL, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type OptionsAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
+import { isSymbol, SYMBOL_SPECS, type Market, type SymbolId } from '../shared/symbols';
 import { parseTimeframe } from '../shared/timeframes';
 import { webhookBody, webhookUrlError } from '../shared/alerts';
 import type { DerivativesService } from './market/derivatives';
+import type { OptionsService } from './market/options';
+import { marketFigures, optionLevels } from '../shared/options';
 import { oiValueAt } from '../shared/derivatives';
 
 /** One webhook request with a timeout (5 s by default). */
@@ -64,6 +66,7 @@ export class AlertService {
 
   /** Futures data for futures alerts (set at registration). */
   derivatives?: DerivativesService;
+  options?: OptionsService;
 
   constructor(
     readonly core: AppCore,
@@ -157,6 +160,17 @@ export class AlertService {
         if (!(a.rangePct > 0) || a.rangePct > 10) throw new Error('Validation: range must be between 0 and 10%');
         a.sustainSec = Math.max(0, Math.min(3600, Math.round(+a.sustainSec || 0)));
         break;
+      case 'options':
+        a.market = 'spot';
+        if (!['iv30', 'skew', 'putCall', 'level'].includes(a.metric)) throw new Error('Validation: choose a measure');
+        if (a.metric === 'level') {
+          if (!['flip', 'maxPain', 'callWall', 'putWall'].includes(a.level || '')) throw new Error('Validation: choose a level');
+        } else {
+          if (!Number.isFinite(+a.value)) throw new Error('Validation: enter a value');
+          if (a.condition === 'crosses') a.condition = 'above';
+          if (a.metric !== 'skew' && !(+a.value > 0)) throw new Error('Validation: the value must be positive');
+        }
+        break;
       case 'futures':
         a.market = 'futures';
         if (!Number.isFinite(+a.value)) throw new Error('Validation: enter a value');
@@ -238,6 +252,7 @@ export class AlertService {
       if (a.kind === 'indicator' || a.kind === 'script') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.scriptEvaluator(a) });
       else if (a.kind === 'book') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.bookEvaluator(a) });
       else if (a.kind === 'futures') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.futuresEvaluator(a) });
+      else if (a.kind === 'options') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.optionsEvaluator(a) });
     }
   }
 
@@ -500,6 +515,40 @@ export class AlertService {
     return { stop: off };
   }
 
+  /** 30-day implied volatility, skew and put/call open interest of Binance's options, and the index against options levels. */
+  private optionsEvaluator(a: OptionsAlert): Evaluator {
+    if (!this.options) return { stop: () => {} };
+    const base = SYMBOL_SPECS[a.symbol].base;
+    const fmt = (v: number, d: number) => v.toLocaleString('en-US', { maximumFractionDigits: d });
+    let prevSide = 0;
+    const off = this.options.watch(a.symbol, (s) => {
+      try {
+        if (!s.rows.length || !(s.index > 0)) return;
+        const price = s.index;
+        if (a.metric === 'level') {
+          const L = optionLevels(s);
+          const lv = a.level === 'maxPain' ? L.maxPain?.strike : a.level === 'callWall' ? L.callWall : a.level === 'putWall' ? L.putWall : L.flip;
+          if (!lv || !Number.isFinite(lv)) return;
+          const side = price > lv ? 1 : price < lv ? -1 : 0;
+          const what = OPTIONS_LEVEL_LABEL[a.level || 'flip'];
+          if (a.condition === 'crosses') {
+            if (prevSide && side && side !== prevSide) this.fire(a, `${base} index ${fmt(price, 2)} crossed ${what} (${fmt(lv, 0)}) ${side > 0 ? 'upwards' : 'downwards'}`, { price, value: lv });
+          } else if (a.condition === 'below' ? side < 0 : side > 0) this.fire(a, `${base} index is ${a.condition === 'below' ? 'below' : 'above'} ${what} (${fmt(lv, 0)})`, { price, value: lv });
+          if (side) prevSide = side;
+          return;
+        }
+        const f = marketFigures(s);
+        const v = a.metric === 'iv30' ? f.iv30 * 100 : a.metric === 'skew' ? f.skew30 * 100 : f.putCall;
+        if (!Number.isFinite(v)) return;
+        const label = a.metric === 'iv30' ? `30-day implied volatility ${v.toFixed(1)}%` : a.metric === 'skew' ? `25Δ skew ${v > 0 ? '+' : ''}${v.toFixed(2)} pts` : `put/call open interest ${v.toFixed(2)}`;
+        if (a.condition === 'below' ? v < a.value : v > a.value) this.fire(a, `${base} options: ${label} is ${a.condition === 'below' ? 'below' : 'above'} ${a.value}${a.metric === 'iv30' ? '%' : a.metric === 'skew' ? ' pts' : ''}`, { price, value: v });
+      } catch (e) {
+        this.core.log('warn', `options alert ${a.id}: ${(e as Error).message}`);
+      }
+    });
+    return { stop: off };
+  }
+
   private bookEvaluator(a: BookAlert): Evaluator {
     const { book, release } = this.core.hub.acquireBook(a.market, a.symbol);
     let since: number | null = null;
@@ -708,9 +757,10 @@ export class AlertService {
   }
 }
 
-export function registerAlerts(core: AppCore, scripts: ScriptService, derivatives?: DerivativesService): AlertService {
+export function registerAlerts(core: AppCore, scripts: ScriptService, derivatives?: DerivativesService, options?: OptionsService): AlertService {
   const svc = new AlertService(core, scripts);
   svc.derivatives = derivatives;
+  svc.options = options;
   const r = core.router;
   r.handle('alerts:list', () => svc.list());
   r.handle('alerts:save', ([a]) => svc.save(a));

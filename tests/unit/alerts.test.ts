@@ -226,3 +226,53 @@ describe('futures alerts', () => {
     expect(oiValueAt(snap, -1)).toBeNull();
   });
 });
+
+describe('options alerts', () => {
+  /** A synthetic option chain around `S` with a 50% smile, puts richer below the money. */
+  async function snapshot(S: number, now = Date.UTC(2026, 9, 1)) {
+    const { blackScholes } = await import('../../src/shared/options');
+    const rows: any[] = [];
+    for (const days of [7, 30, 60]) {
+      const expiry = now + days * 86400000;
+      for (let K = 70; K <= 130; K += 5) {
+        const k = Math.log(K / 100);
+        const vol = 0.5 - 0.2 * k + 0.3 * k * k;
+        for (const side of ['C', 'P'] as const) {
+          const g = blackScholes(side, S, K, days / 365, vol, 0.05);
+          rows.push({ symbol: `BTC-${days}-${K}-${side}`, expiry, strike: K, side, mark: g.price, bid: NaN, ask: NaN, bidIV: NaN, askIV: NaN, markIV: vol, delta: g.delta, gamma: g.gamma, theta: g.theta, vega: g.vega, oi: side === 'P' ? (K < 100 ? 40 : 5) : K > 100 ? 30 : 5, volume: 0, last: NaN, changePct: NaN });
+        }
+      }
+    }
+    return { underlying: 'BTCUSDT', base: 'BTC', index: S, rf: 0.05, t: now, expiries: [...new Set(rows.map((r) => r.expiry))], rows };
+  }
+
+  it('fires on implied volatility and when the index crosses the gamma flip', async () => {
+    const listeners: ((s: any) => void)[] = [];
+    const svc = new AlertService(fakeCore() as any, { library: { get: () => undefined } } as any);
+    svc.options = { watch: (_sym: string, cb: (s: any) => void) => (listeners.push(cb), () => {}) } as any;
+    const iv = svc.save(mk('options', { metric: 'iv30', condition: 'above', value: 45, frequency: 'once' } as any));
+    expect(describeAlert(iv)).toBe('BTC options: 30-day implied volatility is above 45%');
+    const flip = svc.save(mk('options', { metric: 'level', condition: 'crosses', level: 'flip', frequency: 'every', cooldownSec: 0 } as any));
+    expect(describeAlert(flip)).toBe('BTC index crosses the gamma flip');
+    expect(listeners).toHaveLength(2);
+    // put walls below 100, call walls above: dealer gamma flips a little above 100
+    for (const l of listeners) l(await snapshot(96));
+    // ATM volatility ≈ 50% > 45%: the volatility alert fires; nothing crossed yet
+    expect(fired.map((e) => e.message)).toEqual([expect.stringMatching(/30-day implied volatility \d\d\.\d% is above 45%/)]);
+    for (const l of listeners) l(await snapshot(99));
+    expect(fired).toHaveLength(1);
+    for (const l of listeners) l(await snapshot(112));
+    expect(fired).toHaveLength(2);
+    expect(fired[1].message).toMatch(/BTC index 112 crossed the gamma flip \(\d+\) upwards/);
+    svc.shutdown();
+  });
+
+  it('rejects incomplete options alerts', () => {
+    const svc = new AlertService(fakeCore() as any, { library: { get: () => undefined } } as any);
+    expect(() => svc.save(mk('options', { metric: 'level', level: 'nowhere' } as any))).toThrow(/choose a level/);
+    expect(() => svc.save(mk('options', { metric: 'iv30', value: -3 } as any))).toThrow(/positive/);
+    const skew = svc.save(mk('options', { metric: 'skew', condition: 'below', value: -5 } as any));
+    expect(describeAlert(skew)).toBe('BTC options: 25Δ skew (30 days) is below -5 pts');
+    svc.shutdown();
+  });
+});

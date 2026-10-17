@@ -2,7 +2,7 @@
 import type { Market, SymbolId } from './symbols';
 import { SYMBOL_SPECS } from './symbols';
 
-export type AlertKind = 'price' | 'move' | 'indicator' | 'script' | 'book' | 'futures';
+export type AlertKind = 'price' | 'move' | 'indicator' | 'script' | 'book' | 'futures' | 'options';
 export type AlertFrequency = 'once' | 'perBar' | 'perMinute' | 'every';
 export type CrossCondition = 'crossesAbove' | 'crossesBelow' | 'crosses' | 'above' | 'below';
 
@@ -124,7 +124,23 @@ export interface FuturesAlert extends AlertBase {
   minutes: number;
 }
 
-export type Alert = PriceAlert | MoveAlert | IndicatorAlert | ScriptAlert | BookAlert | FuturesAlert;
+export type OptionsMetric = 'iv30' | 'skew' | 'putCall' | 'level';
+export type OptionsLevel = 'flip' | 'maxPain' | 'callWall' | 'putWall';
+
+/** Alerts on Binance's options on the coin: 30-day implied volatility, skew, put/call open interest, the index against an options level. */
+export interface OptionsAlert extends AlertBase {
+  kind: 'options';
+  metric: OptionsMetric;
+  /** Figures: above/below the value. Levels: the index crosses (or is above/below) the level. */
+  condition: 'above' | 'below' | 'crosses';
+  /** 30-day IV in %, 25-delta risk reversal at 30 days in volatility points, the put/call ratio. */
+  value: number;
+  level?: OptionsLevel;
+}
+
+export type Alert = PriceAlert | MoveAlert | IndicatorAlert | ScriptAlert | BookAlert | FuturesAlert | OptionsAlert;
+
+export const OPTIONS_LEVEL_LABEL: Record<OptionsLevel, string> = { flip: 'the gamma flip', maxPain: 'max pain', callWall: 'the call wall', putWall: 'the put wall' };
 
 export interface AlertEvent {
   id: string;
@@ -221,6 +237,21 @@ export function describeAlert(a: Alert): string {
       }
       return p;
     }
+    case 'options': {
+      const b = `${SYMBOL_SPECS[a.symbol].base} options`;
+      const cmp = a.condition === 'below' ? 'below' : 'above';
+      switch (a.metric) {
+        case 'iv30':
+          return `${b}: 30-day implied volatility is ${cmp} ${a.value}%`;
+        case 'skew':
+          return `${b}: 25Δ skew (30 days) is ${cmp} ${a.value > 0 ? '+' : ''}${a.value} pts`;
+        case 'putCall':
+          return `${b}: put/call open interest is ${cmp} ${a.value}`;
+        case 'level':
+          return `${SYMBOL_SPECS[a.symbol].base} index ${a.condition === 'crosses' ? 'crosses' : `is ${cmp}`} ${OPTIONS_LEVEL_LABEL[a.level || 'flip']}`;
+      }
+      return b;
+    }
     case 'book': {
       const unit = a.metric === 'imbalance' ? '%' : a.metric === 'spreadBps' ? ' bps' : ' USDT';
       const m = a.metric === 'imbalance' ? `order-book imbalance (±${a.rangePct}%)` : a.metric === 'bidDepth' ? `bid liquidity within ${a.rangePct}%` : a.metric === 'askDepth' ? `ask liquidity within ${a.rangePct}%` : a.metric === 'spreadBps' ? 'spread' : `a resting order within ${a.rangePct}%`;
@@ -250,6 +281,8 @@ export function newAlert(kind: AlertKind, symbol: SymbolId, market: Market, extr
       return { ...base, kind, metric: 'imbalance', condition: 'above', value: 40, rangePct: 0.5, sustainSec: 10, frequency: 'every', cooldownSec: 300, ...extra } as BookAlert;
     case 'futures':
       return { ...base, kind, market: 'futures', metric: 'liquidations', condition: 'either', value: 1000000, minutes: 5, frequency: 'every', cooldownSec: 300, ...extra } as FuturesAlert;
+    case 'options':
+      return { ...base, kind, market: 'spot', metric: 'iv30', condition: 'above', value: 60, level: 'flip', frequency: 'every', cooldownSec: 3600, ...extra } as OptionsAlert;
   }
 }
 

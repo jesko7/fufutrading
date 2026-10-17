@@ -4,12 +4,12 @@ import { toast } from '../../state/store';
 import { Modal, openModal, NumberField, Toggle, Select, Segmented, SymbolPicker, TimeframePicker, Spinner } from '../../components/ui';
 import { useScripts, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
-import { describeAlert, newAlert, priceLevelAt, webhookUrlError, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import { describeAlert, newAlert, priceLevelAt, webhookUrlError, OPTIONS_LEVEL_LABEL, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type OptionsAlert, type OptionsLevel, type OptionsMetric, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
 import { clsx, fmtNum, fmtDateTime } from '../../lib/format';
 import type { Market, SymbolId } from '../../../shared/symbols';
 import { SYMBOL_SPECS, roundToTick, priceDecimals } from '../../../shared/symbols';
 
-export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book', futures: 'Futures data' };
+export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book', futures: 'Futures data', options: 'Options' };
 
 /** Open the alert editor for a new alert (kind + defaults) or an existing one. */
 export function openAlertEditor(init: Alert | { kind: AlertKind; symbol: SymbolId; market: Market; patch?: Partial<Alert> }): void {
@@ -83,13 +83,14 @@ function AlertEditor({ initial, onClose }: { initial: Alert; onClose: () => void
         )}
         <div className="ae-row">
           <span className="ae-label">Market</span>
-          <SymbolPicker symbol={a.symbol} market={a.market} onChange={(s, m) => set({ symbol: s, market: a.kind === 'futures' ? 'futures' : m })} />
+          <SymbolPicker symbol={a.symbol} market={a.market} showMarket={a.kind !== 'options'} onChange={(s, m) => set({ symbol: s, market: a.kind === 'futures' ? 'futures' : a.kind === 'options' ? 'spot' : m })} />
         </div>
         {a.kind === 'price' && <PriceFields a={a} set={set} />}
         {a.kind === 'move' && <MoveFields a={a} set={set} />}
         {(a.kind === 'indicator' || a.kind === 'script') && <ScriptFields a={a} set={set} />}
         {a.kind === 'book' && <BookFields a={a} set={set} />}
         {a.kind === 'futures' && <FuturesFields a={a} set={set} />}
+        {a.kind === 'options' && <OptionsFields a={a} set={set} />}
         <div className="ae-preview">
           <span className="faint small">Notify when</span>
           <b>{preview}</b>
@@ -486,6 +487,66 @@ function FuturesFields({ a, set }: { a: FuturesAlert; set: (p: Partial<FuturesAl
           <NumberField value={a.minutes} onChange={(v) => set({ minutes: Math.max(1, Math.min(a.metric === 'liquidations' ? 60 : 1440, Math.round(v))) })} step={5} decimals={0} suffix="min" style={{ width: 110 }} />
         </div>
       )}
+      <div className="faint small">{hint[a.metric]}</div>
+    </>
+  );
+}
+
+const OPTIONS_DEFAULTS: Record<OptionsMetric, Partial<OptionsAlert>> = {
+  iv30: { condition: 'above', value: 60 },
+  skew: { condition: 'below', value: -5 },
+  putCall: { condition: 'above', value: 1.5 },
+  level: { condition: 'crosses', level: 'flip' },
+};
+
+function OptionsFields({ a, set }: { a: OptionsAlert; set: (p: Partial<OptionsAlert>) => void }) {
+  const hint: Record<OptionsMetric, string> = {
+    iv30: "At-the-money implied volatility for 30 days, interpolated between Binance's expiries like a volatility index. Spikes come with fear and big moves.",
+    skew: '25-delta risk reversal at 30 days, in volatility points: call minus put volatility. Strongly negative means traders pay up for downside protection.',
+    putCall: 'Open interest of all puts divided by that of all calls (contracts).',
+    level: 'Levels from the options open interest, recomputed every few seconds: the gamma flip (where dealer gamma changes sign), max pain of the next expiry, and the call and put walls (the strikes with the most open interest within 45 days).',
+  };
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Measure</span>
+        <Select
+          value={a.metric}
+          onChange={(m) => set({ metric: m, ...OPTIONS_DEFAULTS[m] })}
+          options={[
+            { value: 'iv30', label: '30-day implied volatility' },
+            { value: 'skew', label: '25Δ skew (30 days)' },
+            { value: 'putCall', label: 'Put/call open interest' },
+            { value: 'level', label: 'Index vs an options level' },
+          ]}
+        />
+        {a.metric === 'level' ? (
+          <>
+            <Select
+              value={a.condition}
+              onChange={(c) => set({ condition: c as OptionsAlert['condition'] })}
+              options={[
+                { value: 'crosses', label: 'crosses' },
+                { value: 'above', label: 'is above' },
+                { value: 'below', label: 'is below' },
+              ]}
+            />
+            <Select value={a.level || 'flip'} onChange={(l) => set({ level: l as OptionsLevel })} options={(Object.keys(OPTIONS_LEVEL_LABEL) as OptionsLevel[]).map((l) => ({ value: l, label: OPTIONS_LEVEL_LABEL[l] }))} />
+          </>
+        ) : (
+          <>
+            <Select
+              value={a.condition === 'crosses' ? 'above' : a.condition}
+              onChange={(c) => set({ condition: c as OptionsAlert['condition'] })}
+              options={[
+                { value: 'above', label: 'above' },
+                { value: 'below', label: 'below' },
+              ]}
+            />
+            <NumberField value={a.value} onChange={(v) => set({ value: v })} step={a.metric === 'putCall' ? 0.05 : 0.5} decimals={2} suffix={a.metric === 'iv30' ? '%' : a.metric === 'skew' ? 'pts' : ''} style={{ width: 130 }} />
+          </>
+        )}
+      </div>
       <div className="faint small">{hint[a.metric]}</div>
     </>
   );

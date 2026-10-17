@@ -132,3 +132,9 @@
 .danger-text {
   color: var(--danger);
 }
+/* the kind selector wraps instead of running out of the dialog */
+.alert-editor > .seg:first-child {
+  flex-wrap: wrap;
+  align-self: flex-start;
+  max-width: 100%;
+}

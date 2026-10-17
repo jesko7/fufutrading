@@ -76,8 +76,9 @@ an AI assistant that builds and tests strategies inside the app.
 - **Replay:** bar replay with adjustable speed, stepping and replay trading. Strictly no future
   data, at real data resolution. A session report compares your replay trades with buy & hold
   and random entries.
-- **Alerts:** price, moves, indicators, script conditions, order-book conditions and futures
-  data (liquidations, open interest, funding), with desktop notifications and webhooks.
+- **Alerts:** price, moves, indicators, script conditions, order-book conditions, futures
+  data (liquidations, open interest, funding) and options (implied volatility, skew, put/call,
+  the gamma flip and other levels), with desktop notifications and webhooks.
 - **AI Studio:** Claude Code (your subscription) with model, mode, effort and thinking settings.
   It researches like a quant through the app's own tools:
   - writes, compiles and runs scripts, measuring their predictive value

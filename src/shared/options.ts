@@ -370,6 +370,27 @@ export function expirySummaries(s: OptionsSnapshot): ExpirySummary[] {
   });
 }
 
+/** A per-expiry figure at `days` to expiry, linear in time between the expiries around it. */
+export function atDays(sums: ExpirySummary[], pick: (e: ExpirySummary) => number, days = 30): number {
+  const pts = sums.filter((e) => e.t > 1 / 365 && Number.isFinite(pick(e)));
+  const T = days / 365;
+  if (!pts.length) return NaN;
+  if (T <= pts[0].t) return pick(pts[0]);
+  for (let k = 1; k < pts.length; k++) if (T <= pts[k].t) return pick(pts[k - 1]) + ((pick(pts[k]) - pick(pts[k - 1])) * (T - pts[k - 1].t)) / (pts[k].t - pts[k - 1].t);
+  return pick(pts[pts.length - 1]);
+}
+
+/** The headline figures of an options market: 30-day volatility and skew, put/call open interest. */
+export function marketFigures(s: OptionsSnapshot, sums: ExpirySummary[] = expirySummaries(s)): { iv30: number; skew30: number; putCall: number; callOI: number; putOI: number } {
+  let callOI = 0;
+  let putOI = 0;
+  for (const e of sums) {
+    callOI += e.callOI;
+    putOI += e.putOI;
+  }
+  return { iv30: constantMaturityVol(sums.map((e) => ({ t: e.t, iv: e.atm })), 30), skew30: atDays(sums, (e) => e.rr25, 30), putCall: callOI > 0 ? putOI / callOI : NaN, callOI, putOI };
+}
+
 /** Price levels options traders watch, for chart overlays. */
 export interface OptionLevels {
   /** Strikes with the most call / put open interest among expiries within the horizon. */
