@@ -975,6 +975,23 @@ const S = {
     await page.click('.menu-item:has-text("Horizontal line at")');
     await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
     check(true, 'horizontal line added from the "+" menu');
+    // keyboard editing on the focused chart: undo, redo, copy and paste
+    await page.locator('.chart-host').first().click({ position: { x: 30, y: 30 } });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+z');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n, [id, n0], { timeout: 5000 });
+    await page.keyboard.press('Control+y');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
+    check(true, 'Ctrl+Z undoes and Ctrl+Y redoes a drawing change');
+    // select the horizontal line from the "+" menu (it spans the chart at that height) and copy it with Ctrl+C / Ctrl+V
+    await page.mouse.click(box.x + box.width * 0.45, box.y + box.height * 0.3);
+    await page.waitForSelector('.drawing-editor', { timeout: 5000 });
+    await page.keyboard.press('Control+c');
+    await page.keyboard.press('Control+v');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 2, [id, n0], { timeout: 5000 });
+    check(true, 'Ctrl+C / Ctrl+V copies the selected drawing');
+    await page.keyboard.press('Control+z');
+    await page.waitForFunction(([id, n]) => window.__charts[id].drawings().length === n + 1, [id, n0], { timeout: 5000 });
     // drag into the past: a button brings the chart back to the latest bar
     await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.55);
     await page.mouse.down();

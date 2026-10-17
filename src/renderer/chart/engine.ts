@@ -71,6 +71,8 @@ export interface EngineCallbacks {
   onViewChange?(): void;
   onContextMenu?(info: { x: number; y: number; clientX: number; clientY: number; price: number; time: number; drawingId?: string; tradeLineId?: string }): void;
   onDrawingsChange?(drawings: Drawing[]): void;
+  /** Ctrl/Cmd+Z, +Shift+Z / +Y, +C, +V while the chart has focus; true when handled. */
+  onEditCommand?(cmd: 'undo' | 'redo' | 'copy' | 'paste', selectedDrawing: string | null): boolean;
   onDrawingSelect?(id: string | null): void;
   onToolDone?(): void;
   onTradeLineDrag?(id: string, price: number): void;
@@ -1271,6 +1273,15 @@ export class ChartEngine {
   }
 
   private onKey(e: KeyboardEvent): void {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const cmd = k === 'z' ? (e.shiftKey ? 'redo' : 'undo') : k === 'y' ? 'redo' : k === 'c' && !e.shiftKey ? 'copy' : k === 'v' && !e.shiftKey ? 'paste' : null;
+      if (cmd && this.cb.onEditCommand?.(cmd, this.drawings.selected)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+    }
     if (e.key === 'Escape') {
       let used = false;
       if (this.pickBarMode) {

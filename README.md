@@ -15,8 +15,9 @@ an AI assistant that builds and tests strategies inside the app.
   - candles, hollow, bars, line, area, Heikin-Ashi, Renko and footprint (buyer/seller volume
     per price level from real aggregate trades)
   - any timeframe, including custom ones like 30s, 7m or 90m
-  - drawings (with trendline alerts), volume profile, compare and multi-timeframe overlays,
-    synced crosshairs, candlestick pattern detection (choose the patterns)
+  - drawings (with trendline alerts, Ctrl+Z / Ctrl+Y and Ctrl+C / Ctrl+V), volume profile,
+    compare and multi-timeframe overlays, options levels (walls, gamma flip, max pain, expected
+    move), synced crosshairs, candlestick pattern detection (choose the patterns)
   - log and percentage scales; drag to pan (flicks glide on), wheel or pinch to zoom, a "+" at
     the crosshair price for orders, alerts and lines, and one click back to the latest bar
 - **Order flow:** live order book with grouping and imbalance, depth chart, liquidity heatmap

@@ -331,6 +331,45 @@ export function ChartModule({ module }: ModuleProps) {
   useEffect(() => bus.on('chart:cmd', (d: { moduleId: string; cmd: string; arg?: unknown }) => d.moduleId === module.id && cmdRef.current(d.cmd, d.arg)), [module.id]);
 
   // ---------------------------------------------------------------- engine callbacks
+  // ---------------------------------------------------------------- drawing history (Ctrl+Z / Ctrl+Y)
+  const drawHist = useRef<{ undo: Drawing[][]; redo: Drawing[][]; last: Drawing[]; lastKey: string; skip: boolean; at: number }>({ undo: [], redo: [], last: (cfg.drawings || []) as Drawing[], lastKey: JSON.stringify(cfg.drawings || []), skip: false, at: 0 });
+  useEffect(() => {
+    const h = drawHist.current;
+    const cur = (cfg.drawings || []) as Drawing[];
+    // the workspace echoes changes back from the main process as new arrays: compare contents
+    const key = JSON.stringify(cur);
+    if (key === h.lastKey) return;
+    h.lastKey = key;
+    if (h.skip) {
+      h.skip = false;
+      h.last = cur;
+      return;
+    }
+    const now = Date.now();
+    // quick successive edits (style sliders, colour picks) are one step
+    if (!(now - h.at < 600 && h.undo.length)) h.undo.push(h.last);
+    if (h.undo.length > 100) h.undo.shift();
+    h.redo = [];
+    h.last = cur;
+    h.at = now;
+  }, [cfg.drawings]);
+  const stepDrawings = (dir: 'undo' | 'redo'): boolean => {
+    const h = drawHist.current;
+    const to = dir === 'undo' ? h.undo.pop() : h.redo.pop();
+    if (!to) return false;
+    (dir === 'undo' ? h.redo : h.undo).push(h.last);
+    h.skip = true;
+    h.at = 0;
+    update({ drawings: to });
+    return true;
+  };
+  const pasteDrawings = (): boolean => {
+    if (!drawingClipboard.length) return false;
+    const stamp = Date.now().toString(36);
+    update({ drawings: [...((cfg.drawings || []) as Drawing[]), ...drawingClipboard.map((d, k) => ({ ...JSON.parse(JSON.stringify(d)), id: `d${stamp}${k}${Math.random().toString(36).slice(2, 5)}`, locked: false }))] });
+    return true;
+  };
+
   const callbacksRef = useRef<import('../../chart/engine').EngineCallbacks>({});
   callbacksRef.current = {
     onCrosshair: (c) => {
@@ -360,6 +399,17 @@ export function ChartModule({ module }: ModuleProps) {
       void api.call('series:loadMore', keyRef.current, 2000).catch(() => {});
     },
     onDrawingsChange: (d) => update({ drawings: d }),
+    onEditCommand: (cmd, selected) => {
+      if (cmd === 'undo' || cmd === 'redo') return stepDrawings(cmd);
+      if (cmd === 'copy') {
+        const d = selected ? ((cfg.drawings || []) as Drawing[]).find((x) => x.id === selected) : undefined;
+        if (!d) return false;
+        drawingClipboard = [JSON.parse(JSON.stringify(d))];
+        toast({ title: 'Drawing copied', body: 'Ctrl+V pastes it on any chart', kind: 'ok' });
+        return true;
+      }
+      return pasteDrawings();
+    },
     onDrawingSelect: (id) => setSelectedDrawing(id),
     onToolDone: () => setTool(null),
     onTradeLineDrag: (id, price) => {
@@ -385,7 +435,7 @@ export function ChartModule({ module }: ModuleProps) {
             { label: d.locked ? 'Unlock' : 'Lock', icon: d.locked ? 'unlock' : 'lock', onClick: () => set({ locked: !d.locked }) },
             { label: 'Hide', icon: 'eyeOff', onClick: () => set({ hidden: true }) },
             { label: 'Duplicate', icon: 'copy', onClick: () => update({ drawings: [...(cfg.drawings as Drawing[]), { ...JSON.parse(JSON.stringify(d)), id: `d${Date.now().toString(36)}`, points: d.points.map((p) => ({ t: p.t, p: p.p * 1.002 })) }] }) },
-            { label: 'Copy', icon: 'copy', hint: 'Paste on any chart', onClick: () => (drawingClipboard = [JSON.parse(JSON.stringify(d))]) },
+            { label: 'Copy', icon: 'copy', hint: 'Ctrl+C', onClick: () => (drawingClipboard = [JSON.parse(JSON.stringify(d))]) },
             { label: 'Bring to front', icon: 'layers', onClick: () => update({ drawings: [...(cfg.drawings as Drawing[]).filter((x) => x.id !== d.id), d] }) },
             ...lineAlertItems(d, cfg),
             { label: 'Delete', icon: 'trash', danger: true, disabled: d.locked, onClick: () => update({ drawings: (cfg.drawings as Drawing[]).filter((x) => x.id !== d.id) }) },
@@ -398,7 +448,8 @@ export function ChartModule({ module }: ModuleProps) {
         { label: `Add alert at ${fmtNum(price, pd)}`, icon: 'bell', onClick: () => bus.emit('alerts:create', { symbol: cfg.symbol, market: cfg.market, price }, false) },
         { label: `Horizontal line at ${fmtNum(price, pd)}`, icon: 'hline', onClick: () => update({ drawings: [...(cfg.drawings || []), { id: `d${Date.now().toString(36)}`, type: 'hline', points: [{ t: info.time, p: price }], color: settings.accent, width: 1.5, dash: 'solid' }] }) },
       );
-      if (drawingClipboard.length) items.push({ label: 'Paste drawing', icon: 'copy', onClick: () => update({ drawings: [...(cfg.drawings || []), ...drawingClipboard.map((d) => ({ ...d, id: `d${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` }))] }) });
+      if (drawingClipboard.length) items.push({ label: 'Paste drawing', icon: 'copy', hint: 'Ctrl+V', onClick: () => void pasteDrawings() });
+      if (drawHist.current.undo.length) items.push({ label: 'Undo drawing change', icon: 'undo', hint: 'Ctrl+Z', onClick: () => void stepDrawings('undo') });
       items.push({ sep: true }, { label: 'Reset chart view', icon: 'refresh', hint: 'Dbl-click axis', onClick: () => engRef.current?.resetView() }, { label: 'Scroll to latest', icon: 'chevRight', hint: 'End', onClick: () => engRef.current?.scrollToLatest() });
       setCtxItems(items);
       ctxMenu.open(null);
