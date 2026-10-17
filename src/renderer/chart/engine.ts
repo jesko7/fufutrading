@@ -65,6 +65,14 @@ export interface RenderCtx {
   dpr: number;
 }
 
+/** A value tag on the price axis (the last value of a plot). */
+interface AxisTag {
+  y: number;
+  text: string;
+  color: string;
+  alpha?: number;
+}
+
 /** Momentum after a flick: the release velocity is scaled down and decays with this time constant (ms). */
 const GLIDE_SCALE = 0.5;
 const GLIDE_MS = 140;
@@ -808,25 +816,29 @@ export class ChartEngine {
     }
     // last values of indicators in sub panes
     if (pane.id !== 'main') {
+      const labels: AxisTag[] = [];
       for (const ind of pane.indicators) {
         if (!ind.visible) continue;
         for (const pl of ind.plots) {
           if (pl.visible === false) continue;
           const v = lastFinite(pl.values, this.bars.length - 1);
           if (!isFinite(v)) continue;
-          this.axisLabel(ctx, s.toY(v), paneValue(pane, v, ind.precision ?? dec), pl.color, pane);
+          labels.push({ y: s.toY(v), text: paneValue(pane, v, ind.precision ?? dec), color: pl.color });
         }
       }
+      this.axisLabels(ctx, pane, labels);
     } else {
       // overlay indicator last values (tracked plots)
+      const labels: AxisTag[] = [];
       for (const ind of pane.indicators) {
         if (!ind.visible) continue;
         for (const pl of ind.plots) {
           if (pl.visible === false || pl.trackPrice === false) continue;
           const v = lastFinite(pl.values, this.bars.length - 1);
-          if (isFinite(v) && pl.type !== 'histogram' && pl.type !== 'columns') this.axisLabel(ctx, s.toY(v), formatAxis(v, this.priceDecimals), pl.color, pane, 0.85);
+          if (isFinite(v) && pl.type !== 'histogram' && pl.type !== 'columns') labels.push({ y: s.toY(v), text: formatAxis(v, this.priceDecimals), color: pl.color, alpha: 0.85 });
         }
       }
+      this.axisLabels(ctx, pane, labels);
       if (isFinite(this.lastPrice)) {
         const b = this.bars;
         const n = b.length - 1;
@@ -850,6 +862,16 @@ export class ChartEngine {
     const m = Math.floor((s % 3600) / 60);
     const ss = s % 60;
     return h ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+
+  /** Value tags of one pane, spread apart where they would overlap (kept in value order, inside the pane). */
+  private axisLabels(ctx: CanvasRenderingContext2D, pane: Pane, tags: AxisTag[]): void {
+    const H = 18;
+    const list = tags.filter((t) => Number.isFinite(t.y) && t.y >= pane.top - 2 && t.y <= pane.top + pane.height + 2).sort((a, b) => a.y - b.y);
+    const tops = list.map((t) => t.y - 9);
+    for (let k = 1; k < tops.length; k++) tops[k] = Math.max(tops[k], tops[k - 1] + H + 1);
+    for (let k = tops.length - 1; k >= 0; k--) tops[k] = Math.min(tops[k], k === tops.length - 1 ? pane.top + pane.height - H : tops[k + 1] - H - 1);
+    list.forEach((t, k) => this.axisLabel(ctx, Math.max(pane.top, tops[k]) + 9, t.text, t.color, pane, t.alpha ?? 1));
   }
 
   axisLabel(ctx: CanvasRenderingContext2D, y: number, text: string, bg: string, pane: Pane, alpha = 1, sub?: string): void {
