@@ -200,6 +200,9 @@
   color: var(--text);
   line-height: 1.45;
 }
+.bot-warn.danger {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
 .warn-text {
   color: var(--warn);
 }

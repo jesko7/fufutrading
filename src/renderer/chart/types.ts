@@ -169,7 +169,8 @@ export interface IndicatorOutput {
   /** "volume" shows values as K/M/B, "percent" with a % sign. */
   format?: string;
   error?: string;
-  warnings?: string[];
+  /** Lookahead / repainting patterns and run notes (legend ⚠). */
+  warnings?: import('../../engine/types').ScriptWarning[];
   visible: boolean;
   /** Strategy outputs: trades to draw on the chart. */
   trades?: { entryIndex: number; exitIndex: number; entryPrice: number; exitPrice: number; dir: 1 | -1; pnl: number; entryLabel?: string; exitLabel?: string; open?: boolean }[];

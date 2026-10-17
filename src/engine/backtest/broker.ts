@@ -192,6 +192,14 @@ export interface PendingSnap {
   comment?: string;
 }
 
+/** A strategy's position and working orders after a bar (repaint check: live vs backtest). */
+export interface StrategyState {
+  /** Signed position size. */
+  pos: number;
+  /** Working orders, described and sorted ('buy 0.5 stop 63500.00 "Long"'). */
+  orders: string[];
+}
+
 /** strategy.exit ids are namespaced internally so an exit may share its name with an entry. */
 const EXIT_NS = '__exit_';
 export const publicOrderId = (id: string): string => (id.startsWith(EXIT_NS) ? id.slice(EXIT_NS.length) : id);
@@ -220,6 +228,9 @@ export class StrategyBroker {
   private cumProfit = 0;
   ticks: TickProvider | null = null;
   ticksUsedBars = 0;
+  /** Bars after which the state is recorded into `states` (repaint check). */
+  stateAt: Set<number> | null = null;
+  states: Record<number, StrategyState> = {};
 
   data: BarData;
 
@@ -359,6 +370,24 @@ export class StrategyBroker {
       out.push({ id: o.id, kind: o.kind, side: o.dir, closeQty: close, openQty: open, closeAll: false, limit: o.limit, stop: o.triggered ? undefined : o.stop, fromEntry: o.fromEntry, comment: o.comment });
     }
     return out;
+  }
+
+  /** Position and working orders now: market orders waiting for the next bar and resting orders with resolved prices. */
+  stateNow(price = this.data.c[this.i]): StrategyState {
+    const tick = this.cfg.tick > 0 ? this.cfg.tick : 1e-8;
+    const dec = Math.max(0, Math.min(10, Math.ceil(-Math.log10(tick) - 1e-9)));
+    const px = (x: number) => (Math.round(x / tick) * tick).toFixed(dec);
+    const qty = (x: number) => String(+x.toPrecision(6));
+    const orders: string[] = [];
+    for (const o of this.pending) {
+      if (o.kind === 'exit' || o.limit !== undefined || o.stop !== undefined) continue;
+      orders.push(o.kind === 'close' ? `close "${publicOrderId(o.id)}" at market` : `${o.dir > 0 ? 'buy' : 'sell'}${o.qty > 0 ? ` ${qty(o.qty)}` : ''} at market "${publicOrderId(o.id)}"`);
+    }
+    for (const s of this.pendingSnapshot(price)) {
+      const at = [s.limit !== undefined ? `limit ${px(s.limit)}` : '', s.stop !== undefined ? `${s.trailing ? 'trailing stop' : 'stop'} ${px(s.stop)}` : ''].filter(Boolean).join(' / ');
+      orders.push(`${s.side > 0 ? 'buy' : 'sell'} ${qty(s.closeQty + s.openQty)} ${at} "${s.id}"`);
+    }
+    return { pos: +this.positionSize.toPrecision(10), orders: orders.sort() };
   }
 
   // ------------------------------------------------------------------ quantities
@@ -564,6 +593,7 @@ export class StrategyBroker {
         this.fillMarket(m, c, i);
       }
     }
+    if (this.stateAt?.has(i)) this.states[i] = this.stateNow(c);
     const eq = this.equityNow(c);
     this.equity[i] = eq;
     if (eq > this.peak) this.peak = eq;

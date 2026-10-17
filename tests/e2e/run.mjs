@@ -1073,6 +1073,62 @@ const S = {
     await shot('34-help');
     await page.keyboard.press('Escape');
   },
+  async repaint() {
+    console.log('scenario: repainting & lookahead');
+    const spec = { symbol: 'BTCUSDT', market: 'spot', tf: '1h', chartType: 'candles' };
+    // a script that reads the 4-hour close before the 4-hour bar has closed
+    const code = '//@version=6\nindicator("E2E lookahead", overlay=true)\nplot(request.security(syminfo.tickerid, "240", close, lookahead = barmerge.lookahead_on), "HTF close")\n';
+    const meta = await page.evaluate((c) => window.fufu.invoke('scripts:save', { name: 'E2E lookahead', code: c, language: 'pine' }), code);
+    const rep = await page.evaluate(([id, sp]) => window.fufu.invoke('scripts:repaintCheck', { scriptId: id, spec: sp }), [meta.id, spec]);
+    check(rep.ok && rep.diffs.some((d) => d.title === 'HTF close') && rep.badTimes.length > rep.checked * 0.5, `lookahead caught on real data (${rep.badTimes.length} of ${rep.checked} replayed bars differ, ${rep.ms} ms)`);
+    const mtf = await page.evaluate((sp) => window.fufu.invoke('scripts:repaintCheck', { scriptId: 'builtin:mtf_trend', spec: sp }), spec);
+    check(mtf.ok && mtf.diffs.length === 0 && mtf.checked >= 50, `the higher-timeframe trend script replays identically (${mtf.checked} bars, ${mtf.ms} ms)`);
+    const st = await page.evaluate((sp) => window.fufu.invoke('scripts:repaintCheck', { scriptId: 'builtin:strat_ma_cross', spec: { ...sp, tf: '15m' } }), spec);
+    check(st.ok && st.isStrategy && st.diffs.length === 0, `a strategy matches what a bot had at every replayed bar close (${st.checked} bars)`);
+    // on the chart: a red ⚠ in the legend opens the dialog with the code's finding and the replay
+    await page.locator('button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    await page.fill('.picker-main input', 'E2E lookahead');
+    await wait(200);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Escape');
+    const warnBtn = page.locator('.ind-item', { hasText: 'E2E lookahead' }).locator('.ind-warn.lookahead');
+    await warnBtn.waitFor({ timeout: 30000 });
+    check(true, 'the legend marks the lookahead in red');
+    await warnBtn.click();
+    await page.waitForSelector('.repaint-dlg .rp-warning:has-text("Lookahead")', { timeout: 10000 });
+    await page.waitForSelector('.repaint-dlg .rp-diffs', { timeout: 60000 });
+    const txt = await page.textContent('.repaint-dlg');
+    check(/not known at the time/.test(txt) && /HTF close/.test(txt) && /line 3/.test(txt), 'the dialog shows the replay differences and the line in the code');
+    await shot('49-repaint-dialog');
+    await page.click('.repaint-dlg .rp-line:has-text("line 3")');
+    await page.waitForSelector('.script-editor .cm-content', { timeout: 15000 });
+    await page.waitForFunction(() => /E2E lookahead/.test(document.querySelector('.se-title')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'the line link opens the script in the editor');
+    // the editor's replay button checks the code in the editor
+    await page.click('.stack-head button[data-tip^="Repainting & lookahead"]');
+    await page.waitForSelector('.repaint-dlg .rp-diffs', { timeout: 60000 });
+    check(true, 'the editor runs the same check');
+    await page.click('.modal button:has-text("Close")');
+    // a strategy that trades on the future: the Strategy Tester says so above the results
+    const sc = '//@version=6\nstrategy("E2E future strategy", overlay=true)\nh = request.security(syminfo.tickerid, "240", close, lookahead = barmerge.lookahead_on)\nif close < h\n    strategy.entry("L", strategy.long)\nif close > h\n    strategy.close("L")\n';
+    const sm = await page.evaluate((c) => window.fufu.invoke('scripts:save', { name: 'E2E future strategy', code: c, language: 'pine' }), sc);
+    void sm;
+    await page.locator('button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    await page.fill('.picker-main input', 'E2E future strategy');
+    await wait(200);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Escape');
+    const srow = page.locator('.ind-item', { hasText: 'E2E future strategy' });
+    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /E2E future strategy/.test(r.textContent || '') && /trades/.test(r.textContent || '')), null, { timeout: 60000 });
+    await srow.hover();
+    await srow.locator('button[data-tip="More"]').click();
+    await page.click('.menu-item:has-text("Open in Strategy Tester")');
+    const opened = await page.waitForSelector('.lookahead-banner', { timeout: 120000 }).then(() => true).catch(() => false);
+    check(opened, 'the Strategy Tester warns about the lookahead above the results');
+    if (opened) await shot('50-tester-lookahead');
+  },
 };
 
 try {

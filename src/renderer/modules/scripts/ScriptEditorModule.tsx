@@ -24,6 +24,8 @@ import { TEMPLATES } from './templates';
 import { useScripts, loadScripts, type ScriptDoc, type ScriptMeta, type AnalyzeResult } from './client';
 import { openModule, activateModule } from '../../app/moduleOps';
 import { lastChartId } from './focus';
+import { openRepaintCheck } from './repaint';
+import type { SymbolId } from '../../../shared/symbols';
 import './scripts.css';
 
 type Lang = 'pine' | 'python';
@@ -518,6 +520,7 @@ export function ScriptEditorModule({ module }: ModuleProps) {
   const kind = analysis?.meta?.type || doc?.kind;
   const errCount = analysis && !analysis.ok ? 1 : 0;
   const warnCount = (analysis?.warnings || []).filter((w) => w.kind === 'lookahead' || w.kind === 'repaint').length;
+  const warnLook = (analysis?.warnings || []).filter((w) => w.kind === 'lookahead').length;
   const outline = useMemo(() => (lang === 'python' ? pythonOutline(code()) : { functions: analysis?.functions || [], variables: analysis?.variables || [] }), [analysis, lang]);
 
   return (
@@ -552,6 +555,16 @@ export function ScriptEditorModule({ module }: ModuleProps) {
             {!narrow && ' Test'}
           </button>
         )}
+        <button
+          className={clsx('icon-btn', warnLook > 0 ? 'lookahead' : warnCount > 0 && 'repaint')}
+          onClick={() => {
+            const sp = targetSpec();
+            openRepaintCheck({ scriptId: doc && !dirty ? doc.id : undefined, code: doc && !dirty ? undefined : code(), language: lang, name: title, spec: { symbol: sp.symbol as SymbolId, market: sp.market as 'spot' | 'futures', tf: sp.tf, chartType: sp.chartType }, warnings: analysis?.ok ? analysis.warnings : undefined, onJump: jumpTo });
+          }}
+          data-tip={`Repainting & lookahead: replay the chart's recent bars as if live and compare with the history${warnCount ? ` (${warnCount} pattern${warnCount > 1 ? 's' : ''} found in the code)` : ''}`}
+        >
+          <Icon name="replay" size={15} />
+        </button>
         <button className="icon-btn" onClick={() => void runInspector()} data-tip="Bar inspector: values of every variable on each bar">
           {inspecting ? <Spinner size={13} /> : <Icon name="layers" size={15} />}
         </button>

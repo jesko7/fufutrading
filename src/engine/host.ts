@@ -7,7 +7,7 @@
  * Pure logic: no worker_threads dependency, so it is unit-tested directly.
  */
 import { METRICS, isMetric, type MetricKind } from '../shared/metrics';
-import { PineInstance, analyzePine, compileCached, securityRequests, toScriptError } from './pine';
+import { PineInstance, analyzePine, compileCached, securityRequests, securityWarningFilter, toScriptError } from './pine';
 import { runPython, analyzePython, type PyInitOptions, type DebugControl } from './python/host';
 import { LiveBars, fromPacked } from './data';
 import type { BarSeries, RunContext, ScriptLanguage, ScriptResult, ScriptInputDef, ScriptWarning, ScriptError, StrategyRaw, TradeRec } from './types';
@@ -95,6 +95,10 @@ export interface RunSpec {
   bot?: boolean;
   /** Bar magnifier: fill orders along lower-timeframe klines inside each bar. */
   magnifier?: Magnifier;
+  /** Pine: the last bar is still forming (barstate.isrealtime, forming higher-timeframe values). */
+  realtime?: boolean;
+  /** Record the strategy's position and working orders after these bars (repaint check). */
+  stateAt?: number[];
 }
 
 /** Parts of a request.security data key: `<market>:<symbol>:<tf>:<candles|heikinashi|metric>`. */
@@ -111,7 +115,7 @@ export function describeKey(key: string): string {
   return `${sym} ${kp.tf}${kp.chartType === 'heikinashi' ? ' Heikin-Ashi' : ''}`;
 }
 
-function toBars(x: BarSeries | Float64Array, tf: string, chartType: string): BarSeries {
+export function toBars(x: BarSeries | Float64Array, tf: string, chartType: string): BarSeries {
   return x instanceof Float64Array ? fromPacked(x, tf, chartType) : x;
 }
 
@@ -234,9 +238,12 @@ export class ScriptHost {
     const a = analyzePine(code);
     if (!a.ok) return { ok: false, language: lang, error: a.error, inputs: [], warnings: [], security: [] };
     let security: string[] = [];
+    let keep: (w: { line?: number; message: string }) => boolean = () => true;
     if (ctx) {
       try {
-        security = [...new Set(securityRequests(compileCached(code), {}, ctx).map((r) => r.key))];
+        const reqs = securityRequests(compileCached(code), {}, ctx);
+        security = [...new Set(reqs.map((r) => r.key))];
+        keep = securityWarningFilter(compileCached(code), reqs, ctx.tf);
       } catch (e) {
         return { ok: false, language: lang, error: toScriptError(e), inputs: [], warnings: [], security: [] };
       }
@@ -258,7 +265,7 @@ export class ScriptHost {
       alertconditions,
       meta: { type: m.type === 'strategy' ? 'strategy' : 'indicator', title: m.title, shortTitle: m.shortTitle, overlay: m.overlay, precision: m.precision },
       inputs: (a.inputs || []).map((i) => ({ key: i.key, type: i.type, title: i.title, defval: i.defval, min: i.min, max: i.max, step: i.step, options: i.options, tooltip: i.tooltip, group: i.group, inline: i.inline })) as ScriptInputDef[],
-      warnings: (a.warnings || []).map((w) => ({ line: w.line, message: w.message, kind: w.kind })),
+      warnings: (a.warnings || []).filter(keep).map((w) => ({ line: w.line, message: w.message, kind: w.kind })),
       security,
       functions: a.functions as AnalyzeResult['functions'],
       variables: a.variables as AnalyzeResult['variables'],
@@ -390,6 +397,7 @@ export class ScriptHost {
       }
       const r = await runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security: inst.securityBars() });
       res = r.result;
+      res.warnings.unshift(...pythonWarnings(spec.code));
       need = r.need.filter((k) => !inst.sec.has(k));
     }
     return this.reply(inst, res, t0bars, need, hint);
@@ -419,7 +427,9 @@ export class ScriptHost {
       security[k] = toBars(v, kp.tf, kp.chartType);
     }
     if (spec.lang === 'python') {
-      return runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security, ticks: spec.ticks, debug: spec.debug, maxMs: spec.maxMs, bot: spec.bot });
+      const r = await runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security, ticks: spec.ticks, debug: spec.debug, maxMs: spec.maxMs, bot: spec.bot, stateAt: spec.stateAt });
+      r.result.warnings.unshift(...pythonWarnings(spec.code));
+      return r;
     }
     let c;
     try {
@@ -429,7 +439,7 @@ export class ScriptHost {
     }
     const need = [...new Set(securityRequests(c, spec.inputs, spec.ctx).map((r) => r.key))].filter((k) => !security[k]);
     if (need.length) return { result: emptyResult('pine', { message: `Missing data: ${need.map(describeKey).join(', ')}`, kind: 'runtime' }), need };
-    const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop, bot: spec.bot });
+    const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop, bot: spec.bot, realtime: spec.realtime, stateAt: spec.stateAt });
     return { result: inst.run(), need: [] };
   }
 }
@@ -580,6 +590,7 @@ export function pythonWarnings(code: string): ScriptWarning[] {
     if (/\.shift\(\s*-\d/.test(s) || /np\.roll\([^)]*,\s*-\d/.test(s)) out.push({ line: k + 1, kind: 'lookahead', message: 'Negative shift/roll moves future values onto earlier bars (lookahead).' });
     if (/\[\s*[^\]]*\+\s*1\s*\]/.test(s) && /self\.bar|_ctx\.i/.test(s)) out.push({ line: k + 1, kind: 'lookahead', message: 'Indexing at bar + 1 reads the next (future) bar.' });
     if (/_cols\[/.test(s)) out.push({ line: k + 1, kind: 'lookahead', message: 'data._cols holds full arrays including future bars; use data.close etc. inside next().' });
+    if (/\b(time\.time|datetime\.(now|utcnow|today)|date\.today)\s*\(/.test(s)) out.push({ line: k + 1, kind: 'repaint', message: "Repainting: the clock time changes from run to run, so logic based on it gives different results on the same bars later (like Pine's timenow)." });
   });
   return out;
 }

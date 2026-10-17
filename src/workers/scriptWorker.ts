@@ -6,6 +6,7 @@
  */
 import { parentPort, workerData } from 'node:worker_threads';
 import { ScriptHost, runTrial, botStep } from '../engine/host';
+import { repaintCheck } from '../engine/repaint';
 import { initPython, type PyInitOptions } from '../engine/python/host';
 
 interface WorkerInit {
@@ -92,6 +93,13 @@ async function handle(m: any): Promise<{ r: unknown; transfer: boolean }> {
       started(m);
       const jobId = m.id as number;
       const r = await runTrial(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId } as never);
+      return { r, transfer: false };
+    }
+    case 'repaint': {
+      if (m.spec.lang === 'python') await ensurePython();
+      started(m);
+      const jobId = m.id as number;
+      const r = await repaintCheck(host, { ...m.spec, shouldStop: () => Atomics.load(ctl, 0) === jobId });
       return { r, transfer: false };
     }
     case 'botStep': {

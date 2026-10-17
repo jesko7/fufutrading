@@ -19,6 +19,7 @@ import { Icon } from '../../components/Icon';
 import { Modal, openModal, NumberField, Toggle, Select, Tabs, Spinner, Empty, Menu, usePopover, promptDialog } from '../../components/ui';
 import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd, orderIdLabel } from '../../lib/format';
 import { useScripts, openScriptInEditor, loadScripts, type ScriptMeta } from '../scripts/client';
+import { openRepaintCheck, warningKinds } from '../scripts/repaint';
 import { STANDARD_TIMEFRAMES } from '../../../shared/timeframes';
 
 // ------------------------------------------------------------------ live state
@@ -230,7 +231,7 @@ function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStor
     scaleMax: r.meta.scaleMax,
     precision: r.meta.precision,
     format: r.meta.format,
-    warnings: r.warnings.filter((w) => w.kind === 'lookahead' || w.kind === 'repaint' || w.kind === 'runtime').map((w) => `${w.kind === 'lookahead' ? 'Lookahead' : w.kind === 'repaint' ? 'Repaint' : 'Runtime'}: ${w.message}`),
+    warnings: r.warnings.filter((w) => w.kind === 'lookahead' || w.kind === 'repaint' || w.kind === 'runtime'),
   };
   // the fills reference plot ids; hidden plots keep their data so fills still work
   if (r.strategy) {
@@ -297,6 +298,16 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
   const remove = () => update({ indicators: cfg.indicators.filter((x) => x.id !== ind.id) });
   const sum = r?.strategy ? strategySummary(r) : null;
   const warn = output?.warnings || [];
+  const wk = warningKinds(warn);
+  const checkRepaint = () =>
+    openRepaintCheck({
+      scriptId: ind.scriptId,
+      name: live?.script?.name || name,
+      inputs: ind.inputs || {},
+      spec: seriesSpec(cfg),
+      strategy: ind.strategy ? (ind.strategy as never) : undefined,
+      warnings: r?.ok ? warn : undefined,
+    });
   const values: ReactNode[] = [];
   if (r && r.ok && !hidden) {
     const fmt = (v: number) => (!Number.isFinite(v) ? '∅' : r.meta.format === 'volume' ? formatVolume(v) : `${fmtNum(v, r.meta.precision ?? autoDecimals(v))}${r.meta.format === 'percent' ? '%' : ''}`);
@@ -357,9 +368,13 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
         </span>
       )}
       {warn.length > 0 && (
-        <span className="ind-warn" data-tip={warn.join('\n')}>
+        <button
+          className={clsx('ind-warn', wk.lookahead ? 'lookahead' : wk.repaint ? 'repaint' : 'note')}
+          onClick={checkRepaint}
+          data-tip={`${wk.lookahead ? `Lookahead: uses data that did not exist yet at the bar${wk.repaint ? ' · may repaint live' : ''}` : wk.repaint ? 'May repaint: live values can differ from the history' : warn.map((w) => w.message).join('\n')}${wk.lookahead || wk.repaint ? '\nClick for details and a live replay check' : ''}`}
+        >
           <Icon name="alert" size={12} />
-        </span>
+        </button>
       )}
       {live?.status === 'error' && (
         <button className="ind-err link-btn" onClick={() => void openScriptInEditor(ind.scriptId, { line: r?.error?.line })} data-tip="Open in the script editor">
@@ -373,6 +388,7 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
           items={[
             { label: 'Duplicate', icon: 'copy', onClick: () => update({ indicators: [...cfg.indicators, { ...JSON.parse(JSON.stringify(ind)), id: newId('i') }] }) },
             { label: 'Reset inputs to defaults', icon: 'refresh', onClick: () => setInd({ inputs: {} }) },
+            { label: 'Check for repainting…', icon: 'replay', onClick: checkRepaint },
             ...(r?.strategy ? [{ label: 'Open in Strategy Tester', icon: 'flask', onClick: () => void openStrategyTester(cfg, ind) }] : []),
             {
               label: 'Add alert…',

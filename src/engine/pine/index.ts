@@ -2,7 +2,7 @@
  * Pine Script engine public API: compile/analyze, run on historical data (indicators and
  * strategies), request.security contexts, and live instances that re-run only the realtime bar.
  */
-import { compilePine, type CompiledPine } from './compiler';
+import { compilePine, SECURITY_REPAINT, type CompiledPine } from './compiler';
 import { PineError } from './lexer';
 import { Runtime, type BarData, type PlotOut, type SymbolCtx } from './runtime';
 import { B, oursToPineTf, pineTfToOurs } from './builtins/bind';
@@ -134,6 +134,23 @@ export function securityRequests(c: CompiledPine, inputs: Record<string, unknown
   return out;
 }
 
+/**
+ * request.security only repaints on the realtime bar when it requests a higher timeframe than the
+ * chart's: a filter that drops that warning for lines whose requests all resolve to the chart's
+ * timeframe or a lower one (kept while the requests are unknown).
+ */
+export function securityWarningFilter(c: CompiledPine, reqs: SecurityRequest[], chartTf: string): (w: { line?: number; message: string }) => boolean {
+  if (!c.security.length || reqs.length !== c.security.length) return () => true;
+  const ms = (tf: string) => {
+    const p = parseTimeframe(tf);
+    return p ? tfDurationMs(p) : NaN;
+  };
+  const chartMs = ms(chartTf);
+  const higher = new Set<number>();
+  for (const r of reqs) if (!r.lowerTf && !(ms(r.tf) <= chartMs)) higher.add(c.security[r.site].line);
+  return (w) => w.message !== SECURITY_REPAINT || w.line === undefined || higher.has(w.line);
+}
+
 /** Map values recorded on context bars to chart bars without lookahead (unless requested). */
 export function mapSecurity(chart: BarSeries, ctxBars: BarSeries, rec: unknown[], opts: { lookahead: boolean; gaps: boolean; lowerTf: boolean; realtime: boolean }): unknown[] {
   const out: unknown[] = new Array(chart.length);
@@ -213,6 +230,8 @@ export interface PineRunOptions {
   shouldStop?: () => boolean;
   /** Live bot step: market orders created on the last bar fill at its close (the next bar's open). */
   bot?: boolean;
+  /** Record the strategy's position and working orders after these bars (repaint check). */
+  stateAt?: number[];
 }
 
 function brokerFromScript(c: CompiledPine, opts: PineRunOptions): Partial<BrokerConfig> {
@@ -267,11 +286,23 @@ export class PineInstance {
       const sc = { ...brokerFromScript(this.c, opts), ...(opts.strategy || {}) };
       this.broker = new StrategyBroker({ symbol: opts.ctx.symbol as SymbolId, tick: opts.ctx.mintick, ...sc }, data as any);
       if (opts.ticks) this.broker.ticks = opts.ticks;
+      if (opts.stateAt) this.broker.stateAt = new Set(opts.stateAt);
       this.R.broker = this.broker;
     }
     if (opts.trace) {
       this.R.traceOn = true;
       this.R.traceData = this.c.traceNames.map(() => new Float64Array(Math.max(1, this.R.n)).fill(NaN));
+    }
+  }
+
+  /** A plot offset that comes from inputs, evaluated with this instance's inputs. */
+  private offsetOf(p: CompiledPine['plots'][number]): number {
+    if (!p.offsetJs) return p.offset;
+    try {
+      const v = Math.round(Number(new Function('R', 'B', `return (${p.offsetJs});`)(this.R, B)));
+      return Number.isFinite(v) ? v : p.offset;
+    } catch {
+      return p.offset;
     }
   }
 
@@ -289,7 +320,7 @@ export class PineInstance {
         colors: p.colorDynamic ? new Array(n).fill(null) : null,
         values: vals,
         width: p.width,
-        offset: p.offset,
+        offset: this.offsetOf(p),
         histbase: p.histbase,
         display: p.display,
         trackPrice: p.trackPrice,
@@ -494,7 +525,8 @@ export class PineInstance {
     res.alerts = R.alerts.map((a) => ({ title: a.title, message: a.message, values: a.values.slice(0, n) }));
     res.alertEvents = R.alertEvents.slice(-500);
     res.logs = R.logs.slice(-2000);
-    res.warnings = [...c.warnings.map((w) => ({ line: w.line, message: w.message, kind: w.kind })), ...[...R.warnings].map((m) => ({ message: m, kind: 'runtime' as const }))];
+    const keep = securityWarningFilter(c, this.secReqs, this.opts.ctx.tf);
+    res.warnings = [...c.warnings.filter(keep).map((w) => ({ line: w.line, message: w.message, kind: w.kind })), ...[...R.warnings].map((m) => ({ message: m, kind: 'runtime' as const }))];
     if (this.broker) res.strategy = brokerRaw(this.broker);
     if (this.R.traceOn) {
       res.trace = {};
@@ -535,6 +567,7 @@ export function brokerRaw(br: StrategyBroker): StrategyRaw {
     position: br.positionSize,
     avgPrice: br.positionAvgPrice,
     pending: br.pendingSnapshot(),
+    states: br.stateAt ? br.states : undefined,
   };
 }
 

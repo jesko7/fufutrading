@@ -30,6 +30,10 @@ export interface InputDef {
   line: number;
 }
 
+/** The realtime-bar repaint of request.security (dropped where every request is the chart's timeframe or lower). */
+export const SECURITY_REPAINT =
+  'Repainting: on the realtime bar request.security returns the still-forming higher-timeframe value, so the live value differs from what the history shows afterwards. For confirmed values only, request expression[1] with lookahead=barmerge.lookahead_on.';
+
 export interface PlotStatic {
   id: string;
   index: number;
@@ -39,7 +43,9 @@ export interface PlotStatic {
   colorDynamic: boolean;
   style: string;
   width: number;
+  /** Offset with the default inputs; `offsetJs` evaluates it from the actual inputs (simple int). */
   offset: number;
+  offsetJs?: string;
   histbase: number;
   display: boolean;
   trackPrice: boolean;
@@ -195,6 +201,8 @@ class Compiler {
   reassigned = new Set<string>();
   /** globals whose initializer was inlined into a request.security argument */
   staticUsed = new Map<string, number>();
+  /** globals whose initializer was inlined into a plot offset */
+  offsetStatics = new Map<string, number>();
   /** top-level variables with their JS read expressions (bar inspector tracing) */
   traceVars: { name: string; js: string; line: number }[] = [];
   variablesList: { name: string; line: number }[] = [];
@@ -297,6 +305,9 @@ class Compiler {
     ].join('\n');
     for (const [name, line] of this.staticUsed) {
       if (this.reassigned.has(name)) throw new PineError(`request.security: '${name}' is reassigned with ':=' — the symbol/timeframe must be fixed (use an input or a constant)`, line, 0, 'compile');
+    }
+    for (const [name, line] of this.offsetStatics) {
+      if (this.reassigned.has(name)) throw new PineError(`offset: '${name}' is reassigned with ':=' — a plot offset must be fixed (use an input or a constant)`, line, 0, 'compile');
     }
     // finalize placeholders
     js = this.finalize(js);
@@ -1001,11 +1012,71 @@ class Compiler {
     return r.ret === 'bool' ? r.js : `R.bool(${r.js})`;
   }
 
-  /** Constant plot offset; negative offsets draw values on bars before they were known. */
-  plotOffset(arg: Expr | undefined, node: { line: number }): number {
-    const off = Number(this.constEval(arg) ?? 0);
-    if (off < 0) this.warn(node, `Lookahead: offset=${off} draws each value ${-off} bar(s) before it was calculated, so the plot shows information that was not available at that bar.`, 'lookahead');
-    return off;
+  /**
+   * Plot offset: a constant, or a simple int from inputs (Ichimoku's `offset=-displacement + 1`),
+   * evaluated per instance from the actual inputs. Negative offsets draw values on bars before
+   * they were known.
+   */
+  plotOffset(arg: Expr | undefined, node: { line: number }): { offset: number; offsetJs?: string } {
+    const c = this.constEval(arg);
+    if (arg === undefined || typeof c === 'number') {
+      const off = Math.round(Number(c ?? 0)) || 0;
+      if (off < 0) this.warn(node, `Lookahead: offset=${off} draws each value ${-off} bar(s) before it was calculated, so the plot shows information that was not available at that bar.`, 'lookahead');
+      return { offset: off };
+    }
+    const r = this.expr(this.inlineStatic(arg, this.offsetStatics));
+    if (/\b(i|ctx|G|O|H|L|C|V|T|TC)\b/.test(r.js.replace(/"[^"]*"/g, ''))) this.err('offset must be a constant or come from inputs (simple int)', arg);
+    const def = Math.round(Number(this.defaultEval(arg))) || 0;
+    if (def < 0) this.warn(node, `Lookahead: offset ${def} (with the default inputs) draws each value ${-def} bar(s) before it was calculated, so the plot shows information that was not available at that bar.`, 'lookahead');
+    return { offset: def, offsetJs: r.js };
+  }
+
+  /** Global variables initialised once (constants, inputs) replaced by their initializers; `used` collects them. */
+  inlineStatic(x: Expr, used: Map<string, number>, depth = 0): Expr {
+    if (depth > 8) return x;
+    if (x.k === 'id' && this.staticInits.has(x.name)) {
+      used.set(x.name, x.line);
+      return this.inlineStatic(this.staticInits.get(x.name)!, used, depth + 1);
+    }
+    if (x.k === 'unary') return { ...x, arg: this.inlineStatic(x.arg, used, depth + 1) };
+    if (x.k === 'binary') return { ...x, left: this.inlineStatic(x.left, used, depth + 1), right: this.inlineStatic(x.right, used, depth + 1) };
+    if (x.k === 'ternary') return { ...x, test: this.inlineStatic(x.test, used, depth + 1), then: this.inlineStatic(x.then, used, depth + 1), else: this.inlineStatic(x.else, used, depth + 1) };
+    return x;
+  }
+
+  /** Value of a simple expression with every input at its default (compile-time checks of input-dependent arguments). */
+  defaultEval(e: Expr, depth = 0): unknown {
+    if (depth > 12) return undefined;
+    const c = this.constEval(e);
+    if (c !== undefined) return c;
+    switch (e.k) {
+      case 'id': {
+        const init = this.staticInits.get(e.name);
+        return init ? this.defaultEval(init, depth + 1) : undefined;
+      }
+      case 'call': {
+        const name = this.fullName(e.callee);
+        if (!name || (name !== 'input' && !name.startsWith('input.'))) return undefined;
+        const a = e.args.find((x) => x.name === 'defval') || e.args.find((x) => !x.name);
+        return a ? this.constEval(a.value) : undefined;
+      }
+      case 'unary': {
+        const v = this.defaultEval(e.arg, depth + 1);
+        return typeof v === 'number' && (e.op === '-' || e.op === '+') ? (e.op === '-' ? -v : v) : undefined;
+      }
+      case 'binary': {
+        const a = this.defaultEval(e.left, depth + 1);
+        const b = this.defaultEval(e.right, depth + 1);
+        if (typeof a !== 'number' || typeof b !== 'number') return undefined;
+        if (e.op === '+') return a + b;
+        if (e.op === '-') return a - b;
+        if (e.op === '*') return a * b;
+        if (e.op === '/') return b ? a / b : undefined;
+        return undefined;
+      }
+      default:
+        return undefined;
+    }
   }
 
   warn(node: { line: number }, message: string, kind: CompiledPine['warnings'][number]['kind']): void {
@@ -1330,7 +1401,7 @@ class Compiler {
           colorDynamic: dynamic,
           style: String(this.constEval(style) ?? 'style_line'),
           width: Number(this.constEval(linewidth) ?? 1),
-          offset: this.plotOffset(offset, e),
+          ...this.plotOffset(offset, e),
           histbase: Number(this.constEval(histbase) ?? 0),
           display: disp !== 'none',
           trackPrice: !!this.constEval(trackprice),
@@ -1365,7 +1436,7 @@ class Compiler {
           colorDynamic: dynamic,
           style: String(this.constEval(get('style')) ?? (name === 'plotchar' ? 'char' : name === 'plotarrow' ? 'arrow' : 'xcross')),
           width: 1,
-          offset: this.plotOffset(get('offset'), e),
+          ...this.plotOffset(get('offset'), e),
           histbase: 0,
           display: this.constEval(get('display')) !== 'none',
           trackPrice: false,
@@ -1455,19 +1526,9 @@ class Compiler {
         const site = this.security.length;
         const la = name === 'request.security' ? this.constEval(lookahead) === 'lookahead_on' : false;
         const gp = name === 'request.security' ? this.constEval(gaps) === 'gaps_on' : false;
-        const inlineStatic = (x: Expr, depth = 0): Expr => {
-          if (depth > 8) return x;
-          if (x.k === 'id' && this.staticInits.has(x.name)) {
-            this.staticUsed.set(x.name, x.line);
-            return inlineStatic(this.staticInits.get(x.name)!, depth + 1);
-          }
-          if (x.k === 'binary') return { ...x, left: inlineStatic(x.left, depth + 1), right: inlineStatic(x.right, depth + 1) };
-          if (x.k === 'ternary') return { ...x, test: inlineStatic(x.test, depth + 1), then: inlineStatic(x.then, depth + 1), else: inlineStatic(x.else, depth + 1) };
-          return x;
-        };
         const staticJs = (x0: Expr | undefined, what: string) => {
           if (!x0) this.err(`request.security: missing ${what}`, e);
-          const x = inlineStatic(x0);
+          const x = this.inlineStatic(x0, this.staticUsed);
           const r = this.expr(x);
           if (/\b(i|ctx|G|O|H|L|C|V|T|TC)\b/.test(r.js.replace(/R\.inputs\[[^\]]+\]/g, '').replace(/"[^"]*"/g, ''))) this.err(`request.security: the ${what} must be a constant, an input or syminfo/timeframe value`, x);
           return r.js;
@@ -1476,7 +1537,7 @@ class Compiler {
         if (la) {
           const usesOffset = !!expression && this.offsetSafe(expression, false, 0);
           if (!usesOffset) this.warn(e, 'Lookahead: request.security with lookahead=barmerge.lookahead_on returns higher-timeframe values before that bar has closed on historical bars (future data leak). Use expression[1] with lookahead_on, or lookahead_off.', 'lookahead');
-        } else if (name === 'request.security') this.warn(e, 'Repainting: on the realtime bar request.security returns the still-forming higher-timeframe value, so historical and realtime values can differ.', 'repaint');
+        } else if (name === 'request.security') this.warn(e, SECURITY_REPAINT, 'repaint');
         return { js: `B.security(R, ${site}, ${ev(expression)})`, ret: 'any' };
       }
       case 'input':

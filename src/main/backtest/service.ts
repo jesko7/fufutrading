@@ -83,6 +83,8 @@ export interface BacktestRecord {
   /** Monte Carlo of the trade sequence (shuffled and resampled). */
   monteCarlo?: TradeMonteCarlo | null;
   warnings: string[];
+  /** Lookahead and repainting patterns found in the script (with lines). */
+  scriptWarnings?: import('../../engine/types').ScriptWarning[];
   /** security: other data the script requested (symbols, timeframes, futures data), for people. */
   info: { bars: number; warmup: number; source: string; fills: string; funding: number; mark: boolean; ms: number; config: Record<string, unknown>; security?: string[] };
   logs: { bar: number; time: number; level: string; msg: string }[];
@@ -395,7 +397,8 @@ export class BacktestService {
       trades: [],
       openTrades: [],
       feeSensitivity: null,
-      warnings: [...P.warnings, ...result.warnings.filter((w) => w.kind !== 'info').map((w) => w.message), ...(result.strategy?.warnings || [])],
+      warnings: [...P.warnings, ...result.warnings.filter((w) => w.kind === 'runtime' || w.kind === 'compat').map((w) => w.message), ...(result.strategy?.warnings || [])],
+      scriptWarnings: result.warnings.filter((w) => w.kind === 'lookahead' || w.kind === 'repaint').map((w) => ({ line: w.line, kind: w.kind, message: w.message })),
       info: { bars: bars.length - tradeFrom, warmup: tradeFrom, source: P.source, fills: P.fills, funding: P.fundingN, mark: P.markUsed, ms: 0, config: { ...(result.strategy?.config || {}) }, security: Object.keys(security).map(describeKey) },
       logs: result.logs.slice(-500),
     };

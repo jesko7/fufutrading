@@ -12,6 +12,7 @@ import os from 'node:os';
 import type { PyInitOptions } from '../../engine/python/host';
 import type { AnalyzeResult, InstanceReply, InstanceSpec, InstanceUpdate, RunSpec, TrialSpec, TrialResult, BotStepSpec, BotStepResult } from '../../engine/host';
 import type { RunContext, ScriptLanguage, ScriptResult } from '../../engine/types';
+import type { RepaintReport, RepaintSpec } from '../../engine/repaint';
 
 type Logger = (level: 'info' | 'warn' | 'error', msg: string) => void;
 type Group = 'live' | 'python' | 'batch';
@@ -177,7 +178,7 @@ export class ScriptPool {
         };
         // the limit counts from when the job starts executing; queueing and loading Python get a
         // generous allowance (jobs without a start event keep the plain limit)
-        const startsLater = msg.op === 'run' || msg.op === 'trial' || msg.op === 'botStep';
+        const startsLater = msg.op === 'run' || msg.op === 'trial' || msg.op === 'botStep' || msg.op === 'repaint';
         p.timer = setTimeout(interrupt, startsLater ? limit + 180000 : limit);
         if (startsLater)
           p.onStart = () => {
@@ -284,6 +285,21 @@ export class ScriptPool {
     const slot = this.slotFor('batch');
     const id = this.nextId++;
     const promise = this.call<BotStepResult>(slot, { op: 'botStep', spec }, { id, timeoutMs: opts.timeoutMs ?? 120000 });
+    return {
+      promise,
+      cancel: () => {
+        if (slot.dead || !slot.pending.has(id)) return;
+        Atomics.store(slot.ctl, 0, id);
+        slot.pyInterrupt[0] = 2;
+      },
+    };
+  }
+
+  /** Repaint check on a batch worker: replays recent bars as if live and compares with the history. */
+  repaint(spec: Omit<RepaintSpec, 'shouldStop'>, opts: { timeoutMs?: number } = {}): { promise: Promise<RepaintReport>; cancel: () => void } {
+    const slot = this.slotFor('batch');
+    const id = this.nextId++;
+    const promise = this.call<RepaintReport>(slot, { op: 'repaint', spec }, { id, timeoutMs: opts.timeoutMs ?? 180000 });
     return {
       promise,
       cancel: () => {

@@ -96,6 +96,8 @@ export interface StrategyRaw {
   avgPrice?: number;
   /** Orders still resting at the end of the run. */
   pending?: import('./backtest/broker').PendingSnap[];
+  /** Position and working orders after the bars requested with `stateAt` (repaint check). */
+  states?: Record<number, import('./backtest/broker').StrategyState>;
 }
 
 export interface ScriptResult {

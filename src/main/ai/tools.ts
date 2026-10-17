@@ -51,6 +51,9 @@ export interface AiTool extends McpTool {
 }
 
 const r2 = (x: number) => (Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
+
+/** A backtest's warnings with the script's lookahead/repainting findings first. */
+const recWarnings = (rec: BacktestRecord): string[] => [...(rec.scriptWarnings || []).map((w) => `${w.line ? `line ${w.line}: ` : ''}[${w.kind}] ${w.message}`), ...rec.warnings];
 const r4 = (x: number) => (Number.isFinite(x) ? Math.round(x * 10000) / 10000 : null);
 
 function str(v: unknown, name: string, max = 200000): string {
@@ -348,6 +351,54 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       card: (_a, r) => ({ kind: 'check', title: r?.ok ? `Compiles${r.warnings?.length ? ` · ${r.warnings.length} warning${r.warnings.length > 1 ? 's' : ''}` : ''}` : `Error: ${r?.error}`, data: { ok: r?.ok, error: r?.error, warnings: r?.warnings } }),
     },
     {
+      name: 'check_repainting',
+      readOnly: true,
+      description:
+        "Empirically test a script for lookahead and repainting: replays the most recent bars of an instrument as if each had just closed live (other timeframes cut at the same moment) and compares what the script showed then with its history — for strategies the position and working orders a bot had against the backtest's. Use it after writing any script that uses request.security / other timeframes, offsets, last-bar logic or Python array code, and whenever a backtest looks too good. Differences mean the history shows information that did not exist yet.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          scriptId: { type: 'string', description: 'Saved script (or pass code + language)' },
+          code: { type: 'string' },
+          language: { type: 'string', enum: ['pine', 'python'] },
+          inputs: { type: 'object', description: 'Input values by key (defaults otherwise)' },
+          symbol: { type: 'string', enum: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'] },
+          market: { type: 'string', enum: ['spot', 'futures'] },
+          tf: { type: 'string', description: 'Chart timeframe, e.g. 1h' },
+          window: { type: 'number', description: 'Most recent bars to replay (default 300)' },
+        },
+      },
+      async run(args) {
+        const symbol = isSymbol(args.symbol) ? args.symbol : 'BTCUSDT';
+        const market: Market = args.market === 'futures' ? 'futures' : 'spot';
+        const tf = typeof args.tf === 'string' && parseTimeframe(args.tf) ? args.tf : '1h';
+        const code = typeof args.code === 'string' && args.code.trim() ? args.code : undefined;
+        if (!code && typeof args.scriptId !== 'string') throw new Error('"scriptId" or "code" is required');
+        const r = await scripts.repaintCheck({
+          scriptId: code ? undefined : String(args.scriptId),
+          code,
+          language: code ? lang(args.language) : undefined,
+          inputs: args.inputs && typeof args.inputs === 'object' ? (args.inputs as Record<string, unknown>) : {},
+          spec: { symbol, market, tf, chartType: 'candles' },
+          window: typeof args.window === 'number' ? args.window : undefined,
+        });
+        return {
+          ok: r.ok,
+          error: r.error,
+          title: r.title,
+          strategy: r.isStrategy,
+          instrument: `${symbol}${market === 'futures' ? '.P' : ''} ${tf}`,
+          replayedBars: r.checked,
+          ofMostRecent: r.window,
+          differingBars: r.badTimes.length,
+          verdict: !r.ok ? 'not checked' : r.diffs.length ? (r.isStrategy ? 'NOT reproducible live: a bot would trade differently than the backtest' : 'repaints / looks ahead: the history differs from what was shown live') : 'clean: identical to the history at every replayed bar',
+          differences: r.diffs.map((d) => ({ output: d.title, kind: d.kind, bars: d.count, example: { time: new Date(d.example.time).toISOString(), live: d.example.live, history: d.example.history } })),
+          notes: r.notes,
+        };
+      },
+      card: (_a, r) => ({ kind: 'check', title: r?.ok ? (r.differences?.length ? `Repaints: ${r.differingBars} of ${r.replayedBars} replayed bars differ` : `No repainting in ${r.replayedBars} replayed bars`) : `Repaint check failed: ${r?.error}`, data: { ok: r?.ok && !r?.differences?.length, error: r?.error, warnings: (r?.differences || []).map((d: any) => `${d.output}: ${d.bars} bars (live ${d.example.live} vs history ${d.example.history})`) } }),
+    },
+    {
       name: 'save_script',
       readOnly: false,
       description:
@@ -502,7 +553,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           costs: req.costs,
           metrics: summarizeMetrics(rec),
           sampleTrades: rec.trades.slice(-6).map((t) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
-          warnings: rec.warnings.slice(0, 8),
+          warnings: recWarnings(rec).slice(0, 8),
           assumptions: rec.info.fills,
           data: [rec.info.source, ...(rec.info.security || [])],
         };
@@ -528,7 +579,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           request: { symbol: q.symbol, market: q.market, tf: q.tf, from: new Date(q.from).toISOString().slice(0, 10), to: new Date(q.to).toISOString().slice(0, 10), inputs: q.inputs, costs: q.costs, broker: q.broker },
           metrics: summarizeMetrics(rec),
           sampleTrades: rec.trades.slice(-8).map((t: BacktestRecord['trades'][number]) => ({ dir: t.dir === 1 ? 'long' : 'short', entry: new Date(t.entryTime).toISOString().slice(0, 16), exit: new Date(t.exitTime).toISOString().slice(0, 16), returnPct: r2(t.returnPct), profit: r2(t.profit) })),
-          warnings: rec.warnings.slice(0, 8),
+          warnings: recWarnings(rec).slice(0, 8),
           assumptions: rec.info.fills,
           data: [rec.info.source, ...(rec.info.security || [])],
         };

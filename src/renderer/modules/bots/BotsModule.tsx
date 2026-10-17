@@ -8,6 +8,7 @@ import { useNow } from '../../lib/hooks';
 import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtAgo, orderIdLabel } from '../../lib/format';
 import { useScripts, openScriptInEditor, type AnalyzeResult } from '../scripts/client';
 import { InputControl, ParamSetPicker } from '../chart/indicators';
+import { openRepaintCheck } from '../scripts/repaint';
 import { openCreateAccount, useAccount } from '../trading/accounts';
 import { Stat, Positions, Orders, Trades, Events } from '../trading/AccountModule';
 import { openModule } from '../../app/moduleOps';
@@ -475,6 +476,19 @@ function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
           {script?.description && <div className="faint small">{script.description}</div>}
           {notStrategy && <div className="bot-warn small">This script is an indicator. Bots need a strategy (strategy() in Pine, @strategy in Python).</div>}
           {analysis && !analysis.ok && <div className="bot-warn small">Script error{analysis.error?.line ? ` (line ${analysis.error.line})` : ''}: {analysis.error?.message}</div>}
+          {analysis?.ok && analysis.warnings.some((w) => w.kind === 'lookahead') && (
+            <div className="bot-warn small danger">
+              <b>Lookahead:</b> this strategy uses data that does not exist yet when a bar closes ({analysis.warnings.filter((w) => w.kind === 'lookahead').map((w) => (w.line ? `line ${w.line}` : w.message)).join(', ')}). Its backtest looks better than live trading can be, and the bot will trade differently.{' '}
+              <button
+                className="link-btn"
+                onClick={() =>
+                  openRepaintCheck({ scriptId: d.scriptId, name: script?.name || analysis.meta?.title || 'Strategy', inputs: d.params || {}, spec: { symbol: d.symbol, market: v.market, tf: d.tf, chartType: d.chartType || 'candles' }, strategy: { market: v.market }, warnings: analysis.warnings })
+                }
+              >
+                Details…
+              </button>
+            </div>
+          )}
           {analysis?.ok && analysis.inputs.length > 0 && (
             <>
               <div className="row" style={{ marginTop: 4 }}>

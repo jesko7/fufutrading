@@ -544,10 +544,6 @@ tr.clickable:hover td {
 }
 
 /* ---- random counterparts & Greeks */
-.callout.ok {
-  background: color-mix(in srgb, var(--up) 9%, transparent);
-  border-color: color-mix(in srgb, var(--up) 25%, transparent);
-}
 .random-view .rb-table td,
 .random-view .rb-table th {
   white-space: nowrap;
@@ -691,4 +687,14 @@ tr.clickable:hover td {
 .mc-chip.down {
   color: var(--down);
   border-color: color-mix(in srgb, var(--down) 35%, transparent);
+}
+
+/* ---- lookahead banner */
+.lookahead-banner {
+  align-items: center;
+  margin: 0 12px 6px;
+}
+.lookahead-banner .grow {
+  flex: 1;
+  min-width: 0;
 }

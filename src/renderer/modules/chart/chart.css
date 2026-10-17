@@ -160,7 +160,23 @@
   color: var(--danger);
 }
 .ind-warn {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.ind-warn.lookahead {
+  color: var(--danger);
+}
+.ind-warn.repaint {
   color: var(--warn);
+}
+.ind-warn:hover {
+  background: var(--hover);
 }
 .axis-btns {
   position: absolute;

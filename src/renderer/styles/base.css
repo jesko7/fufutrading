@@ -807,6 +807,14 @@ html[data-theme='dark'] .popover {
   background: color-mix(in srgb, var(--danger) 9%, transparent);
   border-color: color-mix(in srgb, var(--danger) 25%, transparent);
 }
+.callout.ok {
+  background: color-mix(in srgb, var(--up) 9%, transparent);
+  border-color: color-mix(in srgb, var(--up) 25%, transparent);
+}
+.callout > svg {
+  flex: none;
+  margin-top: 2px;
+}
 
 /* ---------------------------------------------------------------- syntax colors (editor) */
 :root {

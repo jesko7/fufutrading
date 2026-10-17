@@ -308,6 +308,8 @@ export interface PyRunOptions {
   maxMs?: number;
   /** Live bot step: market orders created on the last bar fill at its close. */
   bot?: boolean;
+  /** Record the strategy's position and working orders after these bars (repaint check). */
+  stateAt?: number[];
 }
 
 export interface PyRunResult {
@@ -389,6 +391,7 @@ export async function runPython(init: PyInitOptions, o: PyRunOptions): Promise<P
       const cfg: Partial<BrokerConfig> = { ...brokerFromPy(scriptOpts), ...(o.strategy || {}) };
       const broker = new StrategyBroker({ symbol: o.ctx.symbol as SymbolId, tick: o.ctx.mintick, ...cfg }, o.data as any);
       if (o.ticks) broker.ticks = o.ticks;
+      if (o.stateAt) broker.stateAt = new Set(o.stateAt);
       const num = (v: any) => (v === null || v === undefined || Number.isNaN(+v) ? undefined : +v);
       const bridge = {
         submit: (ord: any) => {

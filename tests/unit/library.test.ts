@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ScriptHost, keyParts } from '../../src/engine/host';
+import { repaintCheck } from '../../src/engine/repaint';
 import { initPython, type PyInitOptions } from '../../src/engine/python/host';
 import { parseTimeframe, tfDurationMs } from '../../src/shared/timeframes';
 import { bars, aggregateBars, ctx, MIN } from '../helpers/bars';
@@ -69,8 +70,29 @@ describe('built-in script library', () => {
         expect(res.strategy, f).toBeTruthy();
         expect(res.strategy!.trades.length + res.strategy!.openTrades.length, `${f} never traded`).toBeGreaterThan(0);
       }
-      const lookahead = res.warnings.filter((w) => w.kind === 'lookahead');
+      // Ichimoku's lagging span is drawn 25 bars back by definition (display only)
+      const lookahead = res.warnings.filter((w) => w.kind === 'lookahead' && !(f === 'ichimoku.pine' && /offset -25/.test(w.message)));
       expect(lookahead, `${f} has lookahead warnings: ${JSON.stringify(lookahead)}`).toEqual([]);
+    });
+  }
+
+  for (const f of files) {
+    it(`${f} replays live exactly as its history shows`, async () => {
+      const code = fs.readFileSync(path.join(LIB, f), 'utf8');
+      const lang = f.endsWith('.py') ? 'python' : 'pine';
+      const data = walk(f.includes('mtf') ? 6000 : 1500);
+      const host = new ScriptHost(PY);
+      let security: Record<string, BarSeries> = {};
+      let r;
+      for (let round = 0; round < 4; round++) {
+        r = await repaintCheck(host, { lang, code, ctx, inputs: {}, data, security, window: 80, maxChecks: lang === 'python' ? 4 : 16, budgetMs: 60000 });
+        if (!r.need.length) break;
+        security = { ...security };
+        for (const k of r.need) security[k] = aggregateBars(data, Math.round(tfDurationMs(parseTimeframe(keyParts(k).tf)!) / MIN));
+      }
+      expect(r!.ok, r!.error).toBe(true);
+      const diffs = r!.diffs.map((d) => d.title);
+      expect(diffs, `${f}: ${JSON.stringify(r!.diffs)}`).toEqual(f === 'ichimoku.pine' ? ['Lagging Span'] : []);
     });
   }
 });

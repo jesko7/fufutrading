@@ -443,6 +443,23 @@ plot(type)`;
     expect(c.warnings.some((w) => w.kind === 'lookahead')).toBe(true);
   });
 
+  it('warns about realtime repainting only for higher timeframes than the chart', async () => {
+    const { ScriptHost } = await import('../../src/engine/host');
+    const host = new ScriptHost(null);
+    const code = (tf: string) => `//@version=6\nindicator("x")\nplot(request.security(syminfo.tickerid, "${tf}", close))`;
+    const repaint = async (tf: string, chartTf: string) => (await host.analyze('pine', code(tf), { ...ctx, tf: chartTf })).warnings.filter((w) => w.kind === 'repaint').length;
+    expect(await repaint('240', '1h')).toBe(1);
+    expect(await repaint('60', '1h')).toBe(0);
+    expect(await repaint('15', '1h')).toBe(0);
+    // without a chart context the warning stays
+    expect((await host.analyze('pine', code('60'))).warnings.filter((w) => w.kind === 'repaint').length).toBe(1);
+    // runs filter it the same way
+    const data = bars(300, undefined, Date.UTC(2026, 0, 1), 3600000);
+    const run1 = await host.run({ lang: 'pine', code: code('60'), ctx: { ...ctx, tf: '1h' }, inputs: {}, data, security: { 'spot:BTCUSDT:1h:candles': data } });
+    expect(run1.result.ok).toBe(true);
+    expect(run1.result.warnings.filter((w) => w.kind === 'repaint')).toEqual([]);
+  });
+
   it('rejects a reassigned timeframe variable', () => {
     expect(() => compileCached('//@version=6\nindicator("x")\ntf = "60"\ntf := "240"\nplot(request.security(syminfo.tickerid, tf, close))')).toThrow(/reassigned/);
   });
@@ -488,6 +505,30 @@ plot(close, offset=-2)
     expect(msgs.some((m) => /^repaint: .*timenow/.test(m))).toBe(true);
     expect(msgs.some((m) => /^repaint: .*barstate\.isrealtime/.test(m))).toBe(true);
     expect(msgs.some((m) => /^lookahead: .*offset=-2/.test(m))).toBe(true);
+  });
+});
+
+describe('Pine: plot offsets from inputs', () => {
+  const ichimoku = `//@version=6
+indicator("Ichimoku", overlay=true)
+displacement = input.int(26, "Lagging Span", minval=1)
+plot(close, offset=-displacement + 1, title="Lagging Span")
+plot(ta.sma(close, 9), offset=displacement - 1, title="Leading Span A")
+plot(close, offset=2, title="Two")`;
+
+  it('evaluates a simple-int offset with the instance inputs', () => {
+    const offs = (inputs: Record<string, unknown>) => run(ichimoku, bars(100), { inputs }).plots.map((p) => p.offset);
+    expect(offs({})).toEqual([-25, 25, 2]);
+    expect(offs({ in0: 10 })).toEqual([-9, 9, 2]);
+  });
+
+  it('warns about the negative offset with the default inputs', () => {
+    const c = compileCached(ichimoku);
+    expect(c.warnings.filter((w) => w.kind === 'lookahead').map((w) => w.line)).toEqual([4]);
+  });
+
+  it('rejects offsets that change per bar', () => {
+    expect(() => compileCached('//@version=6\nindicator("x")\nplot(close, offset=bar_index % 2)')).toThrow(/offset/);
   });
 });
 

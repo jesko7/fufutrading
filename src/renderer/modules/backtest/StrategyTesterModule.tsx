@@ -25,6 +25,7 @@ import { type TesterCfg, type RangePreset, type RunSummary, rangeOf, buildReques
 import { RandomView, GreeksView } from './benchmarkViews';
 import { openCreateAccount } from '../trading/accounts';
 import { openModule } from '../../app/moduleOps';
+import { openRepaintCheck, WarningList } from '../scripts/repaint';
 import './backtest.css';
 
 function pf(x: number): string {
@@ -377,6 +378,7 @@ function Results({ rec, tab, setTab, onAddToChart, onRerun }: { rec: BacktestRec
           />
         )}
       </div>
+      <LookaheadBanner rec={rec} />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -800,6 +802,38 @@ function Analysis({ rec }: { rec: BacktestRecord }) {
   );
 }
 
+/** Opens the repainting & lookahead check for the tested script, instrument and inputs. */
+function checkRepaint(rec: BacktestRecord): void {
+  const q = rec.request;
+  openRepaintCheck({
+    scriptId: rec.script.id || undefined,
+    code: rec.script.id ? undefined : rec.script.code,
+    language: rec.script.language,
+    name: rec.script.name,
+    inputs: q.inputs || {},
+    spec: { symbol: q.symbol, market: q.market, tf: q.tf, chartType: q.chartType || 'candles' },
+    strategy: { market: q.market },
+    warnings: rec.scriptWarnings,
+  });
+}
+
+/** A strategy that looks ahead trades on information it could not have had: say so above the results. */
+function LookaheadBanner({ rec }: { rec: BacktestRecord }) {
+  const look = (rec.scriptWarnings || []).filter((w) => w.kind === 'lookahead');
+  if (!look.length) return null;
+  return (
+    <div className="callout danger lookahead-banner">
+      <Icon name="alert" size={15} />
+      <div className="grow">
+        <b>Lookahead</b> ({look.map((w) => (w.line ? `line ${w.line}` : 'see details')).join(', ')}): this strategy uses data that did not exist yet at the time, so these results are better than anything achievable live — a bot would trade differently.
+      </div>
+      <button className="btn small" onClick={() => checkRepaint(rec)} data-tip="What looks ahead, and a replay of the most recent bars as a bot saw them compared with the backtest">
+        <Icon name="replay" size={13} /> Details
+      </button>
+    </div>
+  );
+}
+
 function Info({ rec }: { rec: BacktestRecord }) {
   const i = rec.info;
   const cfg = i.config as Record<string, any>;
@@ -833,6 +867,20 @@ function Info({ rec }: { rec: BacktestRecord }) {
           ))}
         </tbody>
       </table>
+      <div className="section-title row" style={{ justifyContent: 'space-between' }}>
+        <span>Lookahead & repainting</span>
+        <button className="btn small" onClick={() => checkRepaint(rec)}>
+          <Icon name="replay" size={13} /> Check with a live replay
+        </button>
+      </div>
+      {rec.scriptWarnings?.length ? (
+        <>
+          <WarningList warnings={rec.scriptWarnings} onJump={rec.script.id ? (line) => void openScriptInEditor(rec.script.id!, { line }) : undefined} />
+          {!rec.scriptWarnings.some((w) => w.kind === 'lookahead') && <div className="muted" style={{ marginTop: 6 }}>Repainting affects what a chart shows on the live bar. Backtests and bots act on closed bars, so it does not change these results unless the logic depends on the clock.</div>}
+        </>
+      ) : (
+        <div className="muted">{rec.scriptWarnings ? 'No lookahead or repainting patterns in the code.' : 'Not recorded for this test (run it again to see them).'}</div>
+      )}
       {rec.warnings.length > 0 && (
         <>
           <div className="section-title">Warnings</div>

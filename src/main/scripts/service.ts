@@ -20,7 +20,9 @@ import type { RunContext, ScriptLanguage } from '../../engine/types';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import type { SeriesSpec, SeriesUpdate } from '../../shared/marketTypes';
 import { SYMBOL_SPECS, isSymbol, type SymbolId } from '../../shared/symbols';
-import { parseTimeframe } from '../../shared/timeframes';
+import { parseTimeframe, tfDurationMs } from '../../shared/timeframes';
+import type { RepaintReport } from '../../engine/repaint';
+import { STRIDE } from '../../shared/candles';
 import { uid } from '../storage/jsonStore';
 import type { PyInitOptions } from '../../engine/python/host';
 
@@ -366,6 +368,70 @@ export class ScriptService {
     }
   }
 
+  /** A request.security series (all bars, the forming one included) long enough to cover `span` ms. */
+  private async securitySeries(key: string, span: number): Promise<Float64Array> {
+    const kp = keyParts(key);
+    const tf = parseTimeframe(kp.tf);
+    if (!isSymbol(kp.symbol) || !tf) throw new Error(`Unsupported data ${key}`);
+    const bars = Math.max(300, Math.min(20000, Math.ceil(span / tfDurationMs(tf)) + 300));
+    const spec: SeriesSpec = { symbol: kp.symbol as SymbolId, market: kp.market, tf: kp.tf, chartType: kp.chartType === 'heikinashi' ? 'heikinashi' : 'candles', metric: kp.metric };
+    const { series, release } = this.core.series.acquire(spec, { bars });
+    try {
+      await series.ready;
+      await series.complete;
+      if (series.status === 'error') throw new Error(`${describeKey(key)}: ${series.info.error || 'data unavailable'}`);
+      return series.out.pack();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * Repaint check on the chart's recent bars: replays them as if live and compares with the
+   * history (see engine/repaint). Loads request.security data (and chart-timeframe bars of other
+   * instruments to rebuild forming higher-timeframe bars) as the worker asks for them.
+   */
+  async repaintCheck(o: { scriptId?: string; code?: string; language?: ScriptLanguage; inputs?: Record<string, unknown>; spec: SeriesSpec; bars?: number; window?: number; strategy?: Partial<BrokerConfig> | null }): Promise<RepaintReport> {
+    let code = o.code;
+    let lang: ScriptLanguage = o.language === 'python' ? 'python' : 'pine';
+    if (code === undefined) {
+      const doc = o.scriptId ? this.library.get(o.scriptId) : undefined;
+      if (!doc) throw new Error('Script not found');
+      code = doc.code;
+      lang = doc.language;
+    }
+    if (lang === 'python' && !this.pool.pythonAvailable) throw new Error('Python runtime (Pyodide) is not available');
+    const spec = o.spec;
+    if (spec.chartType === 'renko') throw new Error('The repaint check needs time-based bars: Renko bricks have no fixed close times.');
+    const data = await this.closedBars(spec, Math.min(5000, Math.max(300, Math.round(+(o.bars ?? 0)) || 1500)));
+    const n = Math.floor(data.length / STRIDE);
+    const tf = parseTimeframe(spec.tf)!;
+    const span = n ? data[(n - 1) * STRIDE] + tfDurationMs(tf) - data[0] : 0;
+    const security: Record<string, Float64Array> = {};
+    const market = o.strategy?.market || spec.market;
+    for (let round = 0; round < 4; round++) {
+      const h = this.pool.repaint(
+        {
+          lang,
+          code: String(code),
+          ctx: runContext(spec),
+          inputs: o.inputs || {},
+          strategy: o.strategy === null ? null : { market, step: SYMBOL_SPECS[spec.symbol][market].stepSize, ...(o.strategy || {}) },
+          data,
+          security,
+          window: Math.max(20, Math.min(1000, Math.round(+(o.window ?? 0)) || 300)),
+          budgetMs: lang === 'python' ? 30000 : 12000,
+          maxChecks: lang === 'python' ? 40 : 150,
+        },
+        { timeoutMs: 120000 },
+      );
+      const rep = await h.promise;
+      if (!rep.need.length) return rep;
+      for (const key of rep.need) if (!security[key]) security[key] = await this.securitySeries(key, span);
+    }
+    throw new Error('The data the script asks for could not be loaded');
+  }
+
   constructor(readonly core: AppCore) {
     const dist = core.paths.dist;
     const pyodideDir = resolvePyodideDir();
@@ -448,6 +514,10 @@ export class ScriptService {
       return { available: !!this.pyOpts };
     });
     r.handle('scripts:workers', () => this.pool.stats());
+    r.handle('scripts:repaintCheck', ([o]) => {
+      if (!o || !o.spec || !isSymbol(o.spec.symbol) || (o.spec.market !== 'spot' && o.spec.market !== 'futures') || !parseTimeframe(o.spec.tf)) throw new Error('Validation: invalid instrument/timeframe');
+      return this.repaintCheck(o);
+    });
     // bar inspector: per-bar values of top-level variables (Pine) / outputs (Python)
     r.handle('scripts:inspect', async ([o]) => {
       const lang: ScriptLanguage = o?.language === 'python' ? 'python' : 'pine';
