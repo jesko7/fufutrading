@@ -505,6 +505,8 @@ const S = {
     // default strategy is the MA crossover; trade it on 1m with fast parameters
     await page.waitForFunction(() => document.querySelectorAll('.bot-setup .bs-inputs .set-row').length >= 3, null, { timeout: 20000 });
     check(true, 'strategy parameters loaded');
+    const verdict = await page.waitForFunction(() => /Reproducible live|Not reproducible live|not checked/.test(document.querySelector('.bot-setup')?.textContent || ''), null, { timeout: 60000 }).then(() => page.$eval('.bot-setup', (e) => (e.textContent || '').match(/(Reproducible live[^.]*|Not reproducible live|Live replay not checked[^.]*)/)?.[0])).catch(() => null);
+    check(/^Reproducible live/.test(verdict || ''), `the setup replays the strategy as the bot would see it (${verdict})`);
     await page.click('.bot-setup button.tab:has-text("1m")');
     const inputs = await page.$$('.bot-setup .bs-inputs .set-row input');
     await inputs[0].fill('5');

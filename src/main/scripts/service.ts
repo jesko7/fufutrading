@@ -420,8 +420,8 @@ export class ScriptService {
           data,
           security,
           window: Math.max(20, Math.min(1000, Math.round(+(o.window ?? 0)) || 300)),
-          budgetMs: o.budgetMs ?? (lang === 'python' ? 30000 : 12000),
-          maxChecks: o.maxChecks ?? (lang === 'python' ? 40 : 150),
+          budgetMs: Math.min(60000, Math.max(1000, o.budgetMs ?? (lang === 'python' ? 30000 : 12000))),
+          maxChecks: Math.min(500, Math.max(8, o.maxChecks ?? (lang === 'python' ? 40 : 150))),
         },
         { timeoutMs: 120000 },
       );

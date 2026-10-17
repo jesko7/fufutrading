@@ -14,7 +14,8 @@ import { Stat, Positions, Orders, Trades, Events, EquityTab } from '../trading/A
 import { openModule } from '../../app/moduleOps';
 import { newId } from '../../../shared/workspace';
 import type { AccountEvent, BotConfig, BotView, ClosedTrade } from '../../../shared/trading/types';
-import { SYMBOL_SPECS, qtyDecimals } from '../../../shared/symbols';
+import { SYMBOL_SPECS, qtyDecimals, type SymbolId } from '../../../shared/symbols';
+import type { RepaintReport } from '../../../engine/repaint';
 import './bots.css';
 
 type BotTab = 'activity' | 'signals' | 'orders' | 'state' | 'logs' | 'trades' | 'equity';
@@ -408,6 +409,61 @@ function SetupSummary({ c, market }: { c: BotConfig; market: string }) {
   );
 }
 
+/**
+ * Before a bot starts: replay the strategy's most recent bars as the bot would see them and
+ * compare with its history (a lookahead check of the code with these parameters).
+ */
+function ReplayVerdict({ scriptId, name, params, symbol, market, tf, chartType }: { scriptId: string; name: string; params: Record<string, unknown>; symbol: SymbolId; market: 'spot' | 'futures'; tf: string; chartType: string }) {
+  const [rep, setRep] = useState<RepaintReport | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const key = JSON.stringify([scriptId, params, symbol, market, tf, chartType]);
+  useEffect(() => {
+    let alive = true;
+    setRep(null);
+    setErr(null);
+    if (chartType === 'renko') return;
+    // parameters change while typing: wait for a pause
+    const t = setTimeout(() => {
+      void api
+        .call<RepaintReport>('scripts:repaintCheck', { scriptId, inputs: params, spec: { symbol, market, tf, chartType }, strategy: { market }, window: 150, budgetMs: 8000, maxChecks: 60 })
+        .then((r) => alive && setRep(r))
+        .catch((e) => alive && setErr(errorMessage(e)));
+    }, 1200);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const details = () => openRepaintCheck({ scriptId, name, inputs: params, spec: { symbol, market, tf, chartType }, strategy: { market } });
+  if (chartType === 'renko') return null;
+  if (err) return <div className="faint small">Live replay not checked: {err}</div>;
+  if (!rep)
+    return (
+      <div className="faint small">
+        <Spinner size={10} /> Replaying recent bars as this bot would see them…
+      </div>
+    );
+  if (!rep.ok) return <div className="faint small">Live replay not checked: {rep.error}</div>;
+  if (!rep.badTimes.length)
+    return (
+      <div className="faint small" data-tip="The strategy ran on the bars up to each moment only, like this bot at each bar close, and held the same position and orders as its backtest">
+        <Icon name="check" size={11} /> Reproducible live on {rep.checked} recent bar closes.{' '}
+        <button className="link-btn" onClick={details}>
+          Details
+        </button>
+      </div>
+    );
+  return (
+    <div className="bot-warn small danger">
+      <b>Not reproducible live:</b> at {rep.badTimes.length} of {rep.checked} recent bar closes this bot would have held a different position or orders than the strategy's backtest shows. It uses information that does not exist yet when a bar closes.{' '}
+      <button className="link-btn" onClick={details}>
+        Details…
+      </button>
+    </div>
+  );
+}
+
 function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
   const c = v.config;
   const scripts = useScripts();
@@ -491,6 +547,7 @@ function BotSetup({ v, leverage }: { v: BotView; leverage: number }) {
               </button>
             </div>
           )}
+          {analysis?.ok && analysis.meta?.type === 'strategy' && d.scriptId && <ReplayVerdict scriptId={d.scriptId} name={script?.name || analysis.meta?.title || 'Strategy'} params={d.params || {}} symbol={d.symbol} market={v.market} tf={d.tf} chartType={d.chartType || 'candles'} />}
           {analysis?.ok && analysis.inputs.length > 0 && (
             <>
               <div className="row" style={{ marginTop: 4 }}>

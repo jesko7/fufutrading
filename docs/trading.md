@@ -124,6 +124,12 @@ A bot runs one of your strategies (Pine or Python) on its own paper account:
 2. Start it. **Next signal** starts flat and acts on the first signal after the start.
    **Join current position** takes the strategy's current position right away.
 
+Before you start, the setup replays the strategy with your parameters at recent bar closes, as
+this bot would see them, and compares that with its history. **Reproducible live** means the bot
+would have done exactly what the backtest shows. **Not reproducible live** means the strategy
+uses information that doesn't exist yet when a bar closes (a lookahead). Fix that before trusting
+its backtest.
+
 When a bar closes, the bot re-runs the strategy over the bars since it started (plus a warm-up)
 and aligns the account with it:
 
