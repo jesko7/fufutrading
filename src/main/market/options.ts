@@ -132,6 +132,10 @@ export class OptionsService {
         .map((x) => ({ symbol: x.symbol, underlying: x.underlying, expiry: num(x.expiryDate), strike: num(x.strikePrice), side: x.side === 'PUT' ? ('P' as const) : ('C' as const) }))
         .filter((c) => c.expiry > 0 && c.strike > 0);
       this.contractsAt = Date.now();
+      // forget expired contracts
+      const live = new Set(this.contracts.map((c) => c.symbol));
+      for (const m of [this.marks, this.tickers]) for (const k of m.keys()) if (!live.has(k)) m.delete(k);
+      for (const w of this.watched.values()) for (const k of w.oi.keys()) if (!live.has(k)) w.oi.delete(k);
       this.pushAll();
     };
     const marks = async () => {

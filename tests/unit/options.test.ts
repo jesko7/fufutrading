@@ -16,6 +16,8 @@ import {
   breakEvens,
   yearsTo,
   optionLevels,
+  probabilityOfProfit,
+  normCdf as N,
   type OptionRow,
   type OptionLeg,
 } from '../../src/shared/options';
@@ -221,5 +223,22 @@ describe('options levels for the chart', () => {
     const iv = atmVol(weekly, 100, 0.05, now);
     expect(L.move!.hi - 100).toBeCloseTo(100 * iv * Math.sqrt(7 / 365), 9);
     expect(100 - L.move!.lo).toBeCloseTo(L.move!.hi - 100, 9);
+  });
+});
+
+describe('chance of profit', () => {
+  it('matches the lognormal probability beyond the break-even of a long call', () => {
+    const now = Date.UTC(2026, 9, 1);
+    const expiry = now + 30 * DAY;
+    const legs: OptionLeg[] = [{ id: 'c', kind: 'option', side: 'C', strike: 100, expiry, qty: 1, price: 5, iv: 0.6 }];
+    const curve: [number, number][] = [];
+    for (let x = 50; x <= 200; x += 0.25) curve.push([x, positionPnl(legs, x, expiry, 0.05)]);
+    const T = 30 / 365;
+    const be = 105;
+    const exact = N((Math.log(100 / be) + (0.05 - 0.18) * T) / (0.6 * Math.sqrt(T)));
+    expect(probabilityOfProfit(curve, 100, 0.6, T, 0.05)).toBeCloseTo(exact, 3);
+    // a short call is the other side
+    const short = curve.map(([x, y]) => [x, -y] as [number, number]);
+    expect(probabilityOfProfit(short, 100, 0.6, T, 0.05)).toBeCloseTo(1 - exact, 3);
   });
 });

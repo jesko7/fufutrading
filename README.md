@@ -66,8 +66,9 @@ an AI assistant that builds and tests strategies inside the app.
   loss, losing streak), and keep running in the tray.
 - **Options:** Binance's BTC, ETH and SOL options. The chain has prices, implied volatilities and
   the Greeks (Δ Γ Θ ν). Charts show the volatility smile, term structure and skew, open interest
-  and dealer gamma by strike, max pain and the gamma flip. A position builder nets the Greeks of
-  several legs and draws the payoff on any date with a volatility shift.
+  and dealer gamma by strike, max pain and the gamma flip, and the volatility surface. A position
+  builder nets the Greeks of several legs, gives the chance of profit and a scenario table, and
+  draws the payoff on any date with a volatility shift.
 - **Derivatives data:** open interest, funding history, long/short ratios, taker flow, a live
   liquidation feed and a positioning history (price against open interest, ratios and funding
   over 7 days to a year). Open interest, the long/short ratios and funding rates also work as

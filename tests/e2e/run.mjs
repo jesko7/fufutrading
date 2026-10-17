@@ -666,11 +666,15 @@ const S = {
     check(b2.last < v2.cursor && b2.last > b1.last, `chart follows the replay without future bars (${iso(b2.last)} < ${iso(v2.cursor)})`);
     const acct = await page.evaluate((v) => window.fufu.invoke('trading:snapshot', v.accounts.spot), v2);
     check(acct.positions.length === 1 && Math.abs(acct.positions[0].mark - b2.close) / b2.close < 0.01, `replay position marked at replay prices (mark ${acct.positions[0]?.mark}, chart close ${b2.close})`);
+    // on a crowded chart some legend rows sit in the "+N more" list
+    if (await page.isVisible('.chart-legend .ind-more')) await page.click('.chart-legend .ind-more');
     const lv = await page.evaluate(() => [...document.querySelectorAll('.ind-item')].map((x) => x.textContent || '').join(' | '));
+    await page.keyboard.press('Escape');
     const errs = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
     check(errs.length === 0 && /RSI/.test(lv) && /trades/.test(lv), `indicator and strategy run on replay data (${lv.replace(/\s+/g, ' ').slice(0, 140)})`);
-    await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Open Interest/.test(r.textContent || '') && /C \d+(\.\d+)?K/.test(r.textContent || '')), null, { timeout: 60000 });
-    check(true, 'open interest runs on the replay clock');
+    // a new replay window downloads its futures statistics first
+    const oiOk = await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Open Interest/.test(r.textContent || '') && /C \d+(\.\d+)?K/.test(r.textContent || '')), null, { timeout: 120000 }).then(() => true).catch(() => false);
+    check(oiOk, `open interest runs on the replay clock${oiOk ? '' : ` (legend: ${(await page.evaluate(() => [...document.querySelectorAll('.ind-item')].map((x) => x.textContent || '').filter((t) => /Open Interest/.test(t)).join(' | '))).replace(/\s+/g, ' ')})`}`);
     const notice = await page.textContent('.ob .replay-notice').catch(() => '');
     check(/Live/.test(notice || ''), 'order book is marked as live data during the replay');
     // the trade panel trades the replay account at replay prices: a limit order below the replay price
@@ -1254,8 +1258,15 @@ const S = {
     const bstats = await page.$$eval('.opt-mod .ot-tile', (t) => Object.fromEntries(t.map((x) => [x.querySelector('.ot-label')?.textContent, x.querySelector('.ot-value')?.textContent])));
     check(/^\$/.test(bstats['Theta'] || '') === false && /−\$/.test(bstats['Theta'] || '') && /^\$/.test(bstats['Vega'] || ''), `a long straddle pays theta and is long vega (theta ${bstats['Theta']}, vega ${bstats['Vega']})`);
     check((bstats['Break-even'] || '').split('·').length === 2, `two break-evens (${bstats['Break-even']})`);
+    const pop = parseFloat(bstats['Chance of profit'] || '');
+    check(pop > 1 && pop < 99, `chance of profit at expiry (${bstats['Chance of profit']})`);
     await page.waitForSelector('.opt-mod .ox-chart svg path.ox-series', { timeout: 10000 });
+    await page.locator('.stack:has(.opt-mod) .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized .opt-mod', { timeout: 5000 });
+    await wait(600);
     await shot('53-options-builder');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
     await page.click('.opt-mod .tabs .tab:has-text("Smile")');
     await page.waitForSelector('.opt-mod .ox-chart svg path.ox-series', { timeout: 10000 });
     const smile = await page.$$eval('.opt-mod .ox-chart svg path.ox-series', (p) => p.filter((x) => (x.getAttribute('d') || '').length > 20).length);

@@ -6,7 +6,7 @@ import { useMemo } from 'react';
 import { Icon } from '../../components/Icon';
 import { Menu, NumberField, usePopover } from '../../components/ui';
 import { clsx, fmtNum, fmtCompact } from '../../lib/format';
-import { breakEvens, positionGreeks, positionPnl, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
+import { atmVol, breakEvens, positionGreeks, positionPnl, probabilityOfProfit, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
 import { XYLines, Legend, type LineSeries } from './charts';
 import { fmtExpiry, fmtDte, fmtPremium, pctIV } from './fmt';
 
@@ -55,6 +55,56 @@ function Stat({ label, value, sub, tip, tone }: { label: string; value: string; 
 
 const usd = (v: number, d = 0) => (Number.isFinite(v) ? `${v < 0 ? '−' : ''}$${fmtNum(Math.abs(v), d)}` : '—');
 
+/** P&L of the position for index moves (rows) on a few dates (columns): today, halfway and at the first expiry. */
+function RiskMatrix({ legs, S, t0, first, r, dv }: { legs: OptionLeg[]; S: number; t0: number; first: number; r: number; dv: number }) {
+  const moves = [-0.15, -0.1, -0.05, -0.02, 0, 0.02, 0.05, 0.1, 0.15];
+  const dates: { label: string; at: number }[] = [{ label: 'Today', at: t0 }];
+  if (Number.isFinite(first) && first > t0) {
+    const half = t0 + (first - t0) / 2;
+    if (first - t0 > 2 * DAY) dates.push({ label: `In ${fmtDte((half - t0) / DAY)}`, at: half });
+    dates.push({ label: `At expiry ${fmtExpiry(first)}`, at: first });
+  }
+  return (
+    <div className="ot-card">
+      <div className="ot-card-head">
+        <b>Scenarios</b>
+        <span className="faint">Profit and loss (USDT) if the index moves by … on these dates{dv ? `, volatility ${dv > 0 ? '+' : ''}${Math.round(dv * 100)} pts` : ''}</span>
+      </div>
+      <div className="ot-scroll-x">
+        <table className="ot-table">
+          <thead>
+            <tr>
+              <th>Index</th>
+              {dates.map((d) => (
+                <th key={d.label} className="num">
+                  {d.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {moves.map((m) => (
+              <tr key={m} className={clsx(m === 0 && 'sel')}>
+                <td>
+                  {m === 0 ? 'unchanged' : `${m > 0 ? '+' : '−'}${Math.abs(m * 100)}%`} <span className="faint">{fmtNum(S * (1 + m), S >= 1000 ? 0 : 2)}</span>
+                </td>
+                {dates.map((d) => {
+                  const v = positionPnl(legs, S * (1 + m), d.at, r, dv);
+                  return (
+                    <td key={d.label} className={clsx('num', v > 0 ? 'up' : v < 0 ? 'down' : '')}>
+                      {usd(v)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export function Builder({ s, expiry, legs, setLegs, days, dIv, setScenario }: { s: OptionsSnapshot; expiry: number; legs: OptionLeg[]; setLegs: (l: OptionLeg[]) => void; days: number; dIv: number; setScenario: (p: { days?: number; dIv?: number }) => void }) {
   const menu = usePopover();
   const S = s.index;
@@ -91,6 +141,9 @@ export function Builder({ s, expiry, legs, setLegs, days, dIv, setScenario }: { 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(live), lo, hi, first, at, dv, s.rf]);
   const be = breakEvens(curves.exp);
+  // the chance of ending in profit at the first expiry, under the distribution its ATM volatility implies
+  const atmFirst = Number.isFinite(first) ? atmVol(s.rows.filter((r) => r.expiry === first), S, s.rf, s.t) : NaN;
+  const pop = Number.isFinite(first) && first > s.t ? probabilityOfProfit(curves.exp, S, Math.max(0.05, atmFirst + dv), (first - s.t) / (365 * DAY), s.rf) : NaN;
   const ys = curves.exp.map((p) => p[1]);
   const maxP = ys.length ? Math.max(...ys) : NaN;
   const maxL = ys.length ? Math.min(...ys) : NaN;
@@ -217,6 +270,12 @@ export function Builder({ s, expiry, legs, setLegs, days, dIv, setScenario }: { 
             <Stat label="Theta" value={`${usd(g.theta, 2)}`} sub="per day" tip="Value gained or lost per day from time decay alone" tone={g.theta} />
             <Stat label="Vega" value={`${usd(g.vega, 2)}`} sub="per volatility point" tip="Value change when implied volatility rises one point" tone={g.vega} />
             <Stat label="Break-even" value={be.length ? be.map((x) => fmtNum(x, 0)).join(' · ') : '—'} sub={Number.isFinite(first) ? `at ${fmtExpiry(first)}` : undefined} />
+            <Stat
+              label="Chance of profit"
+              value={Number.isFinite(pop) ? `${(pop * 100).toFixed(0)}%` : '—'}
+              sub={Number.isFinite(first) ? `at ${fmtExpiry(first)}` : undefined}
+              tip={`The probability that the position ends in profit at the first expiry if the index moves as the options price it: lognormal with that expiry's ATM volatility (${pctIV(atmFirst)}${dIv ? `, ${dIv > 0 ? '+' : ''}${dIv} pts` : ''}). Not a forecast.`}
+            />
             <Stat label="Max profit" value={upOpen || downOpen ? 'unlimited' : usd(maxP)} sub="in the range shown" />
             <Stat label="Max loss" value={upLoss || downLoss ? 'unlimited' : usd(maxL)} sub="in the range shown" />
           </div>
@@ -236,7 +295,7 @@ export function Builder({ s, expiry, legs, setLegs, days, dIv, setScenario }: { 
                 <input type="range" min={-30} max={30} step={1} value={dIv} onChange={(e) => setScenario({ dIv: +e.target.value })} />
                 <span className="num">{`${dIv > 0 ? '+' : ''}${dIv} pts`}</span>
               </label>
-              {(d > 0 || dIv) && (
+              {(d > 0 || dIv !== 0) && (
                 <button className="btn small ghost" onClick={() => setScenario({ days: 0, dIv: 0 })}>
                   Reset
                 </button>
@@ -257,6 +316,7 @@ export function Builder({ s, expiry, legs, setLegs, days, dIv, setScenario }: { 
           </div>
         </>
       )}
+      {live.length > 0 && <RiskMatrix legs={live} S={S} t0={s.t} first={first} r={s.rf} dv={dv} />}
       <div className="faint small">
         A planning tool: values use Black-Scholes with each option's mark volatility and Binance's rate. Nothing here places orders; the app paper-trades spot and perpetuals.
       </div>

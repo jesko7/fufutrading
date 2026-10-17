@@ -472,6 +472,31 @@ export function positionGreeks(legs: OptionLeg[], S: number, at: number, r: numb
   return g;
 }
 
+/**
+ * Probability that a position ends in profit, from its P&L curve at expiry (sorted by price) and
+ * a lognormal price at expiry with volatility `sigma` over `T` years and drift `r` (the
+ * distribution the options' own implied volatility describes). Profit ranges end where the curve
+ * crosses zero (interpolated); beyond the curve the end samples' sign continues.
+ */
+export function probabilityOfProfit(curve: [number, number][], S: number, sigma: number, T: number, r: number): number {
+  const n = curve.length;
+  if (!n || !(S > 0) || !(sigma > 0) || !(T > 0)) return NaN;
+  const sd = sigma * Math.sqrt(T);
+  const cdf = (x: number) => (x <= 0 ? 0 : normCdf((Math.log(x / S) - (r - (sigma * sigma) / 2) * T) / sd));
+  let p = curve[0][1] > 0 ? cdf(curve[0][0]) : 0;
+  for (let k = 1; k < n; k++) {
+    const [x0, y0] = curve[k - 1];
+    const [x1, y1] = curve[k];
+    if (y0 > 0 && y1 > 0) p += cdf(x1) - cdf(x0);
+    else if (y0 > 0 !== y1 > 0) {
+      const xr = x0 + ((x1 - x0) * y0) / (y0 - y1);
+      p += y0 > 0 ? cdf(xr) - cdf(x0) : cdf(x1) - cdf(xr);
+    }
+  }
+  if (curve[n - 1][1] > 0) p += 1 - cdf(curve[n - 1][0]);
+  return Math.min(1, Math.max(0, p));
+}
+
 /** Index levels where a P&L curve crosses zero (linear interpolation between samples). */
 export function breakEvens(curve: [number, number][]): number[] {
   const out: number[] = [];
