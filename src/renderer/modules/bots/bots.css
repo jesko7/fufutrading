@@ -289,3 +289,12 @@
 .icon-btn.muted-bell {
   color: var(--text-3);
 }
+/* strategy vs live */
+.vs-strategy .vs-table {
+  margin: 4px 12px 0;
+  width: calc(100% - 24px);
+}
+.vs-table tr.missing td,
+.vs-table tr.extra td {
+  background: color-mix(in srgb, var(--warn) 6%, transparent);
+}

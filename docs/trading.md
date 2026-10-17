@@ -138,6 +138,13 @@ and aligns the account with it:
   and stop entries are mirrored as such. Take-profits become reduce-only limits. Stop-losses
   and trailing stops become reduce-only stops.
 
+**Vs strategy** (a tab of each bot) compares the bot's live trades with the trades its strategy
+made on the same bars since the start. Trades are matched by side and entry time, with entry and
+exit slippage in basis points, and the trades only one side made are listed. The tab also
+compares the returns: the strategy's (bar-based fills with the account's costs) and the bot's
+(live fills). Differences come from live fills and latency, funding, and positions changed by hand
+or by a risk guard.
+
 Every action is logged with its reason. If a position is reduced outside the strategy (an
 exit filled live while the bar-based simulation didn't exit, a manual close, a prop-rule
 flatten), the bot does **not** re-enter. It waits for the strategy's next signal.

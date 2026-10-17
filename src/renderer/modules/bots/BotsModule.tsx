@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { Tabs, Menu, usePopover, confirmDialog, promptDialog, Empty, Spinner, Select, Segmented, NumberField, Toggle, SymbolPicker, TimeframePicker } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { useNow } from '../../lib/hooks';
-import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtPct, fmtDateTime, fmtAgo, orderIdLabel } from '../../lib/format';
+import { clsx, fmtNum, fmtUsd, fmtSignedUsd, fmtSigned, fmtPct, fmtDateTime, fmtAgo, orderIdLabel } from '../../lib/format';
 import { useScripts, openScriptInEditor, type AnalyzeResult } from '../scripts/client';
 import { InputControl, ParamSetPicker } from '../chart/indicators';
 import { openRepaintCheck } from '../scripts/repaint';
@@ -15,10 +15,11 @@ import { openModule } from '../../app/moduleOps';
 import { newId } from '../../../shared/workspace';
 import type { AccountEvent, BotConfig, BotView, ClosedTrade } from '../../../shared/trading/types';
 import { SYMBOL_SPECS, qtyDecimals, type SymbolId } from '../../../shared/symbols';
+import { parseTimeframe, tfDurationMs } from '../../../shared/timeframes';
 import type { RepaintReport } from '../../../engine/repaint';
 import './bots.css';
 
-type BotTab = 'activity' | 'signals' | 'orders' | 'state' | 'logs' | 'trades' | 'equity';
+type BotTab = 'activity' | 'signals' | 'orders' | 'state' | 'logs' | 'trades' | 'equity' | 'vs';
 
 function useBots(): BotView[] | null {
   const [list, setList] = useState<BotView[] | null>(null);
@@ -345,10 +346,12 @@ function BotDetail({ id, tab, setTab }: { id: string; tab: BotTab; setTab: (t: B
             { value: 'logs', label: 'Logs', badge: v.sim?.logs.length || undefined },
             { value: 'trades', label: 'Trades' },
             { value: 'equity', label: 'Equity' },
+            { value: 'vs', label: 'Vs strategy' },
           ]}
         />
       </div>
       <div className="mod-scroll">
+        {tab === 'vs' && <VsStrategy v={v} />}
         {tab === 'activity' && <Activity id={id} version={evVersion} />}
         {tab === 'equity' && <BotEquity id={id} initial={a.config.initialBalance} />}
         {tab === 'signals' && <Signals v={v} />}
@@ -671,6 +674,150 @@ function Activity({ id, version }: { id: string; version: number }) {
   }, [id, version]);
   if (!events) return <div className="empty"><Spinner /></div>;
   return <Events events={events} />;
+}
+
+/**
+ * The bot's live trades against the trades its strategy made over the same bars (the bot's own
+ * evaluation): matched by side and entry time, with entry and exit slippage, and the trades only
+ * one side made. Differences come from live fills, latency, funding and positions changed by hand.
+ */
+function VsStrategy({ v }: { v: BotView }) {
+  const c = v.config;
+  // The live trades and the strategy's evaluation are read as a pair, the history first: the bot
+  // evaluates the strategy before it trades, so that evaluation covers every trade in the history.
+  const [pair, setPair] = useState<{ live: ClosedTrade[]; sim: BotView['sim'] } | null>(null);
+  const lastLoad = useRef(0);
+  const changed = `${v.account.trades}:${v.sim?.tradesTotal ?? 0}`;
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      lastLoad.current = Date.now();
+      try {
+        const h = await api.call<{ trades: ClosedTrade[] }>('trading:history', v.accountId);
+        const view = await api.call<BotView | null>('bots:get', v.accountId);
+        if (alive) setPair({ live: h.trades, sim: view?.sim ?? null });
+      } catch {
+        /* the next change or the timer retries */
+      }
+    };
+    // reload when a trade closes (live or in the strategy), at most every 2 s
+    const first = setTimeout(load, Math.max(0, lastLoad.current + 2000 - Date.now()));
+    const t = setInterval(load, 15000);
+    return () => {
+      alive = false;
+      clearTimeout(first);
+      clearInterval(t);
+    };
+  }, [v.accountId, changed]);
+  if (!c?.startedAt) return <Empty icon="bot" title="Not running">Start the bot to compare what it trades with what its strategy does on the same bars.</Empty>;
+  const sim = pair?.sim;
+  const live = pair?.live;
+  if (!sim || !sim.ok || !live)
+    return (
+      <div className="empty">
+        <Spinner /> Waiting for the strategy's evaluation…
+      </div>
+    );
+  const tf = parseTimeframe(c.tf);
+  const tfMs = tf ? tfDurationMs(tf) : 60000;
+  const secs = tfMs < 60000;
+  const since = c.startedAt;
+  const mine = live.filter((t) => t.symbol === c.symbol && t.openedAt >= since - 60000).sort((a, b) => a.openedAt - b.openedAt);
+  const strat = sim.trades.filter((t) => t.entryTime >= since - tfMs).sort((a, b) => a.entryTime - b.entryTime);
+  const used = new Set<number>();
+  const rows = strat.map((s) => {
+    const k = mine.findIndex((l, i) => !used.has(i) && l.side === s.dir && Math.abs(l.openedAt - s.entryTime) <= tfMs + 120000);
+    if (k >= 0) used.add(k);
+    return { s, l: k >= 0 ? mine[k] : null };
+  });
+  const extra = mine.filter((_, i) => !used.has(i));
+  const matched = rows.filter((r) => r.l) as { s: (typeof strat)[number]; l: ClosedTrade }[];
+  const bps = (worse: number, ref: number) => (ref > 0 ? (worse / ref) * 1e4 : NaN);
+  // positive = worse for the trader: paid more on a long entry, received less on a long exit
+  const entrySlip = matched.map((r) => bps(r.s.dir * (r.l.entry - r.s.entryPrice), r.s.entryPrice));
+  const exitSlip = matched.map((r) => bps(r.s.dir * (r.s.exitPrice - r.l.exit), r.s.exitPrice));
+  const avg = (xs: number[]) => {
+    const f = xs.filter(Number.isFinite);
+    return f.length ? f.reduce((a, b) => a + b, 0) / f.length : NaN;
+  };
+  const priceRet = (dir: number, a: number, b: number) => (a > 0 ? ((b - a) / a) * 100 * dir : NaN);
+  const stratRet = sim.initialCapital > 0 && Number.isFinite(sim.equity) ? (sim.equity / sim.initialCapital - 1) * 100 : NaN;
+  const liveRet = v.account.startEquity ? (v.account.equity / v.account.startEquity - 1) * 100 : NaN;
+  const fmtBps = (x: number) => (Number.isFinite(x) ? `${fmtSigned(x, 1)} bps` : '—');
+  return (
+    <div className="vs-strategy">
+      <div className="acct-stats bot-stats">
+        <Stat k="Strategy since start" v={<span className={stratRet >= 0 ? 'up' : 'down'}>{Number.isFinite(stratRet) ? fmtPct(stratRet) : '—'}</span>} sub={<span className="faint">bar-based fills, account costs</span>} />
+        <Stat k="Bot since start" v={<span className={liveRet >= 0 ? 'up' : 'down'}>{Number.isFinite(liveRet) ? fmtPct(liveRet) : '—'}</span>} sub={<span className="faint">live fills{Number.isFinite(stratRet - liveRet) ? ` · ${fmtPct(liveRet - stratRet)} vs strategy` : ''}</span>} />
+        <Stat k="Trades matched" v={`${matched.length} of ${strat.length}`} sub={<span className={clsx(rows.length - matched.length + extra.length ? 'warn-text' : 'faint')}>{rows.length - matched.length} only in the strategy · {extra.length} only live</span>} />
+        <Stat k="Entry slippage" v={fmtBps(avg(entrySlip))} sub={<span className="faint">average; + = worse than the strategy</span>} />
+        <Stat k="Exit slippage" v={fmtBps(avg(exitSlip))} sub={<span className="faint">average; + = worse than the strategy</span>} />
+      </div>
+      {!strat.length && !mine.length ? (
+        <div className="faint small" style={{ padding: '6px 12px' }}>
+          No closed trades yet since the start ({fmtDateTime(since)}).
+        </div>
+      ) : (
+        <table className="table vs-table">
+          <thead>
+            <tr>
+              <th>Entry</th>
+              <th>Side</th>
+              <th className="num">Entry: strategy → bot</th>
+              <th className="num">Exit: strategy → bot</th>
+              <th className="num">Return: strategy · bot</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ s, l }, k) => (
+              <tr key={`m${k}`} className={clsx(!l && 'missing')}>
+                <td>{fmtDateTime(s.entryTime, secs)}</td>
+                <td className={s.dir > 0 ? 'up' : 'down'}>{s.dir > 0 ? 'Long' : 'Short'}</td>
+                <td className="num">
+                  {fmtNum(s.entryPrice, 2)}
+                  {l ? (
+                    <>
+                      {' → '}
+                      {fmtNum(l.entry, 2)} <span className="faint">{fmtBps(entrySlip[matched.findIndex((m) => m.s === s)])}</span>
+                    </>
+                  ) : (
+                    <span className="warn-text"> · not traded live</span>
+                  )}
+                </td>
+                <td className="num">
+                  {fmtNum(s.exitPrice, 2)}
+                  {l && (
+                    <>
+                      {' → '}
+                      {fmtNum(l.exit, 2)} <span className="faint">{fmtBps(exitSlip[matched.findIndex((m) => m.s === s)])}</span>
+                    </>
+                  )}
+                </td>
+                <td className="num">
+                  {fmtPct(priceRet(s.dir, s.entryPrice, s.exitPrice))}
+                  {l && ` · ${fmtPct(priceRet(l.side, l.entry, l.exit))}`}
+                </td>
+              </tr>
+            ))}
+            {extra.map((l) => (
+              <tr key={l.id} className="extra">
+                <td>{fmtDateTime(l.openedAt, secs)}</td>
+                <td className={l.side > 0 ? 'up' : 'down'}>{l.side > 0 ? 'Long' : 'Short'}</td>
+                <td className="num">
+                  <span className="warn-text">only live</span> {fmtNum(l.entry, 2)}
+                </td>
+                <td className="num">{fmtNum(l.exit, 2)}</td>
+                <td className="num">· {fmtPct(priceRet(l.side, l.entry, l.exit))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="faint small" style={{ padding: '6px 12px 10px' }}>
+        Returns are price returns of each trade (before fees). The strategy fills market orders at the next bar's open; the bot trades the live order book a moment after the bar closes. Trades only in the strategy usually mean the bot's position was changed by hand or a risk guard paused it.
+      </div>
+    </div>
+  );
 }
 
 /** The bot account's equity curve and its Greeks against buy & hold. */

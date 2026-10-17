@@ -102,8 +102,9 @@ per alert.
     spreads, iron condor, covered call, protective put), to combine legs, including the coin
     itself. It shows the position's net Greeks, the premium, break-evens, maximum profit and
     loss, the chance of profit at the first expiry (if the index moves as the options price it,
-    lognormal with that expiry's ATM volatility), and the payoff at the first expiry and on any
-    date with a volatility shift. Values use
+    lognormal with that expiry's ATM volatility), the payoff at the first expiry and on any
+    date with a volatility shift, and a scenario table of the profit or loss for index moves of
+    −15% to +15% today, halfway and at the first expiry. Values use
     Black-Scholes with each option's mark volatility and Binance's rate. That is the model
     Binance prices with, so the Greeks match the exchange's. The builder is for planning only;
     paper trading covers spot and perpetuals.

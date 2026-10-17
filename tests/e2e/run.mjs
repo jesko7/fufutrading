@@ -610,6 +610,27 @@ const S = {
     check(errs.length === 0, `no order errors (${errs.map((e) => e.message).slice(0, 3).join(' | ')})`);
     const notes = hist.events.filter((e) => /outside the strategy|below the minimum/.test(e.message));
     check(notes.length === 0, `no drift between account and strategy (${notes.map((e) => e.message).slice(0, 2).join(' | ')})`);
+    // the Bots module compares the live trades with the strategy's
+    if (!(await page.isVisible('.bots-side'))) {
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('.palette input');
+      await page.fill('.palette input', 'Add Bots');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.bots-side', { timeout: 15000 });
+    }
+    await page.click('.bot-item:has-text("Flip bot")');
+    await page.click('.tabs .tab:has-text("Vs strategy")');
+    await page.waitForSelector('.vs-strategy .vs-table tbody tr', { timeout: 20000 });
+    // innerText keeps the line breaks between the stat values (textContent runs "14 of 14" and "0 only…" together)
+    const vsText = await page.innerText('.vs-strategy .bot-stats');
+    const mm = /(\d+) of (\d+)/.exec(vsText || '');
+    check(!!mm && +mm[2] >= 8 && +mm[1] >= +mm[2] - 1, `live trades matched with the strategy's (${(vsText || '').replace(/\s+/g, ' ').slice(0, 200)})`);
+    await page.locator('.stack:has(.vs-strategy) .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized .vs-strategy', { timeout: 5000 });
+    await wait(500);
+    await shot('20b-bot-vs-strategy');
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
     await page.evaluate((id) => window.fufu.invoke('bots:stop', id, { close: true }), id);
     const after = await page.evaluate((id) => window.fufu.invoke('bots:get', id), id);
     check(after.config.status === 'stopped' && after.account.position === 0 && after.account.openOrders === 0, 'stopped flat without orders');
