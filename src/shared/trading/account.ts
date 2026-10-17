@@ -4,7 +4,7 @@
  * bots and historical replay.
  */
 import type { Market, SymbolId } from '../symbols';
-import { SYMBOL_SPECS, floorToStep, roundToTick } from '../symbols';
+import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick } from '../symbols';
 import { Ledger, type Marks } from './ledger';
 import { evaluateOrder, slip, type MatchDecision, type Segment } from './matching';
 import { maxLeverageFor } from './brackets';
@@ -518,7 +518,7 @@ export class AccountRuntime {
       if (after !== 0 && (Math.abs(after) > Math.abs(before) || Math.sign(after) !== Math.sign(before))) this.prop.onPositionOpened(t);
       if (res.realized !== 0 || fee) this.prop.onRealized(t, res.realized - fee);
     }
-    this.event('fill', `${o.side === 'buy' ? 'Bought' : 'Sold'} ${fmtQ(qty)} ${SYMBOL_SPECS[o.symbol].base} @ ${price.toFixed(2)}${res.realized ? ` · P&L ${res.realized >= 0 ? '+' : ''}${res.realized.toFixed(2)}` : ''}${estimated ? ' (est. price)' : ''}`, { orderId: o.id, fillId: f.id, source: o.source }, t);
+    this.event('fill', `${o.side === 'buy' ? 'Bought' : 'Sold'} ${fmtQ(qty, o.symbol, o.market)} ${SYMBOL_SPECS[o.symbol].base} @ ${fmtP(price, o.symbol, o.market)}${res.realized ? ` · P&L ${fmtSignedAmount(res.realized)}` : ''}${estimated ? ' (est. price)' : ''}`, { orderId: o.id, fillId: f.id, source: o.source }, t);
     // brackets: like Binance, reduce-only orders of a position that closed or reversed are canceled
     // (otherwise an old stop loss would add to the new position)
     if (before !== 0 && Math.sign(after) !== Math.sign(before)) this.cancelReduceOnly(o.symbol, t, after === 0 ? 'position closed' : 'position reversed');
@@ -780,7 +780,7 @@ export class AccountRuntime {
         this.trades.push(res.closedTrade);
         this.fills.push({ id: oid('f'), orderId: 'liquidation', symbol: sym, market: 'futures', side: res.side === 1 ? 'sell' : 'buy', qty: res.qty, price, fee: res.clearanceFee, liquidity: 'taker', t, realizedPnl: res.realized, source: 'liquidation', reason: 'liquidation' });
         this.prop?.onRealized(t, res.realized - res.clearanceFee);
-        this.event('liquidation', `LIQUIDATED ${res.side === 1 ? 'long' : 'short'} ${fmtQ(res.qty)} ${SYMBOL_SPECS[sym].base} @ ${price.toFixed(2)} (${mode}) · loss ${res.realized.toFixed(2)} · clearance fee ${res.clearanceFee.toFixed(2)}${res.bankrupt ? ' · bankrupt (insurance fund covers the rest)' : ''}`, { symbol: sym, bankrupt: res.bankrupt }, t);
+        this.event('liquidation', `LIQUIDATED ${res.side === 1 ? 'long' : 'short'} ${fmtQ(res.qty, sym, 'futures')} ${SYMBOL_SPECS[sym].base} @ ${fmtP(price, sym, 'futures')} (${mode}) · P&L ${fmtSignedAmount(res.realized)} · clearance fee ${res.clearanceFee.toFixed(2)}${res.bankrupt ? ' · bankrupt (insurance fund covers the rest)' : ''}`, { symbol: sym, bankrupt: res.bankrupt }, t);
       }
     }
     const ratio = this.ledger.marginRatio(this.marks(ctx));
@@ -879,8 +879,21 @@ export class AccountRuntime {
   }
 }
 
-function fmtQ(q: number): string {
-  return q >= 100 ? q.toFixed(2) : q >= 1 ? q.toFixed(4) : q.toPrecision(4);
+/** A quantity with the instrument's step decimals, as Binance shows it. */
+function fmtQ(q: number, symbol: SymbolId, market: Market): string {
+  const s = q.toFixed(qtyDecimals(symbol, market));
+  // quantities sit on the step; one that doesn't keeps its digits
+  return Math.abs(+s - q) > 1e-12 ? String(+q.toPrecision(8)) : s;
+}
+
+function fmtP(p: number, symbol: SymbolId, market: Market): string {
+  return p.toFixed(priceDecimals(symbol, market));
+}
+
+/** An amount with its sign; none when it rounds to zero. */
+function fmtSignedAmount(x: number): string {
+  const s = Math.abs(x).toFixed(2);
+  return /[1-9]/.test(s) ? `${x > 0 ? '+' : '−'}${s}` : s;
 }
 
 export function describeOrder(o: Order): string {
@@ -896,6 +909,6 @@ export function describeOrder(o: Order): string {
             : o.type === 'trailingStop'
               ? `Trailing ${+((o.callbackRate || 0) * 100).toFixed(2)}%${o.trailExtreme === undefined && o.activationPrice ? ` from ${o.activationPrice}` : o.stopPrice ? ` (stop ${o.stopPrice})` : ''}`
               : `Take-profit ${o.stopPrice}`;
-  const what = o.bracket ? (o.bracket === 'sl' ? 'Stop loss' : 'Take profit') : `${o.side === 'buy' ? 'Buy' : 'Sell'} ${fmtQ(o.qty)} ${SYMBOL_SPECS[o.symbol].base}`;
+  const what = o.bracket ? (o.bracket === 'sl' ? 'Stop loss' : 'Take profit') : `${o.side === 'buy' ? 'Buy' : 'Sell'} ${fmtQ(o.qty, o.symbol, o.market)} ${SYMBOL_SPECS[o.symbol].base}`;
   return o.bracket ? `${what} @ ${o.stopPrice}` : `${what} · ${t}`;
 }

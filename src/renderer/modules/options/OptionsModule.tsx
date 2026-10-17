@@ -10,7 +10,7 @@ import { useApp, toast } from '../../state/store';
 import { useSize, useTopicValue } from '../../lib/hooks';
 import { Icon } from '../../components/Icon';
 import { Spinner, SymbolPicker, Segmented, Tabs, Empty } from '../../components/ui';
-import { clsx, fmtNum, fmtCompact, fmtTime } from '../../lib/format';
+import { clsx, fmtNum, fmtCompact, fmtSigned, fmtTime } from '../../lib/format';
 import { fmtExpiry, fmtDte, pctIV, fmtPremium } from './fmt';
 import type { SymbolId } from '../../../shared/symbols';
 import { byStrike, constantMaturityVol, exposureByStrike, expirySummaries, forwardOf, gammaFlip, marketFigures, maxPain, smile, yearsTo, type ExpirySummary, type OptionLeg, type OptionRow, type OptionsSnapshot } from '../../../shared/options';
@@ -367,7 +367,7 @@ function SmileView({ s, sums, expiry, range, hidden, setHidden }: { s: OptionsSn
             yFmt={(v) => `${v > 0 ? '+' : ''}${v.toFixed(0)}`}
             tip={(b) => (
               <div className="ox-tip-row">
-                <b>{`${(b.value || 0) > 0 ? '+' : ''}${(b.value || 0).toFixed(2)} pts`}</b>
+                <b>{`${fmtSigned(b.value || 0, 2)} pts`}</b>
                 <span className="muted">{(b.value || 0) >= 0 ? 'calls richer' : 'puts richer'}</span>
               </div>
             )}

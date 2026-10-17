@@ -46,16 +46,29 @@ export function fmtQty(v: number, symbol?: SymbolId, market: Market = 'spot'): s
   return fmtNum(v, d, 0);
 }
 
+/** The sign of `v` as shown with `s` (its formatted magnitude): none when it rounds to zero. */
+function signOf(v: number, s: string, plus: boolean): string {
+  if (!/[1-9]/.test(s)) return '';
+  return v < 0 ? '−' : v > 0 && plus ? '+' : '';
+}
+
 export function fmtUsd(v: number, decimals = 2): string {
   if (!isFinite(v)) return '—';
   const s = fmtNum(Math.abs(v), decimals);
-  return `${v < 0 ? '−' : ''}$${s}`;
+  return `${signOf(v, s, false)}$${s}`;
 }
 
 export function fmtSignedUsd(v: number, decimals = 2): string {
   if (!isFinite(v)) return '—';
   const s = fmtNum(Math.abs(v), decimals);
-  return `${v > 0 ? '+' : v < 0 ? '−' : ''}$${s}`;
+  return `${signOf(v, s, true)}$${s}`;
+}
+
+/** A number with its sign (+ for gains), no sign when it rounds to zero. */
+export function fmtSigned(v: number, decimals = 2): string {
+  if (!isFinite(v)) return '—';
+  const s = fmtNum(Math.abs(v), decimals);
+  return `${signOf(v, s, true)}${s}`;
 }
 
 export function fmtCompact(v: number): string {
@@ -66,7 +79,7 @@ export function fmtCompact(v: number): string {
 export function fmtPct(v: number, decimals = 2, signed = true): string {
   if (!isFinite(v)) return '—';
   const s = fmtNum(Math.abs(v), decimals);
-  return `${signed ? (v > 0 ? '+' : v < 0 ? '−' : '') : v < 0 ? '−' : ''}${s}%`;
+  return `${signOf(v, s, signed)}${s}%`;
 }
 
 function parts(t: number): { y: number; mo: number; d: number; h: number; mi: number; s: number; wd: number } {
