@@ -147,6 +147,8 @@ from claude.com/claude-code and run `claude` once in a terminal to sign in.
   - market statistics, futures positioning and the options market (implied volatility, skew,
     expected moves, max pain, dealer gamma)
   - a repaint check that replays recent bars as if live
+  - alerts it sets up for you (price levels, moves, futures and options data, script
+    signals), in build mode
   - "show in app" (open in the editor, add to a chart, open a backtest)
 
   So a typical turn is hypothesis → write → check → run → backtest → robustness → refine, and

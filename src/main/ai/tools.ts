@@ -14,6 +14,8 @@ import type { BacktestService, BacktestRecord, BacktestRequest } from '../backte
 import type { OptimizerService, OptimizeRequest } from '../backtest/optimizer';
 import type { DerivativesService } from '../market/derivatives';
 import type { OptionsService } from '../market/options';
+import type { AlertService } from '../alerts';
+import { describeAlert, newAlert, type Alert, type AlertKind } from '../../shared/alerts';
 import type { TradingEngine } from '../trading/engine';
 import type { JournalService } from '../trading/journal';
 import type { McpTool } from './mcp';
@@ -35,6 +37,7 @@ export interface AiToolDeps {
   optimizer: OptimizerService;
   derivatives?: DerivativesService;
   options?: OptionsService;
+  alerts?: AlertService;
   trading?: TradingEngine;
   journal?: JournalService;
   docsDir: string;
@@ -989,6 +992,66 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
             }
           : {},
       }),
+    },
+    {
+      name: 'create_alert',
+      readOnly: false,
+      description:
+        "Create an alert in the user's Alerts module (desktop notification and sound; it also shows in the alert log). Kinds: price (a level is crossed, or the price is above/below it), move (the price moves pct% within minutes), futures (metric funding | oiChange | liquidations | longShortRatio: funding in % per 8 h above/below value; open-interest change of value% within minutes, condition up/down/either; liquidations of value USDT within minutes, condition longs/shorts/either; long/short ratio above/below value), options (metric iv30 | skew | putCall: 30-day implied volatility in %, 25-delta skew at 30 days in volatility points, put/call open interest, condition above/below value; or metric level with optionsLevel flip | maxPain | callWall | putWall and condition crosses/above/below) and script (an indicator's alertcondition() or a strategy's orders: scriptId and tf). Confirm the condition in one sentence afterwards.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['price', 'move', 'futures', 'options', 'script'] },
+          symbol: INSTRUMENT_SCHEMA.symbol,
+          market: INSTRUMENT_SCHEMA.market,
+          condition: { type: 'string', description: 'price: crosses | crossesAbove | crossesBelow | above | below; move: up | down | either; futures/options: see the description' },
+          level: { type: 'number', description: 'price alerts: the price level' },
+          pct: { type: 'number', description: 'move alerts: the move in %' },
+          minutes: { type: 'number', description: 'move, open interest and liquidation alerts: the window' },
+          metric: { type: 'string', description: 'futures or options metric (see the description)' },
+          value: { type: 'number', description: 'futures/options threshold' },
+          optionsLevel: { type: 'string', enum: ['flip', 'maxPain', 'callWall', 'putWall'] },
+          scriptId: { type: 'string', description: 'script alerts: the script (alertcondition() of an indicator, or the orders of a strategy)' },
+          tf: INSTRUMENT_SCHEMA.tf,
+          frequency: { type: 'string', enum: ['once', 'perBar', 'perMinute', 'every'], description: 'How often it may fire (default once; every = with a pause)' },
+          name: { type: 'string', description: 'Optional label' },
+        },
+        required: ['kind'],
+      },
+      async run(args) {
+        if (!deps.alerts) throw new Error('alerts are not available');
+        const kind = String(args.kind) as AlertKind;
+        if (!['price', 'move', 'futures', 'options', 'script'].includes(kind)) throw new Error('kind must be price, move, futures, options or script');
+        const symbol = (isSymbol(args.symbol) ? args.symbol : 'BTCUSDT') as SymbolId;
+        const market: Market = args.market === 'futures' ? 'futures' : 'spot';
+        const extra: Record<string, unknown> = { name: typeof args.name === 'string' ? args.name : '' };
+        if (typeof args.frequency === 'string') extra.frequency = args.frequency;
+        if (typeof args.condition === 'string') extra.condition = args.condition;
+        if (kind === 'price') extra.level = Number(args.level);
+        if (kind === 'move') {
+          extra.pct = Number(args.pct);
+          extra.minutes = Number(args.minutes) || 15;
+          if (typeof args.condition === 'string') extra.direction = args.condition;
+          delete extra.condition;
+        }
+        if (kind === 'futures' || kind === 'options') {
+          if (typeof args.metric === 'string') extra.metric = args.metric;
+          if (args.value !== undefined) extra.value = Number(args.value);
+          if (args.minutes !== undefined) extra.minutes = Number(args.minutes);
+          if (kind === 'options' && typeof args.optionsLevel === 'string') extra.level = args.optionsLevel;
+        }
+        if (kind === 'script') {
+          const doc = typeof args.scriptId === 'string' ? scripts.library.get(args.scriptId) : undefined;
+          if (!doc) throw new Error('scriptId: script not found');
+          extra.scriptId = doc.id;
+          extra.tf = typeof args.tf === 'string' && parseTimeframe(args.tf) ? args.tf : '1h';
+          const a = await scripts.pool.analyze(doc.language, doc.code, runContext({ symbol, market, tf: String(extra.tf), chartType: 'candles' }));
+          extra.trigger = a.meta?.type === 'strategy' ? { type: 'orders' } : a.alertconditions?.length ? { type: 'alertcondition', title: a.alertconditions[0] } : { type: 'alert' };
+        }
+        const saved = deps.alerts.save({ ...newAlert(kind, symbol, market), ...extra } as Alert);
+        return { id: saved.id, alert: describeAlert(saved), frequency: saved.frequency, status: saved.status };
+      },
+      card: (_a, r) => ({ kind: 'ui', title: r?.alert ? `Alert: ${r.alert}` : 'Alert created', data: { action: 'create_alert', id: r?.id } }),
     },
     {
       name: 'show_in_app',

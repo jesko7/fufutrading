@@ -842,6 +842,13 @@ const S = {
     console.log('    ' + rb.result.runs.map((r) => `${r.label}: ${r.error || `${r.returnPct}% (B&H ${r.buyHoldPct}%)`}`).join(' | '));
     const hist = await page.evaluate(() => window.fufu.invoke('backtests:list'));
     check(!hist.some((h) => h.label === 'robustness'), 'robustness runs stay out of the Strategy Tester history');
+    // Claude can set alerts: an options alert and a price level
+    const ca = await call('create_alert', { kind: 'options', symbol: 'ETHUSDT', metric: 'iv30', condition: 'above', value: 80, frequency: 'every' });
+    const cp = await call('create_alert', { kind: 'price', symbol: 'BTCUSDT', condition: 'crossesBelow', level: 50000 });
+    check(ca.result?.alert === 'ETH options: 30-day implied volatility is above 80%' && /BTC\/USDT crosses below 50,000/.test(cp.result?.alert || ''), `Claude creates alerts (${ca.result?.alert} · ${cp.result?.alert})`);
+    const listed = await page.evaluate(() => window.fufu.invoke('alerts:list'));
+    check([ca.result?.id, cp.result?.id].every((id) => listed.some((a) => a.id === id && a.status === 'active')), 'the alerts are active in the Alerts module');
+    for (const id of [ca.result?.id, cp.result?.id]) await page.evaluate((x) => window.fufu.invoke('alerts:delete', x), id);
     const accts = await call('review_trades', {});
     check(Array.isArray(accts.result.accounts), `Claude lists paper accounts for a review (${accts.result.accounts.length})`);
     if (accts.result.accounts.length) {

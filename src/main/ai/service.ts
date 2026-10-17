@@ -65,7 +65,7 @@ export interface AiChat {
 export const DEFAULT_AI: AiSettings = { model: 'sonnet', mode: 'build', effort: 'medium', thinking: true };
 
 const MODE_PROMPT: Record<AiMode, string> = {
-  build: 'Mode: BUILD. Implement what the user asks: follow the research steps, iterate until it works and the evidence is honest, save it with save_script and show it with show_in_app.',
+  build: 'Mode: BUILD. Implement what the user asks: follow the research steps, iterate until it works and the evidence is honest, save it with save_script and show it with show_in_app. When the user wants to be notified about a price, a move, futures positioning, the options market or a script signal, set it up with create_alert.',
   plan: 'Mode: PLAN. Research and propose. You may read scripts, check, run and backtest drafts to gather evidence, but do not save anything. End with a concrete step-by-step plan the user can approve (they can switch to Build to execute it).',
   ask: 'Mode: ASK. Answer and explain. Use tools only to look things up or verify claims (read, check, run, backtest). Do not save scripts.',
 };

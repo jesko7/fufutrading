@@ -46,7 +46,7 @@ export async function registerServices(core: AppCore): Promise<Services> {
   const alerts = registerAlerts(core, scripts, derivatives, options);
   const journal = registerJournal(core);
   trading.beforeRemove.add((id) => journal.remove(id));
-  const ai = registerAI(core, { scripts, backtests, optimizer, derivatives, options, trading, journal });
+  const ai = registerAI(core, { scripts, backtests, optimizer, derivatives, options, alerts, trading, journal });
   const trades = registerFootprint(core);
   registerDataManager(core, trades);
   registerNews(core);
