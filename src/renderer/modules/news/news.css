@@ -100,3 +100,44 @@
   background: color-mix(in srgb, #14f195 18%, transparent);
   color: #14c785;
 }
+/* Claude's sentiment of each headline */
+.news-ai {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.news-ai .select {
+  height: 24px;
+  font-size: 11.5px;
+}
+.news-item.sent-bullish {
+  box-shadow: inset 3px 0 0 var(--up);
+}
+.news-item.sent-bearish {
+  box-shadow: inset 3px 0 0 var(--down);
+}
+.sent-badge {
+  font-size: 10.5px;
+  font-weight: 650;
+  padding: 0 5px;
+  border-radius: 4px;
+  line-height: 16px;
+}
+.sent-badge.bullish {
+  color: var(--up);
+  background: color-mix(in srgb, var(--up) 14%, transparent);
+}
+.sent-badge.bearish {
+  color: var(--down);
+  background: color-mix(in srgb, var(--down) 14%, transparent);
+}
+.seg .sent-opt.bullish.on {
+  color: var(--up);
+}
+.seg .sent-opt.bearish.on {
+  color: var(--down);
+}

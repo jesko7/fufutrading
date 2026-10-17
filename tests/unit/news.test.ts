@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 vi.mock('electron', () => ({ shell: { openExternal: () => {} } }));
-import { parseFeed, coinsOf, decodeEntities } from '../../src/main/news';
+import { parseFeed, coinsOf, decodeEntities, sentimentPrompt, parseSentiment } from '../../src/main/news';
 
 const RSS = `<?xml version="1.0"?><rss><channel><title>X</title>
 <item><title><![CDATA[Bitcoin tops $100K as ETF inflows surge]]></title><link>https://example.com/a</link>
@@ -31,5 +31,25 @@ describe('news feed parsing', () => {
     expect(coinsOf('sol-gel chemistry and solar power')).toEqual([]);
     expect(coinsOf('Ethereum and Bitcoin')).toEqual(['BTC', 'ETH']);
     expect(decodeEntities('&#x27;a&#39; &hellip;')).toBe("'a' …");
+  });
+});
+
+describe('news sentiment (Claude)', () => {
+  it('asks for one rating per headline by id', () => {
+    const p = sentimentPrompt([
+      { id: 'a1', title: 'Bitcoin ETF sees record inflows', summary: 'Funds bought  12,000 BTC.' },
+      { id: 'b2', title: 'Exchange hacked', summary: '' },
+    ]);
+    expect(p).toContain('[a1] Bitcoin ETF sees record inflows — Funds bought 12,000 BTC.');
+    expect(p).toContain('[b2] Exchange hacked');
+    expect(p).toMatch(/JSON array only/);
+  });
+
+  it('reads the ratings from the answer, fenced or not, and drops anything else', () => {
+    const ids = new Set(['a1', 'b2', 'c3']);
+    const text = 'Here you go:\n```json\n[{"id":"a1","s":"Bullish","why":"record inflows"},{"id":"b2","s":"bearish","why":"funds stolen"},{"id":"zz","s":"bullish"},{"id":"c3","s":"maybe"}]\n```';
+    expect(parseSentiment(text, ids)).toEqual({ a1: { s: 'bullish', why: 'record inflows' }, b2: { s: 'bearish', why: 'funds stolen' } });
+    expect(parseSentiment('no idea', ids)).toEqual({});
+    expect(parseSentiment('[not json]', ids)).toEqual({});
   });
 });

@@ -3,7 +3,7 @@ import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { Icon } from '../../components/Icon';
-import { Segmented, Spinner, Empty, Popover, usePopover, Toggle } from '../../components/ui';
+import { Segmented, Spinner, Empty, Popover, usePopover, Toggle, Select } from '../../components/ui';
 import { useNow } from '../../lib/hooks';
 import { clsx, fmtAgo } from '../../lib/format';
 import { isSymbol, SYMBOL_SPECS } from '../../../shared/symbols';
@@ -26,17 +26,43 @@ interface Feed {
   enabled: boolean;
   builtin?: boolean;
 }
+type Sentiment = 'bullish' | 'bearish' | 'neutral';
+interface NewsAi {
+  enabled: boolean;
+  model: string;
+  effort: string;
+  thinking: boolean;
+}
 interface NewsData {
   items: Item[];
   feeds: Feed[];
   status: Record<string, { ok: boolean; at: number; error?: string; count: number }>;
   updated: number;
+  /** Claude's rating of each headline (by id), its settings and progress. */
+  sentiment?: Record<string, { s: Sentiment; why: string; model: string; t: number }>;
+  ai?: NewsAi;
+  aiStatus?: { running: boolean; error?: string; rated: number; cost: number };
 }
 
 type Filter = 'all' | 'BTC' | 'ETH' | 'SOL' | 'chart';
+type SentFilter = 'all' | 'bullish' | 'bearish';
+
+const AI_MODELS = [
+  { value: 'haiku', label: 'Haiku' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'fable', label: 'Fable' },
+];
+const AI_EFFORTS = [
+  { value: 'low', label: 'Low effort' },
+  { value: 'medium', label: 'Medium effort' },
+  { value: 'high', label: 'High effort' },
+  { value: 'xhigh', label: 'Extra-high effort' },
+  { value: 'max', label: 'Max effort' },
+];
 
 export function NewsModule({ module }: ModuleProps) {
-  const cfg = module.config as { filter?: Filter; seen?: number };
+  const cfg = module.config as { filter?: Filter; seen?: number; sent?: SentFilter };
   const set = (p: Record<string, unknown>) => useApp.getState().setModuleConfig(module.id, p);
   const [data, setData] = useState<NewsData | null>(null);
   const [q, setQ] = useState('');
@@ -57,12 +83,17 @@ export function NewsModule({ module }: ModuleProps) {
   // remember what was seen when leaving the module
   useEffect(() => () => set({ seen: Date.now() }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const ai = data?.ai;
+  const sentOn = !!ai?.enabled;
+  const sentFilter: SentFilter = sentOn ? cfg.sent || 'all' : 'all';
   const items = useMemo(() => {
     if (!data) return [];
     const coin = filter === 'chart' ? chartCoin : filter === 'all' ? null : filter;
     const s = q.trim().toLowerCase();
-    return data.items.filter((it) => (!coin || it.coins.includes(coin)) && (!s || `${it.title} ${it.summary} ${it.source}`.toLowerCase().includes(s)));
-  }, [data, filter, q, chartCoin]);
+    return data.items.filter((it) => (!coin || it.coins.includes(coin)) && (!s || `${it.title} ${it.summary} ${it.source}`.toLowerCase().includes(s)) && (sentFilter === 'all' || data.sentiment?.[it.id]?.s === sentFilter));
+  }, [data, filter, q, chartCoin, sentFilter]);
+  const setAi = (p: Partial<NewsAi>) => void api.call('news:ai', p).catch((e) => toast({ title: 'Setting not saved', body: errorMessage(e), kind: 'error' }));
+  const rated = data ? data.items.filter((it) => data.sentiment?.[it.id]).length : 0;
 
   const refresh = () => {
     setRefreshing(true);
@@ -99,6 +130,49 @@ export function NewsModule({ module }: ModuleProps) {
         <Icon name="search" size={13} />
         <input className="news-q" placeholder="Search headlines…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
+      {ai && (
+        <div className="news-ai">
+          <label className="row" style={{ gap: 6 }} data-tip="Claude rates each headline: green for likely bullish, red for likely bearish. It uses your Claude Code plan, like AI Studio.">
+            <Toggle value={ai.enabled} onChange={(v) => setAi({ enabled: v })} />
+            <span>AI sentiment</span>
+          </label>
+          {ai.enabled && (
+            <>
+              <Select value={ai.model} options={AI_MODELS} onChange={(m) => setAi({ model: m })} title="Claude model that rates the headlines" />
+              <Select value={ai.effort} options={AI_EFFORTS} onChange={(v) => setAi({ effort: v })} title="How much effort Claude spends (more is slower and uses more of your plan)" />
+              <label className="row" style={{ gap: 6 }} data-tip="Let Claude think before it rates (slower, more thorough)">
+                <Toggle value={ai.thinking} onChange={(v) => setAi({ thinking: v })} />
+                <span>Thinking</span>
+              </label>
+              <Segmented
+                size="sm"
+                value={sentFilter}
+                onChange={(v) => set({ sent: v })}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'bullish', label: 'Bullish', cls: 'sent-opt bullish' },
+                  { value: 'bearish', label: 'Bearish', cls: 'sent-opt bearish' },
+                ]}
+              />
+              <span className="spacer" />
+              <span className={clsx('small', data?.aiStatus?.error ? 'warn-text' : 'faint')} data-tip={data?.aiStatus?.error}>
+                {data?.aiStatus?.running ? (
+                  <>
+                    <Spinner size={10} /> rating…
+                  </>
+                ) : data?.aiStatus?.error ? (
+                  `Not rated: ${data.aiStatus.error.slice(0, 60)}`
+                ) : (
+                  `${rated} of ${data?.items.length || 0} rated`
+                )}
+              </span>
+              <button className="icon-btn small" onClick={() => void api.call('news:rerate')} data-tip="Rate all headlines again with these settings">
+                <Icon name="refresh" size={12} />
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <div className="mod-scroll">
         {!data ? (
           <div className="empty">
@@ -110,22 +184,30 @@ export function NewsModule({ module }: ModuleProps) {
           </Empty>
         ) : (
           <div className="news-list">
-            {items.map((it) => (
-              <button key={it.id} className={clsx('news-item', it.t > seen && seen > 0 && 'fresh')} onClick={() => void api.call('news:open', it.link).catch(() => {})} data-tip="Open in your browser">
-                <div className="news-meta">
-                  <span className="news-src">{it.source}</span>
-                  <span className="faint">{it.t ? fmtAgo(it.t) : ''}</span>
-                  <span className="spacer" />
-                  {it.coins.map((c) => (
-                    <span key={c} className={clsx('coin-chip', c.toLowerCase())}>
-                      {c}
-                    </span>
-                  ))}
-                </div>
-                <div className="news-title">{it.title}</div>
-                {it.summary && <div className="news-sum">{it.summary}</div>}
-              </button>
-            ))}
+            {items.map((it) => {
+              const sent = sentOn ? data.sentiment?.[it.id] : undefined;
+              return (
+                <button key={it.id} className={clsx('news-item', it.t > seen && seen > 0 && 'fresh', sent && `sent-${sent.s}`)} onClick={() => void api.call('news:open', it.link).catch(() => {})} data-tip="Open in your browser">
+                  <div className="news-meta">
+                    <span className="news-src">{it.source}</span>
+                    <span className="faint">{it.t ? fmtAgo(it.t) : ''}</span>
+                    {sent && sent.s !== 'neutral' && (
+                      <span className={clsx('sent-badge', sent.s)} data-tip={`Claude (${sent.model}): ${sent.why || sent.s}`}>
+                        {sent.s === 'bullish' ? '▲ Bullish' : '▼ Bearish'}
+                      </span>
+                    )}
+                    <span className="spacer" />
+                    {it.coins.map((c) => (
+                      <span key={c} className={clsx('coin-chip', c.toLowerCase())}>
+                        {c}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="news-title">{it.title}</div>
+                  {it.summary && <div className="news-sum">{it.summary}</div>}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

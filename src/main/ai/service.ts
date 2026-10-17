@@ -344,6 +344,62 @@ export class AIService {
     return chat.id;
   }
 
+  /**
+   * One prompt, one text answer: no tools, no chat history (background jobs such as rating
+   * headlines). Uses the same Claude Code login as AI Studio.
+   */
+  async complete(prompt: string, s: Pick<AiSettings, 'model' | 'effort' | 'thinking'>, timeoutMs = 180000): Promise<{ text: string; cost: number }> {
+    const info = await this.status();
+    if (!info.available) throw new Error(info.error || 'Claude Code is not available');
+    const clean = { ...DEFAULT_AI, ...sanitize(s) };
+    const settings = path.join(this.dir, `settings-${clean.thinking ? 'think' : 'nothink'}.json`);
+    writeJsonAtomic(settings, { alwaysThinkingEnabled: clean.thinking });
+    const args = ['-p', '--output-format', 'json', '--model', clean.model, '--effort', clean.effort, '--tools', '', '--strict-mcp-config', '--permission-prompts', 'none', '--settings', settings, '--disable-slash-commands'];
+    const c = findClaude()!;
+    return new Promise((resolve, reject) => {
+      const proc = spawn(c.cmd, c.shell ? args.map(quoteWin) : args, {
+        cwd: path.join(this.dir, 'work'),
+        shell: c.shell,
+        windowsHide: true,
+        env: { ...process.env, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1' },
+      });
+      let out = '';
+      let err = '';
+      const kill = () => {
+        try {
+          if (process.platform === 'win32' && proc.pid) execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { windowsHide: true }, () => {});
+          else proc.kill('SIGTERM');
+        } catch {
+          /* already gone */
+        }
+      };
+      const timer = setTimeout(() => {
+        kill();
+        reject(new Error(`Claude took longer than ${Math.round(timeoutMs / 1000)} s`));
+      }, timeoutMs);
+      proc.stdout?.setEncoding('utf8');
+      proc.stdout?.on('data', (d: string) => (out += d));
+      proc.stderr?.setEncoding('utf8');
+      proc.stderr?.on('data', (d: string) => (err = (err + d).slice(-4000)));
+      proc.on('error', (e) => {
+        clearTimeout(timer);
+        reject(new Error(`Could not start Claude: ${e.message}`));
+      });
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        let j: { result?: unknown; is_error?: boolean; total_cost_usd?: number } | null = null;
+        try {
+          j = JSON.parse(out.trim().split('\n').filter(Boolean).pop() || 'null');
+        } catch {
+          j = null;
+        }
+        if (!j || j.is_error || code !== 0) return reject(new Error(String((j && j.result) || err.trim().split('\n').slice(-2).join(' ') || `Claude exited with code ${code}`).slice(0, 400)));
+        resolve({ text: String(j.result ?? ''), cost: Number(j.total_cost_usd) || 0 });
+      });
+      proc.stdin?.end(prompt);
+    });
+  }
+
   stop(chatId: string): boolean {
     const r = this.running.get(chatId);
     if (!r) return false;

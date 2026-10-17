@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { shell } from 'electron';
 import type { AppCore } from './core';
 import { readJson, writeJsonAtomic } from './storage/jsonStore';
+import type { AIService, AiEffort } from './ai/service';
 
 export interface NewsFeed {
   id: string;
@@ -26,6 +27,62 @@ export interface NewsItem {
   t: number;
   summary: string;
   coins: ('BTC' | 'ETH' | 'SOL')[];
+}
+
+/** Claude's read of a headline: its likely short-term effect on the coins it is about. */
+export type Sentiment = 'bullish' | 'bearish' | 'neutral';
+export interface NewsSentiment {
+  s: Sentiment;
+  why: string;
+  model: string;
+  t: number;
+}
+/** Headline rating by Claude (Claude Code, the user's plan). */
+export interface NewsAiSettings {
+  enabled: boolean;
+  model: string;
+  effort: AiEffort;
+  thinking: boolean;
+}
+export const DEFAULT_NEWS_AI: NewsAiSettings = { enabled: true, model: 'haiku', effort: 'low', thinking: false };
+/** Headlines per Claude call, and calls per round (the rest waits for the next refresh). */
+const RATE_BATCH = 25;
+const RATE_ROUNDS = 4;
+
+/** The prompt that rates a batch of headlines (JSON answer, in order). */
+export function sentimentPrompt(items: Pick<NewsItem, 'id' | 'title' | 'summary'>[]): string {
+  const lines = items.map((it) => `[${it.id}] ${it.title.replace(/\s+/g, ' ')}${it.summary ? ` — ${it.summary.replace(/\s+/g, ' ').slice(0, 220)}` : ''}`);
+  return [
+    'You rate crypto news headlines for traders. For each headline decide the likely short-term effect on the price of the coins it is about (BTC, ETH, SOL, or crypto in general):',
+    '"bullish" (likely up), "bearish" (likely down) or "neutral" (no clear effect, mixed, or not market news).',
+    'Judge what happened, not the tone of the words. Reply with a JSON array only, one object per headline:',
+    '[{"id":"<the id in brackets>","s":"bullish|bearish|neutral","why":"at most 12 words"}]',
+    '',
+    'Headlines:',
+    ...lines,
+  ].join('\n');
+}
+
+/** The ratings in Claude's answer (tolerates code fences and text around the array). */
+export function parseSentiment(text: string, ids: Set<string>): Record<string, { s: Sentiment; why: string }> {
+  const a = text.indexOf('[');
+  const b = text.lastIndexOf(']');
+  if (a < 0 || b <= a) return {};
+  let arr: unknown;
+  try {
+    arr = JSON.parse(text.slice(a, b + 1));
+  } catch {
+    return {};
+  }
+  const out: Record<string, { s: Sentiment; why: string }> = {};
+  if (!Array.isArray(arr)) return out;
+  for (const x of arr as { id?: unknown; s?: unknown; why?: unknown }[]) {
+    const id = String(x?.id ?? '');
+    const s = String(x?.s ?? '').toLowerCase();
+    if (!ids.has(id) || !['bullish', 'bearish', 'neutral'].includes(s)) continue;
+    out[id] = { s: s as Sentiment, why: String(x?.why ?? '').slice(0, 140) };
+  }
+  return out;
 }
 
 export const DEFAULT_FEEDS: NewsFeed[] = [
@@ -112,10 +169,21 @@ export class NewsService {
   private listeners = new Set<() => void>();
   private fetching: Promise<void> | null = null;
   lastFetch = 0;
+  /** Claude's ratings by headline id, its settings, and how the rating goes. */
+  sentiment: Record<string, NewsSentiment>;
+  ai: NewsAiSettings;
+  aiStatus: { running: boolean; error?: string; rated: number; cost: number } = { running: false, rated: 0, cost: 0 };
+  private claude: AIService | null = null;
+  private sentFile: string;
+  private aiFile: string;
 
   constructor(core: AppCore) {
     this.file = path.join(core.paths.userData, 'news-feeds.json');
     this.cacheFile = path.join(core.paths.userData, 'news-cache.json');
+    this.sentFile = path.join(core.paths.userData, 'news-sentiment.json');
+    this.aiFile = path.join(core.paths.userData, 'news-ai.json');
+    this.sentiment = readJson<Record<string, NewsSentiment>>(this.sentFile, {});
+    this.ai = { ...DEFAULT_NEWS_AI, ...readJson<Partial<NewsAiSettings>>(this.aiFile, {}) };
     const saved = readJson<NewsFeed[] | null>(this.file, null);
     // keep user choices for built-in feeds, add new built-ins, keep custom feeds
     this.feeds = DEFAULT_FEEDS.map((d) => ({ ...d, enabled: saved?.find((f) => f.id === d.id)?.enabled ?? d.enabled })).concat((saved || []).filter((f) => !f.builtin));
@@ -131,10 +199,68 @@ export class NewsService {
     for (const l of this.listeners) l();
   }
 
+  setClaude(ai: AIService): void {
+    this.claude = ai;
+  }
+
+  setAiSettings(p: Partial<NewsAiSettings>): NewsAiSettings {
+    const next = { ...this.ai };
+    if (typeof p.enabled === 'boolean') next.enabled = p.enabled;
+    if (typeof p.model === 'string' && /^[\w.\-[\]]{2,60}$/.test(p.model)) next.model = p.model;
+    if (['low', 'medium', 'high', 'xhigh', 'max'].includes(String(p.effort))) next.effort = p.effort as AiEffort;
+    if (typeof p.thinking === 'boolean') next.thinking = p.thinking;
+    this.ai = next;
+    writeJsonAtomic(this.aiFile, next);
+    this.aiStatus.error = undefined;
+    this.changed();
+    if (next.enabled) void this.rate();
+    return next;
+  }
+
+  /** Forget the ratings (to rate again with other settings). */
+  clearSentiment(): void {
+    this.sentiment = {};
+    writeJsonAtomic(this.sentFile, this.sentiment);
+    this.changed();
+    void this.rate();
+  }
+
+  /** Let Claude rate the headlines that have no rating yet, newest first. */
+  async rate(): Promise<void> {
+    if (!this.ai.enabled || !this.claude || this.aiStatus.running) return;
+    this.aiStatus = { ...this.aiStatus, running: true, error: undefined };
+    this.changed();
+    try {
+      for (let round = 0; round < RATE_ROUNDS; round++) {
+        const todo = this.items.filter((it) => !this.sentiment[it.id]).slice(0, RATE_BATCH);
+        if (!todo.length || !this.ai.enabled) break;
+        const s = this.ai;
+        const res = await this.claude.complete(sentimentPrompt(todo), s);
+        const got = parseSentiment(res.text, new Set(todo.map((x) => x.id)));
+        const now = Date.now();
+        for (const [id, r] of Object.entries(got)) this.sentiment[id] = { ...r, model: s.model, t: now };
+        this.aiStatus.rated += Object.keys(got).length;
+        this.aiStatus.cost = +(this.aiStatus.cost + res.cost).toFixed(4);
+        // keep only the ratings of headlines still listed
+        const listed = new Set(this.items.map((x) => x.id));
+        for (const id of Object.keys(this.sentiment)) if (!listed.has(id)) delete this.sentiment[id];
+        writeJsonAtomic(this.sentFile, this.sentiment);
+        this.changed();
+        if (!Object.keys(got).length) throw new Error('Claude did not return ratings');
+      }
+    } catch (e) {
+      this.aiStatus.error = (e as Error).message;
+    } finally {
+      this.aiStatus.running = false;
+      this.changed();
+    }
+  }
+
   /** Called when a news window subscribes / unsubscribes: refresh only while someone looks. */
   retain(): () => void {
     this.subs++;
     if (Date.now() - this.lastFetch > 120000) void this.refresh();
+    else void this.rate();
     if (!this.timer) this.timer = setInterval(() => void this.refresh(), 5 * 60000);
     return () => {
       this.subs--;
@@ -180,6 +306,7 @@ export class NewsService {
       this.changed();
     })().finally(() => {
       this.fetching = null;
+      if (this.subs > 0) void this.rate();
     });
     return this.fetching;
   }
@@ -196,11 +323,12 @@ export class NewsService {
   }
 }
 
-export function registerNews(core: AppCore): NewsService {
+export function registerNews(core: AppCore, claude?: AIService): NewsService {
   const svc = new NewsService(core);
+  if (claude) svc.setClaude(claude);
   const r = core.router;
   r.topic('news', (_p, push) => {
-    const send = () => push({ items: svc.items, feeds: svc.feeds, status: svc.status, updated: svc.lastFetch });
+    const send = () => push({ items: svc.items, feeds: svc.feeds, status: svc.status, updated: svc.lastFetch, sentiment: svc.sentiment, ai: svc.ai, aiStatus: svc.aiStatus });
     send();
     const off = svc.onChange(send);
     const rel = svc.retain();
@@ -211,6 +339,11 @@ export function registerNews(core: AppCore): NewsService {
   });
   r.handle('news:refresh', () => svc.refresh().then(() => true));
   r.handle('news:feeds', ([feeds]) => (Array.isArray(feeds) ? svc.setFeeds(feeds) : svc.feeds));
+  r.handle('news:ai', ([p]) => (p && typeof p === 'object' ? svc.setAiSettings(p) : svc.ai));
+  r.handle('news:rerate', () => {
+    svc.clearSentiment();
+    return true;
+  });
   r.handle('news:open', ([url]) => {
     if (typeof url !== 'string' || !/^https?:\/\//.test(url)) throw new Error('Validation: invalid link');
     return shell.openExternal(url);

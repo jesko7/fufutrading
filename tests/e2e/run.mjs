@@ -1068,6 +1068,13 @@ const S = {
     const btc = await page.$$eval('.news-item', (e) => e.map((x) => x.querySelector('.coin-chip.btc') !== null));
     check(btc.length > 0 && btc.every(Boolean), `BTC filter shows only BTC headlines (${btc.length})`);
     await shot('29-news');
+    // Claude rates the headlines (AI sentiment is on by default): green for bullish, red for bearish
+    await page.waitForSelector('.news-ai', { timeout: 10000 });
+    const rated = await page.waitForFunction(() => document.querySelectorAll('.news-item.sent-bullish, .news-item.sent-bearish, .news-item.sent-neutral').length >= 5, null, { timeout: 240000 }).then(() => true).catch(() => false);
+    const sc = await page.evaluate(() => ({ up: document.querySelectorAll('.news-item.sent-bullish').length, down: document.querySelectorAll('.news-item.sent-bearish').length, flat: document.querySelectorAll('.news-item.sent-neutral').length, status: document.querySelector('.news-ai')?.textContent || '' }));
+    check(rated && sc.up + sc.down > 0, `Claude rated the headlines (${sc.up} bullish, ${sc.down} bearish, ${sc.flat} neutral · ${sc.status.replace(/\s+/g, ' ').slice(-50)})`);
+    await wait(500);
+    await shot('29b-news-sentiment');
     await page.keyboard.press('Control+k');
     await page.waitForSelector('.palette input');
     await page.fill('.palette input', 'Add Data');
