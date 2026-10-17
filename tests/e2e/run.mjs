@@ -52,6 +52,15 @@ async function shot(name) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Choose an order type in the trade window: Market and Limit are tabs, the others sit behind the third tab's menu. */
+async function orderType(name) {
+  if (name === 'Market' || name === 'Limit') return page.click(`.trade-panel .tabs .tab:has-text("${name}")`);
+  const third = page.locator('.trade-panel .tabs .tab').nth(2);
+  await third.click();
+  if (!(await page.isVisible('.popover .menu-item'))) await third.click();
+  await page.click(`.popover .menu-item:has-text("${name}")`);
+}
+
 /** Open a workspace preset from the start page (reached through the command palette). */
 async function openPreset(name) {
   if (!(await page.isVisible('.start'))) {
@@ -330,7 +339,7 @@ const S = {
     const orders = await page.textContent('.acct .tabs');
     check(/Orders\s*2/.test(orders || ''), `TP and SL orders created (${(orders || '').replace(/\s+/g, ' ')})`);
     // a reduce-only trailing stop from the trade panel
-    await page.click('.trade-panel .tabs .tab:has-text("Trailing")');
+    await orderType('Trailing stop');
     await page.click('.trade-panel .buy-sell button:has-text("Short")');
     await page.locator('.trade-panel label:has-text("Reduce-only") .toggle, .trade-panel label:has-text("Reduce-only") [role=switch]').first().click();
     await page.click('.trade-panel button:has-text("Reduce long BTC (trailing)")');
@@ -354,7 +363,7 @@ const S = {
     await page.click('.trade-panel .buy-sell button:has-text("Long")');
     await page.locator('.trade-panel label:has-text("Reduce-only") [role=switch]').first().click();
     await page.waitForSelector('.trade-panel button.btn.large:has-text("Open long")', { timeout: 5000 });
-    await page.click('.trade-panel .tabs .tab:has-text("Scaled")');
+    await orderType('Scaled');
     const field = (label) => page.locator(`.trade-panel .row:has(> span.muted:text-is("${label}")) input`).first();
     await field('Start').fill(String(Math.round(last * 0.99)));
     await field('End').fill(String(Math.round(last * 0.97)));

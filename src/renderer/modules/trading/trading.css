@@ -255,3 +255,9 @@
   font-size: 11px;
   margin-bottom: -4px;
 }
+/* the third order-type tab: the chosen advanced type and its menu */
+.trade-panel .adv-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}

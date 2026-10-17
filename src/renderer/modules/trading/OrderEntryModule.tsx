@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { useTicker, useTopicValue } from '../../lib/hooks';
 import { serverNow } from '../../lib/clock';
 import { bus } from '../../lib/bus';
-import { SymbolPicker, Segmented, NumberField, Toggle, Tabs, confirmDialog } from '../../components/ui';
+import { SymbolPicker, Segmented, NumberField, Toggle, Tabs, Menu, usePopover, confirmDialog } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { AccountSelect, useAccounts, useAccount, resolveAccountId, statusBadge, openCreateAccount } from './accounts';
 import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick, type Market, type SymbolId } from '../../../shared/symbols';
@@ -19,6 +19,14 @@ import './trading.css';
 type SizeUnit = 'base' | 'quote' | 'pct';
 /** The order types, plus Binance's scaled order (several limit orders over a price range). */
 type Kind = OrderType | 'scaled';
+/** As on Binance: Market and Limit as tabs, the other types behind a third tab with a menu. */
+type Advanced = 'stop' | 'stopLimit' | 'trailingStop' | 'scaled';
+const ADVANCED: { value: Advanced; label: string; hint: string }[] = [
+  { value: 'stop', label: 'Stop', hint: 'Market order when the price reaches the trigger' },
+  { value: 'stopLimit', label: 'Stop-limit', hint: 'Limit order when the price reaches the trigger' },
+  { value: 'trailingStop', label: 'Trailing stop', hint: 'Follows the best price by a callback rate' },
+  { value: 'scaled', label: 'Scaled', hint: 'Several limit orders over a price range' },
+];
 
 export function OrderEntryModule({ module }: ModuleProps) {
   const cfg = module.config as { accountId: string | null; symbol: SymbolId; market: Market };
@@ -55,6 +63,11 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const qd = qtyDecimals(symbol, market);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [type, setType] = useState<Kind>('market');
+  // the advanced type shown on the third tab (the last one chosen)
+  const [adv, setAdv] = useState<Advanced>('stop');
+  const advMenu = usePopover();
+  const advRef = useRef<HTMLSpanElement>(null);
+  const advLabel = ADVANCED.find((a) => a.value === adv)!.label;
   const [price, setPrice] = useState<number | null>(null);
   const [stop, setStop] = useState<number | null>(null);
   const [size, setSize] = useState<number | null>(null);
@@ -300,7 +313,44 @@ export function OrderEntryModule({ module }: ModuleProps) {
           {market === 'futures' ? 'Short' : 'Sell'}
         </button>
       </div>
-      <Tabs value={type} onChange={setType} tabs={[{ value: 'market', label: 'Market' }, { value: 'limit', label: 'Limit' }, { value: 'stop', label: 'Stop' }, { value: 'stopLimit', label: 'Stop-limit' }, { value: 'trailingStop', label: 'Trailing' }, { value: 'scaled', label: 'Scaled' }]} />
+      <Tabs
+        value={type === 'market' || type === 'limit' ? type : 'advanced'}
+        onChange={(t) => {
+          if (t !== 'advanced') return setType(t);
+          // the third tab: switch to its type, or (when it is already shown) choose another
+          if (type !== 'market' && type !== 'limit') advMenu.toggle(advRef.current);
+          else setType(adv);
+        }}
+        tabs={[
+          { value: 'market', label: 'Market' },
+          { value: 'limit', label: 'Limit' },
+          {
+            value: 'advanced',
+            label: (
+              <span ref={advRef} className="adv-tab" data-tip="Stop, stop-limit, trailing stop or scaled order">
+                {advLabel}
+                <Icon name="chevDown" size={11} />
+              </span>
+            ),
+          },
+        ]}
+      />
+      {advMenu.anchor && (
+        <Menu
+          anchor={advMenu.anchor}
+          onClose={advMenu.close}
+          width={250}
+          items={ADVANCED.map((a) => ({
+            label: a.label,
+            hint: a.hint,
+            checked: type === a.value,
+            onClick: () => {
+              setAdv(a.value);
+              setType(a.value);
+            },
+          }))}
+        />
+      )}
       {market === 'futures' && acct && (
         <div className="row">
           <span className="muted" style={{ width: 70 }}>

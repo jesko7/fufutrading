@@ -132,8 +132,10 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
       }
     };
     fit();
+    // the header too: a hidden title makes the strip narrow, so only a wider header says it may fit again
     const ro = new ResizeObserver(fit);
     ro.observe(strip);
+    if (strip.parentElement) ro.observe(strip.parentElement);
     return () => ro.disconnect();
   }, [node.modules.length, active]);
   useLayoutEffect(() => {
