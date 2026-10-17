@@ -179,6 +179,8 @@
   gap: 2px;
   min-width: 0;
   overflow: hidden;
+  /* the tabs give way first (down to their icons), so the active module's controls stay visible */
+  flex: 0 1000 auto;
 }
 .stack-tab {
   display: flex;
@@ -193,7 +195,26 @@
   font-weight: 550;
   font-size: 12px;
   max-width: 220px;
+  min-width: 28px;
   overflow: hidden;
+  flex-shrink: 4;
+}
+.stack-tab.on {
+  /* the active tab keeps more of its title (whole numbers: a lone tab must absorb all the overflow) */
+  flex-shrink: 1;
+}
+/* a narrow tab shows its icon, never a sliver of its title */
+.stack-tab > svg,
+.stack-tab > .link-dot {
+  flex: none;
+}
+.stack-tab.narrow {
+  gap: 0;
+  justify-content: center;
+  padding: 0 6px;
+}
+.stack-tab.narrow .ellipsis {
+  display: none;
 }
 .stack-tab:hover {
   color: var(--text-2);
@@ -210,7 +231,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
   overflow: hidden;
 }
 .stack-body {

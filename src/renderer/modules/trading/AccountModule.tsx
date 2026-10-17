@@ -389,7 +389,23 @@ export function Orders({ a, readOnly }: { a: AccountSnapshot; readOnly?: boolean
           <th>Order</th>
           <th className="r">Filled</th>
           <th>Source</th>
-          <th />
+          <th className="r">
+            {!readOnly && a.orders.length > 1 && (
+              <button
+                className="btn small"
+                data-tip="Cancel every open order of this account, TP/SL included"
+                onClick={async () => {
+                  if (!(await confirmDialog({ title: `Cancel all ${a.orders.length} orders?`, body: a.config.name, confirm: 'Cancel all', danger: true }))) return;
+                  api.call<number>('trading:cancelAll', a.config.id).then(
+                    (n) => toast({ title: `Canceled ${n} order${n === 1 ? '' : 's'}`, body: a.config.name, kind: 'ok' }),
+                    (e) => toast({ title: 'Cancel failed', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' }),
+                  );
+                }}
+              >
+                Cancel all
+              </button>
+            )}
+          </th>
         </tr>
       </thead>
       <tbody>

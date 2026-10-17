@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import type { AppCore } from '../core';
 import { DocStore, uid, writeJsonAtomic, readJson } from '../storage/jsonStore';
 import { AccountRuntime, OrderError, type MarketCtx, type PersistedAccount } from '../../shared/trading/account';
-import type { AccountConfig, AccountEvent, AccountSnapshot, PlaceOrderRequest } from '../../shared/trading/types';
+import type { AccountConfig, AccountEvent, AccountSnapshot, Order, PlaceOrderRequest } from '../../shared/trading/types';
+import { SCALED_MAX_ORDERS } from '../../shared/trading/scaled';
 import { ACCOUNT_PRESETS, COST_PRESETS, newAccountConfig } from '../../shared/trading/presets';
 import { setBrackets, parseBracketResponse, bracketsInfo, DEFAULT_BRACKETS } from '../../shared/trading/brackets';
 import { PROFILES, profileById } from '../../shared/propfirm/profiles';
@@ -420,6 +421,30 @@ export class TradingEngine {
     }
   }
 
+  /**
+   * Several orders at once (a scaled order), all or none: when one is refused, the ones placed
+   * before it that still rest are canceled and the refusal names the order.
+   */
+  placeBatch(id: string, reqs: PlaceOrderRequest[]): Order[] {
+    if (!Array.isArray(reqs) || !reqs.length) throw new Error('Validation: no orders');
+    if (reqs.length > SCALED_MAX_ORDERS) throw new Error(`Validation: at most ${SCALED_MAX_ORDERS} orders at once`);
+    const rt = this.get(id);
+    const placed: Order[] = [];
+    for (let k = 0; k < reqs.length; k++) {
+      try {
+        placed.push(this.place(id, reqs[k]));
+      } catch (e) {
+        const t = this.ctxFor(id).now();
+        let undone = 0;
+        for (const o of placed) if ((o.status === 'new' || o.status === 'partiallyFilled') && rt.cancelOrder(o.id, t, 'the rest of its scaled order was refused')) undone++;
+        if (undone) this.markDirty(id);
+        const why = (e as Error).message.replace(/^Validation: /, '');
+        throw new Error(`Validation: order ${k + 1} of ${reqs.length}${reqs[k].price ? ` at ${reqs[k].price}` : ''}: ${why}${undone === 1 ? ' (the order placed before it was canceled)' : undone ? ` (the ${undone} placed before it were canceled)` : ''}`);
+      }
+    }
+    return placed;
+  }
+
   snapshot(id: string): AccountSnapshot {
     const rt = this.get(id);
     return rt.snapshot(rt.config.replay ? this.replayCtx?.(id) || this.ctx : this.ctx);
@@ -462,6 +487,7 @@ export function registerTrading(core: AppCore): TradingEngine {
   r.handle('trading:delete', ([id]) => eng.remove(id));
   r.handle('trading:nextPhase', ([id]) => eng.nextPhase(id));
   r.handle('trading:place', ([id, req]) => eng.place(id, req));
+  r.handle('trading:placeBatch', ([id, reqs]) => eng.placeBatch(id, reqs));
   r.handle('trading:cancel', ([id, orderId]) => wrap(() => {
     eng.assertManual(id);
     return eng.get(id).cancelOrder(orderId);

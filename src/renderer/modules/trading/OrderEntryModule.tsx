@@ -10,12 +10,15 @@ import { Icon } from '../../components/Icon';
 import { AccountSelect, useAccounts, useAccount, resolveAccountId, statusBadge, openCreateAccount } from './accounts';
 import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick, type Market, type SymbolId } from '../../../shared/symbols';
 import { liquidationPrice, maxLeverageFor } from '../../../shared/trading/brackets';
-import type { OrderType, PlaceOrderRequest, TimeInForce } from '../../../shared/trading/types';
+import type { Order, OrderType, PlaceOrderRequest, TimeInForce } from '../../../shared/trading/types';
+import { scaledOrders, SCALED_MAX_ORDERS, SCALED_MIN_ORDERS, type ScaledDistribution } from '../../../shared/trading/scaled';
 import { clsx, fmtNum, fmtUsd } from '../../lib/format';
 import { useReplayView } from '../chart/replay';
 import './trading.css';
 
 type SizeUnit = 'base' | 'quote' | 'pct';
+/** The order types, plus Binance's scaled order (several limit orders over a price range). */
+type Kind = OrderType | 'scaled';
 
 export function OrderEntryModule({ module }: ModuleProps) {
   const cfg = module.config as { accountId: string | null; symbol: SymbolId; market: Market };
@@ -37,7 +40,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const pd = priceDecimals(symbol, market);
   const qd = qtyDecimals(symbol, market);
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const [type, setType] = useState<OrderType>('market');
+  const [type, setType] = useState<Kind>('market');
   const [price, setPrice] = useState<number | null>(null);
   const [stop, setStop] = useState<number | null>(null);
   const [size, setSize] = useState<number | null>(null);
@@ -52,21 +55,29 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const [postOnly, setPostOnly] = useState(false);
   const [callback, setCallback] = useState<number | null>(1);
   const [activation, setActivation] = useState<number | null>(null);
+  const [scFrom, setScFrom] = useState<number | null>(null);
+  const [scTo, setScTo] = useState<number | null>(null);
+  const [scCount, setScCount] = useState<number | null>(5);
+  const [scDist, setScDist] = useState<ScaledDistribution>('flat');
 
   // price picked from order book / chart
   useEffect(
     () =>
       bus.on('price:pick', (d: { symbol: SymbolId; price: number }) => {
         if (d.symbol !== symbol) return;
+        // a scaled order takes the picked prices as its start, then its end
+        if (type === 'scaled') return scFrom === null ? setScFrom(d.price) : setScTo(d.price);
         if (type === 'market') setType('limit');
         if (type === 'stop') setStop(d.price);
         else setPrice(d.price);
       }),
-    [symbol, type],
+    [symbol, type, scFrom],
   );
   useEffect(() => {
     setPrice(null);
     setStop(null);
+    setScFrom(null);
+    setScTo(null);
   }, [symbol]);
 
   const lev = acct ? (market === 'futures' ? acct.config.futures.leverage[symbol] || acct.config.futures.defaultLeverage : 1) : 1;
@@ -74,7 +85,18 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const [levDraft, setLevDraft] = useState<number | null>(null);
   const mode = acct ? acct.config.futures.marginModes[symbol] || acct.config.futures.marginMode : 'cross';
   const pos = acct?.positions.find((p) => p.symbol === symbol);
-  const refPrice = type === 'limit' || type === 'stopLimit' ? price || last : type === 'stop' ? stop || last : type === 'trailingStop' ? activation || last : last;
+  const refPrice =
+    type === 'scaled'
+      ? scFrom && scTo
+        ? (scFrom + scTo) / 2
+        : scFrom || scTo || last
+      : type === 'limit' || type === 'stopLimit'
+        ? price || last
+        : type === 'stop'
+          ? stop || last
+          : type === 'trailingStop'
+            ? activation || last
+            : last;
 
   const qty = useMemo(() => {
     if (!size || !(refPrice > 0) || !acct) return 0;
@@ -99,25 +121,64 @@ export function OrderEntryModule({ module }: ModuleProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riskPct, sl, refPrice]);
 
-  const notional = qty * (refPrice || 0);
-  const feeRate = acct ? (type === 'limit' ? acct.config.costs.makerFee : acct.config.costs.takerFee) : 0;
-  const fee = notional * feeRate + (acct?.config.costs.flatFee || 0);
+  // the scaled order's legs, and what keeps them from being placed
+  const scaled = useMemo(
+    () => (type === 'scaled' && scFrom && scTo && qty > 0 ? scaledOrders({ from: scFrom, to: scTo, qty, count: scCount || 0, distribution: scDist, tickSize: spec.tickSize, stepSize: spec.stepSize }) : []),
+    [type, scFrom, scTo, qty, scCount, scDist, spec.tickSize, spec.stepSize],
+  );
+  const scaledIssue = useMemo(() => {
+    if (type !== 'scaled' || !scaled.length) return null;
+    if (scFrom === scTo) return 'The start and end prices must differ.';
+    const small = scaled.filter((o) => o.qty < spec.minQty || (!reduceOnly && o.qty * o.price < spec.minNotional)).length;
+    if (small) return `${small} of ${scaled.length} orders are below Binance's minimum (${spec.minNotional} USDT each): use fewer orders or a larger size.`;
+    if (market === 'futures' && last > 0) {
+      const fs = SYMBOL_SPECS[symbol].futures;
+      const out = scaled.filter((o) => o.price > last * fs.priceBandUp || o.price < last * fs.priceBandDown).length;
+      if (out) return `${out} of ${scaled.length} prices are more than ${Math.round((fs.priceBandUp - 1) * 100)}% from the mark price, which Binance doesn't accept.`;
+    }
+    return null;
+  }, [type, scaled, scFrom, scTo, spec, reduceOnly, market, last, symbol]);
+  const scaledCrossing = type === 'scaled' && last > 0 ? scaled.filter((o) => (side === 'buy' ? o.price >= last : o.price <= last)).length : 0;
+  const notional = type === 'scaled' && scaled.length ? scaled.reduce((a, o) => a + o.qty * o.price, 0) : qty * (refPrice || 0);
+  const fillPrice = type === 'scaled' && scaled.length && qty > 0 ? notional / qty : refPrice;
+  const feeRate = acct ? (type === 'limit' || type === 'scaled' ? acct.config.costs.makerFee : acct.config.costs.takerFee) : 0;
+  const fee = notional * feeRate + (acct?.config.costs.flatFee || 0) * (type === 'scaled' ? Math.max(1, scaled.length) : 1);
   // reduce-only orders free margin instead of using it
   const margin = market === 'futures' ? (reduceOnly ? 0 : notional / lev) : notional + fee;
   const estLiq = useMemo(() => {
-    if (market !== 'futures' || !acct || !(qty > 0) || !(refPrice > 0) || reduceOnly) return NaN;
+    if (market !== 'futures' || !acct || !(qty > 0) || !(fillPrice > 0) || reduceOnly) return NaN;
     const dir = side === 'buy' ? 1 : -1;
     const signed = (pos ? pos.side * pos.qty : 0) + dir * qty;
     if (signed === 0) return NaN;
-    const entry = pos && pos.side === dir ? (pos.entry * pos.qty + refPrice * qty) / (pos.qty + qty) : refPrice;
+    const entry = pos && pos.side === dir ? (pos.entry * pos.qty + fillPrice * qty) / (pos.qty + qty) : fillPrice;
     const wallet = mode === 'isolated' ? (Math.abs(signed) * entry) / lev : acct.wallet;
     return liquidationPrice({ symbol, side: signed > 0 ? 1 : -1, qty: Math.abs(signed), entry, wallet });
-  }, [market, acct, qty, refPrice, side, pos, mode, lev, symbol, reduceOnly]);
+  }, [market, acct, qty, fillPrice, side, pos, mode, lev, symbol, reduceOnly]);
 
-  const canSubmit = !!acct && qty >= spec.minQty && !busy && (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0));
+  const canSubmit =
+    !!acct &&
+    qty >= spec.minQty &&
+    !busy &&
+    (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0) || (type === 'scaled' && scaled.length >= SCALED_MIN_ORDERS && !scaledIssue));
+
+  const submitScaled = async () => {
+    if (!acct) return;
+    setBusy(true);
+    try {
+      const reqs: PlaceOrderRequest[] = scaled.map((o) => ({ symbol, side, type: 'limit', qty: o.qty, price: o.price, tif: 'GTC', postOnly: postOnly || undefined, reduceOnly: reduceOnly || undefined, source: 'manual' }));
+      const os = await api.call<Order[]>('trading:placeBatch', acct.config.id, reqs);
+      const filled = os.filter((o) => o.status === 'filled').length;
+      toast({ title: 'Scaled order placed', body: `${os.length} ${side} limits ${fmtNum(scaled[0].price, pd)} → ${fmtNum(scaled[scaled.length - 1].price, pd)}, ${fmtNum(qty, qd)} ${SYMBOL_SPECS[symbol].base}${filled ? ` · ${filled} filled at once` : ''}`, kind: 'ok' });
+    } catch (e) {
+      toast({ title: 'Scaled order not accepted', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!acct) return;
+    if (type === 'scaled') return submitScaled();
     const req: PlaceOrderRequest = { symbol, side, type, qty, reduceOnly: reduceOnly || undefined, source: 'manual' };
     if (type === 'limit' || type === 'stopLimit') req.price = price!;
     if (type === 'stop' || type === 'stopLimit') req.stopPrice = stop!;
@@ -209,7 +270,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
           {market === 'futures' ? 'Short' : 'Sell'}
         </button>
       </div>
-      <Tabs value={type} onChange={setType} tabs={[{ value: 'market', label: 'Market' }, { value: 'limit', label: 'Limit' }, { value: 'stop', label: 'Stop' }, { value: 'stopLimit', label: 'Stop-limit' }, { value: 'trailingStop', label: 'Trailing' }]} />
+      <Tabs value={type} onChange={setType} tabs={[{ value: 'market', label: 'Market' }, { value: 'limit', label: 'Limit' }, { value: 'stop', label: 'Stop' }, { value: 'stopLimit', label: 'Stop-limit' }, { value: 'trailingStop', label: 'Trailing' }, { value: 'scaled', label: 'Scaled' }]} />
       {market === 'futures' && acct && (
         <div className="row">
           <span className="muted" style={{ width: 70 }}>
@@ -238,6 +299,32 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <PriceRow label="Trigger" value={stop} onChange={setStop} last={last} pd={pd} tick={spec.tickSize} />
       )}
       {(type === 'limit' || type === 'stopLimit') && <PriceRow label="Limit" value={price} onChange={setPrice} last={last} pd={pd} tick={spec.tickSize} />}
+      {type === 'scaled' && (
+        <>
+          <PriceRow label="Start" value={scFrom} onChange={setScFrom} last={last} pd={pd} tick={spec.tickSize} />
+          <PriceRow label="End" value={scTo} onChange={setScTo} last={last} pd={pd} tick={spec.tickSize} />
+          <div className="row" style={{ gap: 6 }}>
+            <span className="muted" style={{ width: 70 }} data-tip={`Limit orders spread evenly from the start price to the end price (${SCALED_MIN_ORDERS}–${SCALED_MAX_ORDERS}, as on Binance)`}>
+              Orders
+            </span>
+            <NumberField value={scCount} onChange={(v) => setScCount(Math.round(v))} min={SCALED_MIN_ORDERS} max={SCALED_MAX_ORDERS} step={1} style={{ width: 64 }} live />
+            <Segmented
+              size="sm"
+              value={scDist}
+              onChange={setScDist}
+              options={[
+                { value: 'flat', label: 'Flat', title: 'Equal sizes' },
+                { value: 'increasing', label: 'Increasing', title: 'Sizes grow from the start price to the end price' },
+                { value: 'decreasing', label: 'Decreasing', title: 'Sizes shrink from the start price to the end price' },
+              ]}
+            />
+          </div>
+          <label className="row" style={{ gap: 6 }} data-tip="Only add liquidity: each order that would fill immediately is rejected (maker fee)">
+            <Toggle value={postOnly} onChange={setPostOnly} />
+            <span>Post-only</span>
+          </label>
+        </>
+      )}
       {type === 'limit' && (
         <div className="row" style={{ gap: 6 }}>
           <span className="muted" style={{ width: 70 }} data-tip="GTC rests until filled or canceled. IOC fills what it can right away and cancels the rest. FOK fills completely right away or not at all.">
@@ -293,10 +380,14 @@ export function OrderEntryModule({ module }: ModuleProps) {
         ))}
       </div>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <label className="row" style={{ gap: 6 }}>
-          <Toggle value={withBrackets} onChange={setWithBrackets} />
-          <span>TP / SL</span>
-        </label>
+        {type !== 'scaled' ? (
+          <label className="row" style={{ gap: 6 }}>
+            <Toggle value={withBrackets} onChange={setWithBrackets} />
+            <span>TP / SL</span>
+          </label>
+        ) : (
+          <span />
+        )}
         {market === 'futures' && (
           <label className="row" style={{ gap: 6 }}>
             <Toggle value={reduceOnly} onChange={setReduceOnly} />
@@ -304,7 +395,26 @@ export function OrderEntryModule({ module }: ModuleProps) {
           </label>
         )}
       </div>
-      {withBrackets && !reduceOnly && (
+      {type === 'scaled' && scaled.length > 0 && (
+        <div className="scaled-preview" data-tip="The limit orders this places">
+          {scaled.map((o, k) => (
+            <div key={k} className={clsx('row', side === 'buy' ? o.price >= last && 'crossing' : o.price <= last && 'crossing')}>
+              <span className="faint num">{k + 1}</span>
+              <span className="num grow">{fmtNum(o.price, pd)}</span>
+              <span className="num">
+                {fmtNum(o.qty, qd)} {SYMBOL_SPECS[symbol].base}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {scaledIssue && <div className="callout warn">{scaledIssue}</div>}
+      {!scaledIssue && scaledCrossing > 0 && (
+        <div className="hint">
+          {scaledCrossing} of {scaled.length} prices are at or through the market: {postOnly ? 'post-only rejects them' : 'they fill right away as taker'}.
+        </div>
+      )}
+      {withBrackets && !reduceOnly && type !== 'scaled' && (
         <div className="card col" style={{ gap: 8, padding: 10 }}>
           <PriceRow label="Take profit" value={tp} onChange={setTp} last={refPrice} pd={pd} tick={spec.tickSize} pctHint={side === 'buy' ? 1 : -1} />
           <PriceRow label="Stop loss" value={sl} onChange={setSl} last={refPrice} pd={pd} tick={spec.tickSize} pctHint={side === 'buy' ? -1 : 1} />
@@ -321,12 +431,12 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <Row k="Quantity" v={`${fmtNum(qty, qd)} ${SYMBOL_SPECS[symbol].base}`} />
         <Row k="Value" v={fmtUsd(notional)} />
         <Row k={market === 'futures' ? 'Initial margin' : 'Cost'} v={fmtUsd(margin)} />
-        <Row k={`Fee (${type === 'limit' && postOnly ? 'maker' : type === 'limit' ? 'maker if resting' : 'taker'})`} v={fmtUsd(fee)} />
+        <Row k={`Fee (${(type === 'limit' || type === 'scaled') && postOnly ? 'maker' : type === 'limit' || type === 'scaled' ? 'maker if resting' : 'taker'})`} v={fmtUsd(fee)} />
         {market === 'futures' && <Row k="Est. liquidation" v={isFinite(estLiq) && estLiq > 0 ? fmtNum(estLiq, pd) : '—'} />}
         <Row k="Available" v={acct ? fmtUsd(acct.available) : '—'} />
       </div>
       <button className={clsx('btn large', side === 'buy' ? 'buy' : 'sell')} disabled={!canSubmit} onClick={submit}>
-        {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : ''}`}
+        {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : type === 'scaled' && scaled.length ? ` (${scaled.length} orders)` : ''}`}
       </button>
       {pos && (
         <div className="card row" style={{ padding: 8 }}>

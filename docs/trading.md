@@ -18,8 +18,8 @@ custom:
 - **Risk limits:** max leverage, max position value, max open positions, daily loss limit.
 - **Kind:** manual, or bot (a strategy trades it; see below).
 
-Orders: market, limit, stop, stop-limit, take-profit and trailing stop, reduce-only and
-post-only, with attached stop-loss / take-profit brackets. On charts you can place orders from
+Orders: market, limit, stop, stop-limit, take-profit, trailing stop and scaled, reduce-only
+and post-only, with attached stop-loss / take-profit brackets. On charts you can place orders from
 the "+" beside the price axis (it follows the crosshair: a limit or stop order at that price,
 depending on which side of the market it is) or the right-click menu, and drag orders, SL/TP
 and position brackets.
@@ -31,6 +31,10 @@ and position brackets.
 - **Trailing stops** follow the best price (the high for a sell, the low for a buy) by a
   callback rate of 0.1–10% on futures and 0.1–20% on spot. They can wait for an activation
   price and trigger a market order.
+- **Scaled orders** (as on Binance) place 2–100 limit orders spread evenly from a start price
+  to an end price. The size is split equally, or grows or shrinks from the first order to the
+  last. Each order must meet Binance's minimum value and price band; if one is refused, the
+  ones placed before it are canceled.
 - **Binance's order rules** apply:
   - Tick and lot sizes and minimum order values come from Binance at start-up, with a cached
     copy for offline use.

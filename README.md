@@ -53,17 +53,20 @@ an AI assistant that builds and tests strategies inside the app.
 - **Paper trading:**
   - multiple accounts with cost presets (Binance ≈0.2% round trip, TradingView-style €1 per
     fill …)
-  - market, limit, stop, stop-limit and trailing-stop orders, GTC/IOC/FOK, post-only,
+  - market, limit, stop, stop-limit, trailing-stop and scaled orders, GTC/IOC/FOK, post-only,
     drag-and-drop SL/TP
   - Binance's order rules (filters refreshed from Binance, price bands, size limits), leverage
     brackets and leverage changes on open positions, maintenance-margin tiers, liquidation
     formula, margin calls and funding
+  - Binance's position figures: break-even price (also as a chart line), margin ratio, ROI;
+    close at market or with a limit order
   - a trade journal with notes, setup tags and statistics per setup
 - **Prop challenges:** FTMO and Lucid Trading rule simulation (targets, daily/max loss,
   trailing, consistency, trading days) for manual or bot accounts.
 - **Bots:** strategies trade their own accounts on every bar close, mirror their stops and
   targets, explain every action, pause themselves on errors or risk guards (drawdown, daily
-  loss, losing streak), and keep running in the tray.
+  loss, losing streak), and keep running in the tray. Each bot compares its live trades with
+  its strategy's (slippage, missed trades) and its equity with buy & hold.
 - **Options:** Binance's BTC, ETH and SOL options. The chain has prices, implied volatilities and
   the Greeks (Δ Γ Θ ν). Charts show the volatility smile, term structure and skew, open interest
   and dealer gamma by strike, max pain and the gamma flip, and the volatility surface. A position

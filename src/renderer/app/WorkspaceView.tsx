@@ -106,6 +106,7 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   const [dropPos, setDropPos] = useState<DropPos | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
   const active = Math.min(node.active, node.modules.length - 1);
   const activeId = node.modules[active];
   const mod = ws.modules[activeId];
@@ -116,6 +117,23 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
   const maximized = useApp((s) => s.maximizedStack) === node.id;
   const toggleMax = () => useApp.getState().setMaximizedStack(maximized ? null : node.id);
   const [box, setBox] = useState<DOMRect | null>(null);
+  // a squeezed tab shows only its icon rather than a sliver of its title
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const fit = () => {
+      for (const t of strip.querySelectorAll<HTMLElement>('.stack-tab')) {
+        const label = t.querySelector<HTMLElement>('.ellipsis');
+        if (!label) continue;
+        t.classList.remove('narrow');
+        if (label.clientWidth < 16 && label.scrollWidth > label.clientWidth) t.classList.add('narrow');
+      }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(strip);
+    return () => ro.disconnect();
+  }, [node.modules.length, active]);
   useLayoutEffect(() => {
     if (!maximized) {
       setBox(null);
@@ -196,7 +214,8 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
       onMouseDownCapture={() => useApp.getState().setFocused(activeId)}
     >
       <div className="stack-head" onDoubleClick={(e) => (e.target as HTMLElement).closest('.stack-tabs') && toggleMax()}>
-        <div className="stack-tabs">
+        {/* the other tabs keep at least their icons, the active one (most of) its title */}
+        <div className="stack-tabs" ref={stripRef} style={{ minWidth: Math.round((Math.min(node.modules.length, 8) - 1) * 30 + Math.min(120, 36 + (mod ? moduleTitle(mod).length : 0) * 6.6)) }}>
           {node.modules.map((mid, i) => {
             const m = ws.modules[mid];
             if (!m) return null;
@@ -219,7 +238,7 @@ function StackView({ node }: { node: Extract<LayoutNode, { type: 'stack' }> }) {
                     void api.call('ws:detach', mid, { x: e.screenX - 80, y: e.screenY - 18, width: 760, height: 520 });
                   }
                 }}
-                data-tip={node.modules.length > 1 ? undefined : 'Drag to rearrange · drag outside to detach'}
+                data-tip={node.modules.length > 1 ? moduleTitle(m) : 'Drag to rearrange · drag outside to detach'}
               >
                 {m.link && <span className="link-dot" style={{ background: LINK_COLORS[m.link] }} />}
                 <Icon name={MODULE_INFO[m.type]?.icon || 'grid'} size={14} />

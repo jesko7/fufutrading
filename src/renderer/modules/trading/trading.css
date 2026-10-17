@@ -223,3 +223,22 @@
   gap: 8px;
   align-items: center;
 }
+/* the legs of a scaled order */
+.scaled-preview {
+  max-height: 132px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.scaled-preview .row {
+  gap: 8px;
+  min-height: 18px;
+}
+.scaled-preview .row .faint {
+  width: 18px;
+}
+.scaled-preview .row.crossing {
+  color: var(--warn);
+}

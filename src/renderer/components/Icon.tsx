@@ -22,7 +22,8 @@ const P: Record<string, string> = {
   shield: 'M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z M9 12l2 2 4-4',
   plus: 'M12 5v14 M5 12h14',
   x: 'M6 6l12 12 M18 6L6 18',
-  more: 'M5 12h.01 M12 12h.01 M19 12h.01',
+  // dots as small rings (zero-length strokes render as ~1 px specks at icon sizes)
+  more: 'M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0 M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0 M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0',
   chevDown: 'M6 9l6 6 6-6',
   chevRight: 'M9 6l6 6-6 6',
   chevLeft: 'M15 6l-6 6 6 6',

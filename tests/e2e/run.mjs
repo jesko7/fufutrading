@@ -109,6 +109,24 @@ const S = {
       await openPreset(name);
       for (const s of sels) await page.waitForSelector(s, { timeout: 30000 });
       check(true, `${name} preset opens with ${sels.join(', ')}`);
+      // every tab keeps at least its icon inside the tab strip (crowded stacks shrink the titles first)
+      const hidden = await page.$$eval('.stack-head', (heads) =>
+        heads.flatMap((h) => {
+          const strip = h.querySelector('.stack-tabs').getBoundingClientRect();
+          return [...h.querySelectorAll('.stack-tab')].map((t) => ({ r: t.getBoundingClientRect(), name: t.textContent })).filter(({ r }) => r.width < 24 || r.right > strip.right + 0.5).map(({ r, name }) => `${name} (${Math.round(r.width)} px)`);
+        }),
+      );
+      check(hidden.length === 0, `${name}: every tab visible${hidden.length ? ` (cut: ${hidden.join(', ')})` : ''}`);
+      if (hidden.length && process.env.FUFU_E2E_DEBUG)
+        console.log(
+          await page.$$eval('.stack-head', (heads) =>
+            heads.map((h) => {
+              const w = (e) => (e ? Math.round(e.getBoundingClientRect().width) : null);
+              const strip = h.querySelector('.stack-tabs');
+              return `head ${w(h)} strip ${w(strip)} (min ${getComputedStyle(strip).minWidth}, flex ${getComputedStyle(strip).flex}) controls ${w(h.querySelector('.head-controls'))} tabs ${[...h.querySelectorAll('.stack-tab')].map((t) => `${t.textContent}:${w(t)}/${getComputedStyle(t).flexShrink}/${getComputedStyle(t).minWidth}`).join(' ')}`;
+            }).join('\n'),
+          ),
+        );
       await wait(1500);
       await shot(file);
     }
@@ -262,6 +280,10 @@ const S = {
     const beLine = await page.evaluate((id) => window.__charts[id].tradeLines().find((l) => l.kind === 'be'), chartId);
     check(Math.abs(beLine.price - be) < 0.05, `break-even line on the chart at ${beLine.price.toFixed(2)} (table ${be})`);
     await shot('04b-break-even-line');
+    // back to spot: the scenarios after this one expect the Trader layout's spot chart
+    await page.locator('.stack:has(.chart-host) .sym-btn').first().click();
+    await page.locator('.popover .menu-item:has(.menu-hint:text-is("USDT")):has-text("BTC")').first().click();
+    await page.waitForFunction(() => !/PERP/.test(document.querySelector('.stack:has(.chart-host) .sym-btn')?.textContent || ''), null, { timeout: 5000 });
     // Binance lets a cross position change its leverage: raise it by one step with the keyboard
     const levText = () => page.textContent('.trade-panel .row:has(input[type=range]) b.num');
     const lev0 = parseInt((await levText()) || '0');
@@ -302,6 +324,50 @@ const S = {
     await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 0, null, { timeout: 10000 });
     const tabs = await page.textContent('.acct .tabs');
     check(!/Orders\s*\d/.test(tabs || ''), 'closing the position canceled its TP/SL (OCO)');
+    // Binance's scaled order: four buy limits 1% to 3% below the market, growing in size
+    await page.click('.trade-panel .buy-sell button:has-text("Long")');
+    await page.locator('.trade-panel label:has-text("Reduce-only") [role=switch]').first().click();
+    await page.waitForSelector('.trade-panel button.btn.large:has-text("Open long")', { timeout: 5000 });
+    await page.click('.trade-panel .tabs .tab:has-text("Scaled")');
+    const field = (label) => page.locator(`.trade-panel .row:has(> span.muted:text-is("${label}")) input`).first();
+    await field('Start').fill(String(Math.round(last * 0.99)));
+    await field('End').fill(String(Math.round(last * 0.97)));
+    await field('Orders').fill('4');
+    await page.click('.trade-panel .seg button:has-text("Increasing")');
+    await page.click('.trade-panel button:has-text("25%")');
+    await page.waitForFunction(() => document.querySelectorAll('.trade-panel .scaled-preview .row').length === 4, null, { timeout: 5000 });
+    await wait(300);
+    await shot('05d-scaled-order');
+    await page.click('.trade-panel button.btn.large:has-text("(4 orders)")');
+    await page.waitForFunction(() => /Orders\s*4/.test(document.querySelector('.acct .tabs')?.textContent || ''), null, { timeout: 10000 });
+    const futAcct = (await page.evaluate(() => window.fufu.invoke('trading:list'))).find((a) => a.config.market === 'futures');
+    const legs = futAcct.orders.filter((o) => o.type === 'limit' && o.side === 'buy').sort((a, b) => b.price - a.price);
+    const prices = legs.map((o) => o.price);
+    const sizes = legs.map((o) => o.qty);
+    check(
+      legs.length === 4 && Math.abs(prices[0] - Math.round(last * 0.99)) < 1 && Math.abs(prices[3] - Math.round(last * 0.97)) < 1 && sizes.every((q, k) => k === 0 || q > sizes[k - 1]),
+      `scaled order: ${legs.map((o) => `${o.qty}@${o.price}`).join(', ')}`,
+    );
+    // the Orders tab cancels them all at once (after a confirmation)
+    await page.click('.acct .tabs .tab:has-text("Orders")');
+    await page.click('.acct th button:has-text("Cancel all")');
+    await page.click('.modal button:has-text("Cancel all")');
+    await page.waitForFunction(() => !/Orders\s*\d/.test(document.querySelector('.acct .tabs')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'Cancel all in the Orders tab canceled the scaled order');
+    await page.click('.acct .tabs .tab:has-text("Positions")');
+    // all or none: a refused leg cancels the legs placed before it
+    const refused = await page.evaluate(async ([id, px]) => {
+      const leg = (price) => ({ symbol: 'BTCUSDT', side: 'buy', type: 'limit', qty: 0.01, price, source: 'manual' });
+      try {
+        await window.fufu.invoke('trading:placeBatch', id, [leg(Math.round(px * 0.99)), leg(Math.round(px * 0.5))]);
+        return 'placed';
+      } catch (e) {
+        return String(e.message || e);
+      }
+    }, [futAcct.config.id, last]);
+    const left = (await page.evaluate(() => window.fufu.invoke('trading:list'))).find((a) => a.config.market === 'futures').orders.length;
+    check(/order 2 of 2/.test(refused) && /canceled/.test(refused) && left === 0, `a refused scaled order leaves no orders behind (${refused.replace(/^.*Validation: /, '')})`);
+    await page.click('.trade-panel .tabs .tab:has-text("Market")');
     // journal: a note, a tag and a rating on the closed trade; stats per setup
     await page.click('.acct .tabs .tab:has-text("Trades")');
     await page.click('.acct .journal-btn');
@@ -712,7 +778,14 @@ const S = {
     const b2 = await page.evaluate((id) => window.__charts[id].bars(), id);
     check(v2.cursor - v1.cursor > 20 * 60000, `played forward ${Math.round((v2.cursor - v1.cursor) / 60000)} min in 4 s (interval ${v2.interval})`);
     check(b2.last < v2.cursor && b2.last > b1.last, `chart follows the replay without future bars (${iso(b2.last)} < ${iso(v2.cursor)})`);
-    const acct = await page.evaluate((v) => window.fufu.invoke('trading:snapshot', v.accounts.spot), v2);
+    // the replay account of the chart's market holds the trade
+    const acct = await page.evaluate(async (ids) => {
+      for (const rid of ids) {
+        const snap = await window.fufu.invoke('trading:snapshot', rid);
+        if (snap.positions.length) return snap;
+      }
+      return { positions: [], config: { id: ids[0] } };
+    }, Object.values(v2.accounts).filter(Boolean));
     check(acct.positions.length === 1 && Math.abs(acct.positions[0].mark - b2.close) / b2.close < 0.01, `replay position marked at replay prices (mark ${acct.positions[0]?.mark}, chart close ${b2.close})`);
     // on a crowded chart some legend rows sit in the "+N more" list
     if (await page.isVisible('.chart-legend .ind-more')) await page.click('.chart-legend .ind-more');
@@ -730,7 +803,7 @@ const S = {
     await shot('21-replay');
     await page.click('.replay-bar button:has-text("Close")');
     await page.waitForFunction(() => !/L [\d.]/.test(document.querySelector('.replay-pnl')?.textContent || ''), null, { timeout: 15000 });
-    const hist = await page.evaluate((v) => window.fufu.invoke('trading:history', v.accounts.spot), v2);
+    const hist = await page.evaluate((rid) => window.fufu.invoke('trading:history', rid), acct.config.id);
     check(hist.trades.length >= 1 && hist.trades.at(-1).closedAt <= v2.cursor + 1000, `replay trade closed at replay time (${iso(hist.trades.at(-1)?.closedAt)})`);
     // live accounts are not affected and replay accounts are hidden from account lists
     const list = await page.evaluate(() => window.fufu.invoke('trading:list'));
