@@ -214,3 +214,12 @@
   flex-direction: column;
   gap: 8px;
 }
+/* closing a position with a limit order */
+.limit-close {
+  gap: 8px;
+  padding: 6px;
+}
+.limit-close label {
+  gap: 8px;
+  align-items: center;
+}

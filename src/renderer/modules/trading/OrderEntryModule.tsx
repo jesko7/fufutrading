@@ -257,7 +257,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
             <span className="muted" style={{ width: 70 }} data-tip={`How far the price may come back from its best level before the order triggers (${market === 'futures' ? '0.1–10%' : '0.1–20%'})`}>
               Callback
             </span>
-            <NumberField value={callback} onChange={setCallback} min={0.1} max={market === 'futures' ? 10 : 20} step={0.1} suffix="%" style={{ flex: 1 }} />
+            <NumberField value={callback} onChange={setCallback} min={0.1} max={market === 'futures' ? 10 : 20} step={0.1} suffix="%" style={{ flex: 1 }} live />
             {[0.5, 1, 2, 5].map((p) => (
               <button key={p} className={clsx('btn small', callback === p && 'on')} onClick={() => setCallback(p)}>
                 {p}%
@@ -275,7 +275,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <span className="muted" style={{ width: 70 }}>
           Size
         </span>
-        <NumberField value={size} onChange={setSize} min={0} step={unit === 'quote' ? 100 : unit === 'pct' ? 5 : spec.stepSize * 10} style={{ flex: 1 }} placeholder="0" />
+        <NumberField value={size} onChange={setSize} min={0} step={unit === 'quote' ? 100 : unit === 'pct' ? 5 : spec.stepSize * 10} style={{ flex: 1 }} placeholder="0" live />
         <Segmented size="sm" value={unit} onChange={(u) => setUnit(u)} options={[{ value: 'quote', label: 'USDT' }, { value: 'base', label: SYMBOL_SPECS[symbol].base }, { value: 'pct', label: '%' }]} />
       </div>
       <div className="row" style={{ gap: 4 }}>
@@ -312,7 +312,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
             <span className="muted" style={{ width: 70 }}>
               Risk
             </span>
-            <NumberField value={riskPct} onChange={setRiskPct} min={0} max={100} step={0.25} placeholder="% of equity" suffix="%" style={{ flex: 1 }} />
+            <NumberField value={riskPct} onChange={setRiskPct} min={0} max={100} step={0.25} placeholder="% of equity" suffix="%" style={{ flex: 1 }} live />
           </div>
           <div className="hint">Setting a risk % sizes the order so that hitting the stop loses that share of equity.</div>
         </div>
@@ -385,7 +385,7 @@ function PriceRow({ label, value, onChange, last, pd, tick, pctHint }: { label: 
       <span className="muted" style={{ width: 70 }}>
         {label}
       </span>
-      <NumberField value={value} onChange={(v) => onChange(roundToTick(v, tick))} step={tick * 10} decimals={pd} style={{ flex: 1 }} placeholder={isFinite(last) ? fmtNum(last, pd) : ''} />
+      <NumberField value={value} onChange={(v) => onChange(roundToTick(v, tick))} step={tick * 10} decimals={pd} style={{ flex: 1 }} placeholder={isFinite(last) ? fmtNum(last, pd) : ''} live />
       {pctHint ? (
         [0.5, 1, 2].map((p) => (
           <button key={p} className="btn small" onClick={() => onChange(roundToTick(last * (1 + (pctHint * p) / 100), tick))} data-tip={`${pctHint > 0 ? '+' : '−'}${p}% from entry`}>

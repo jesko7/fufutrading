@@ -3,7 +3,7 @@ import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { useApp, toast } from '../../state/store';
 import { useSize } from '../../lib/hooks';
-import { Tabs, Menu, usePopover, confirmDialog, promptDialog, NumberField, Empty, Segmented, Spinner } from '../../components/ui';
+import { Tabs, Menu, Popover, usePopover, confirmDialog, promptDialog, NumberField, Empty, Segmented, Spinner } from '../../components/ui';
 import { Icon, CoinIcon } from '../../components/Icon';
 import { AccountSelect, useAccounts, useAccount, resolveAccountId, statusBadge, openCreateAccount, usePresets, ProfileSummary } from './accounts';
 import type { AccountSnapshot, ClosedTrade, Fill, AccountEvent } from '../../../shared/trading/types';
@@ -258,7 +258,8 @@ export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: bool
                     <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol, +(p.qty / 2).toFixed(8)), 'Close')} data-tip="Close half at market">
                       ½
                     </button>{' '}
-                    <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol), 'Close')}>
+                    <LimitClose a={a} p={p} pd={pd} />{' '}
+                    <button className="btn small" onClick={() => act(api.call('trading:close', a.config.id, p.symbol), 'Close')} data-tip="Close at market">
                       Close
                     </button>
                   </>
@@ -269,6 +270,77 @@ export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: bool
         })}
       </tbody>
     </table>
+  );
+}
+
+/** Binance's "Limit" close: a limit order for some or all of the position (reduce-only on futures). */
+function LimitClose({ a, p, pd }: { a: AccountSnapshot; p: AccountSnapshot['positions'][number]; pd: number }) {
+  const pop = usePopover();
+  const [price, setPrice] = useState<number | null>(null);
+  const [qty, setQty] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const market = a.config.market;
+  const spec = SYMBOL_SPECS[p.symbol][market];
+  const qd = qtyDecimals(p.symbol, market);
+  const side = p.side === 1 ? 'sell' : 'buy';
+  const open = (el: Element) => {
+    setPrice(+p.mark.toFixed(pd));
+    setQty(p.qty);
+    pop.toggle(el);
+  };
+  const place = async () => {
+    if (!price || !qty) return;
+    setBusy(true);
+    try {
+      const o = await api.call('trading:place', a.config.id, { symbol: p.symbol, side, type: 'limit', qty: Math.min(qty, p.qty), price, tif: 'GTC', reduceOnly: market === 'futures', source: 'manual' });
+      toast({ title: o.status === 'filled' ? 'Order filled' : o.status === 'rejected' ? 'Order rejected' : 'Order placed', body: `${side === 'buy' ? 'Buy' : 'Sell'} ${fmtNum(o.qty, qd)} ${SYMBOL_SPECS[p.symbol].base} limit ${fmtNum(price, pd)}${o.rejectReason ? ` — ${o.rejectReason}` : ''}`, kind: o.status === 'rejected' ? 'warn' : 'ok' });
+      pop.close();
+    } catch (e) {
+      toast({ title: 'Order not accepted', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pnl = price && qty ? (price - p.entry) * Math.min(qty, p.qty) * p.side : NaN;
+  return (
+    <>
+      <button className="btn small" onClick={(e) => open(e.currentTarget)} data-tip="Close at a limit price">
+        Limit
+      </button>
+      {pop.anchor && (
+        <Popover anchor={pop.anchor} onClose={pop.close} align="end" width={250}>
+          <div className="limit-close col">
+            <div className="section-title">
+              {side === 'sell' ? 'Sell' : 'Buy'} to close {SYMBOL_SPECS[p.symbol].base}
+            </div>
+            <label className="row">
+              <span className="grow">Price</span>
+              <NumberField value={price} onChange={setPrice} step={spec.tickSize} decimals={pd} min={0} style={{ width: 120 }} suffix="USDT" live />
+            </label>
+            <label className="row">
+              <span className="grow">Quantity</span>
+              <NumberField value={qty} onChange={setQty} step={spec.stepSize} decimals={qd} min={0} max={p.qty} style={{ width: 120 }} suffix={SYMBOL_SPECS[p.symbol].base} live />
+            </label>
+            <Segmented
+              value={qty === p.qty ? '1' : qty === +(p.qty / 2).toFixed(qd) ? '0.5' : qty === +(p.qty / 4).toFixed(qd) ? '0.25' : ''}
+              onChange={(f) => setQty(+(p.qty * +f).toFixed(qd))}
+              options={[
+                { value: '0.25', label: '25%' },
+                { value: '0.5', label: '50%' },
+                { value: '1', label: '100%' },
+              ]}
+            />
+            <div className="row faint small">
+              <span className="grow">P&L at this price</span>
+              <span className={clsx('num', pnl >= 0 ? 'up' : 'down')}>{Number.isFinite(pnl) ? fmtSignedUsd(pnl) : '—'}</span>
+            </div>
+            <button className={clsx('btn small', side === 'sell' ? 'danger' : 'primary')} disabled={busy || !price || !qty} onClick={place}>
+              Place limit {side}
+            </button>
+          </div>
+        </Popover>
+      )}
+    </>
   );
 }
 

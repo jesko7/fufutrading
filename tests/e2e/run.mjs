@@ -52,6 +52,19 @@ async function shot(name) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Open a workspace preset from the start page (reached through the command palette). */
+async function openPreset(name) {
+  if (!(await page.isVisible('.start'))) {
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Workspaces & presets');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.start', { timeout: 10000 });
+  }
+  await page.click(`.preset:has(.p-name:text-is("${name}"))`);
+  await page.waitForSelector('.start', { state: 'detached', timeout: 15000 });
+}
+
 /** A legend row of the first chart; on a crowded chart it may sit in the "+N more" list. */
 async function legendRow(name, timeout = 30000) {
   const inLegend = page.locator('.chart-legend .ind-item', { hasText: name }).first();
@@ -88,30 +101,19 @@ const S = {
   },
   async presets() {
     console.log('scenario: workspace presets');
-    const open = async (name) => {
-      if (!(await page.isVisible('.start'))) {
-        await page.keyboard.press('Control+k');
-        await page.waitForSelector('.palette input');
-        await page.fill('.palette input', 'Workspaces & presets');
-        await page.keyboard.press('Enter');
-        await page.waitForSelector('.start', { timeout: 10000 });
-      }
-      await page.click(`.preset:has(.p-name:text-is("${name}"))`);
-      await page.waitForSelector('.start', { state: 'detached', timeout: 15000 });
-    };
     for (const [name, sels, file] of [
       ['Automation', ['.bots', '.chart-host canvas', '.alerts'], '03-preset-automation'],
       ['Prop Challenge', ['.prop-mod', '.chart-host canvas'], '03-preset-prop'],
       ['Strategy Lab', ['.ai-studio', '.chart-host canvas', '.tester'], '03-preset-lab'],
     ]) {
-      await open(name);
+      await openPreset(name);
       for (const s of sels) await page.waitForSelector(s, { timeout: 30000 });
       check(true, `${name} preset opens with ${sels.join(', ')}`);
       await wait(1500);
       await shot(file);
     }
     // later scenarios expect the Trader layout from the smoke test
-    await open('Trader');
+    await openPreset('Trader');
     await page.waitForSelector('.trade-panel, .empty-title:has-text("No paper account")', { timeout: 30000 });
   },
   async light() {
@@ -125,15 +127,7 @@ const S = {
       ['Automation', '43-light-automation'],
       ['Prop Challenge', '44-light-prop'],
     ]) {
-      if (!(await page.isVisible('.start'))) {
-        await page.keyboard.press('Control+k');
-        await page.waitForSelector('.palette input');
-        await page.fill('.palette input', 'Workspaces & presets');
-        await page.keyboard.press('Enter');
-        await page.waitForSelector('.start', { timeout: 10000 });
-      }
-      await page.click(`.preset:has(.p-name:text-is("${name}"))`);
-      await page.waitForSelector('.start', { state: 'detached', timeout: 15000 });
+      await openPreset(name);
       await page.waitForSelector('.chart-host canvas, .heatmap canvas', { timeout: 30000 });
       await wait(4000);
       await shot(file);
@@ -174,6 +168,9 @@ const S = {
     await shot('46c-light-options-chain');
     check(true, 'the options module renders in the light theme');
     await page.click('button[data-tip="Toggle light / dark"]');
+    // later scenarios expect the Trader layout (with its spot chart)
+    await openPreset('Trader');
+    await page.waitForSelector('.trade-panel, .empty-title:has-text("No paper account")', { timeout: 30000 });
   },
   async perf() {
     console.log('scenario: performance');
@@ -292,6 +289,15 @@ const S = {
     await page.waitForFunction(() => /Orders\s*3/.test(document.querySelector('.acct .tabs')?.textContent || ''), null, { timeout: 10000 });
     check(true, 'reduce-only trailing stop placed from the trade panel');
     await shot('05-brackets');
+    // Binance's limit close: a reduce-only limit order for some or all of the position
+    await page.click('.acct td button:has-text("Limit")');
+    await page.waitForSelector('.popover .limit-close');
+    await page.locator('.popover .limit-close label:has-text("Price") input').fill(String(Math.round(last * 1.03)));
+    await wait(300);
+    await shot('05c-limit-close');
+    await page.click('.popover .limit-close button:has-text("Place limit sell")');
+    await page.waitForFunction(() => /Orders\s*4/.test(document.querySelector('.acct .tabs')?.textContent || ''), null, { timeout: 10000 });
+    check(true, 'limit close placed from the positions table');
     await page.click('.acct td button:has-text("Close")');
     await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 0, null, { timeout: 10000 });
     const tabs = await page.textContent('.acct .tabs');

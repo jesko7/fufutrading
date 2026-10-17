@@ -291,7 +291,8 @@ export function Select<T extends string>({ value, options, onChange, style, titl
 }
 
 /** Numeric input that commits on blur/enter and supports arrow-key stepping. */
-export function NumberField({ value, onChange, step = 1, min, max, decimals, style, suffix, placeholder, disabled }: { value: number | null; onChange: (v: number) => void; step?: number; min?: number; max?: number; decimals?: number; style?: CSSProperties; suffix?: string; placeholder?: string; disabled?: boolean }) {
+/** A number input; it reports on blur and Enter, or with `live` on every valid keystroke (for previews that follow the typing). */
+export function NumberField({ value, onChange, step = 1, min, max, decimals, style, suffix, placeholder, disabled, live }: { value: number | null; onChange: (v: number) => void; step?: number; min?: number; max?: number; decimals?: number; style?: CSSProperties; suffix?: string; placeholder?: string; disabled?: boolean; live?: boolean }) {
   const fmt = (v: number | null) => (v === null || !isFinite(v) ? '' : decimals !== undefined ? v.toFixed(decimals) : String(v));
   const [text, setText] = useState(fmt(value));
   const focused = useRef(false);
@@ -299,14 +300,19 @@ export function NumberField({ value, onChange, step = 1, min, max, decimals, sty
     if (!focused.current) setText(fmt(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, decimals]);
-  const commit = (t: string) => {
+  const parse = (t: string): number | null => {
     let v = parseFloat(t.replace(/,/g, ''));
-    if (!isFinite(v)) {
+    if (!isFinite(v)) return null;
+    if (min !== undefined) v = Math.max(min, v);
+    if (max !== undefined) v = Math.min(max, v);
+    return v;
+  };
+  const commit = (t: string) => {
+    const v = parse(t);
+    if (v === null) {
       setText(fmt(value));
       return;
     }
-    if (min !== undefined) v = Math.max(min, v);
-    if (max !== undefined) v = Math.min(max, v);
     onChange(v);
     setText(fmt(v));
   };
@@ -327,7 +333,12 @@ export function NumberField({ value, onChange, step = 1, min, max, decimals, sty
           focused.current = false;
           commit(e.target.value);
         }}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          // the text stays as typed while focused; blur formats it
+          const v = live ? parse(e.target.value) : null;
+          if (v !== null && v !== value) onChange(v);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') commit((e.target as HTMLInputElement).value);
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
