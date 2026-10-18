@@ -8,7 +8,8 @@ import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick } fr
 import { Ledger, type Marks } from './ledger';
 import { evaluateOrder, slip, type MatchDecision, type Segment } from './matching';
 import { maxLeverageFor } from './brackets';
-import type { AccountConfig, AccountEvent, AccountSnapshot, ClosedTrade, Fill, Order, OrderSide, PlaceOrderRequest, Position } from './types';
+import type { AccountConfig, AccountEvent, AccountSnapshot, AlgoOrder, ClosedTrade, Fill, Order, OrderSide, PlaceOrderRequest, Position } from './types';
+import { twapPlan } from './twap';
 import { PropRules, type RuleInput } from '../propfirm/engine';
 import { profileById } from '../propfirm/profiles';
 import type { PropState } from '../propfirm/types';
@@ -36,6 +37,7 @@ export interface PersistedAccount {
   dayStartEquity: number;
   marginCallActive: boolean;
   pendingBrackets: Record<string, { sl?: number; tp?: number }>;
+  algos?: AlgoOrder[];
   version: 1;
 }
 
@@ -58,6 +60,8 @@ export class AccountRuntime {
   marginCallActive = false;
   /** Brackets to attach when an entry order fills (orderId -> prices). */
   pendingBrackets: Record<string, { sl?: number; tp?: number }> = {};
+  /** TWAP orders (running ones and a few that ended). */
+  algos: AlgoOrder[] = [];
   /** Hook for notifications (fills, liquidations, breaches…). */
   onEvent: (e: AccountEvent) => void = () => {};
   onChange: () => void = () => {};
@@ -77,6 +81,7 @@ export class AccountRuntime {
       this.dayStartEquity = persisted.dayStartEquity ?? config.initialBalance;
       this.marginCallActive = !!persisted.marginCallActive;
       this.pendingBrackets = persisted.pendingBrackets || {};
+      this.algos = persisted.algos || [];
     }
     if (config.prop) {
       const prof = profileById(config.prop.profileId);
@@ -99,8 +104,96 @@ export class AccountRuntime {
       dayStartEquity: this.dayStartEquity,
       marginCallActive: this.marginCallActive,
       pendingBrackets: this.pendingBrackets,
+      algos: this.algos,
       version: 1,
     };
+  }
+
+  // ---------------------------------------------------------------- TWAP
+
+  /** Start a TWAP: the quantity as equal market orders spread over the duration (the first goes now). */
+  placeTwap(req: { symbol: SymbolId; side: OrderSide; qty: number; durationMs: number; reduceOnly?: boolean }, ctx: MarketCtx): AlgoOrder {
+    const last = ctx.last(this.config.market, req.symbol);
+    if (!(last > 0)) throw new OrderError('No market price available yet — wait for the live feed');
+    if (req.reduceOnly && this.config.market !== 'futures') throw new OrderError('Reduce-only is for futures');
+    const plan = twapPlan(req.qty, req.durationMs, last, this.spec(req.symbol));
+    if ('error' in plan) throw new OrderError(plan.error);
+    const t = ctx.now();
+    const a: AlgoOrder = {
+      id: oid('a'),
+      type: 'twap',
+      symbol: req.symbol,
+      side: req.side,
+      qty: plan.sliceQty * (plan.slices - 1) + plan.lastQty,
+      filled: 0,
+      avgPrice: 0,
+      slices: plan.slices,
+      done: 0,
+      intervalMs: plan.intervalMs,
+      createdAt: t,
+      nextAt: t,
+      endsAt: t + plan.intervalMs * (plan.slices - 1),
+      reduceOnly: !!req.reduceOnly,
+      status: 'running',
+    };
+    this.algos.push(a);
+    this.event('order', `TWAP ${a.side} ${fmtQ(a.qty, a.symbol, this.config.market)} ${SYMBOL_SPECS[a.symbol].base}: ${a.slices} market orders every ${fmtDur(a.intervalMs)}`, { algoId: a.id });
+    this.stepAlgos(ctx);
+    return a;
+  }
+
+  cancelAlgo(id: string, t = Date.now()): boolean {
+    const a = this.algos.find((x) => x.id === id && x.status === 'running');
+    if (!a) return false;
+    a.status = 'canceled';
+    a.note = `canceled after ${a.done} of ${a.slices} orders`;
+    this.event('cancel', `TWAP ${a.side} ${SYMBOL_SPECS[a.symbol].base} canceled: ${fmtQ(a.filled, a.symbol, this.config.market)} of ${fmtQ(a.qty, a.symbol, this.config.market)} executed`, { algoId: a.id }, t);
+    return true;
+  }
+
+  /** Place the TWAP orders that are due; true when something changed. */
+  stepAlgos(ctx: MarketCtx): boolean {
+    let changed = false;
+    const t = ctx.now();
+    for (const a of this.algos) {
+      if (a.status !== 'running') continue;
+      // the app was closed past a few orders: continue from now, with the same spacing
+      if (t - a.nextAt > a.intervalMs * 2 + 5000) {
+        a.nextAt = t;
+        a.endsAt = t + a.intervalMs * (a.slices - a.done - 1);
+        a.note = 'resumed after a pause';
+      }
+      if (t < a.nextAt) continue;
+      changed = true;
+      // what is left over the orders left (the rounding to the lot step spreads instead of piling up at the end)
+      const lastSlice = a.done === a.slices - 1;
+      const left = a.qty - a.filled;
+      const qty = floorToStep(lastSlice ? left : left / (a.slices - a.done), this.spec(a.symbol).stepSize);
+      try {
+        if (!(qty > 0)) throw new OrderError('nothing left to execute');
+        const o = this.placeOrder({ symbol: a.symbol, side: a.side, type: 'market', qty, reduceOnly: a.reduceOnly || undefined, source: 'manual', reason: `TWAP ${a.done + 1}/${a.slices}` }, ctx);
+        if (o.filledQty > 0) {
+          a.avgPrice = (a.avgPrice * a.filled + o.avgFillPrice * o.filledQty) / (a.filled + o.filledQty);
+          a.filled = +(a.filled + o.filledQty).toFixed(10);
+        }
+      } catch (e) {
+        const msg = (e as Error).message;
+        // a reduce-only TWAP whose position is gone has done its job
+        a.status = /No position to reduce|would increase the position|nothing left/.test(msg) ? 'finished' : 'failed';
+        a.note = msg;
+        this.event(a.status === 'failed' ? 'reject' : 'order', `TWAP ${a.side} ${SYMBOL_SPECS[a.symbol].base} ${a.status === 'failed' ? 'stopped' : 'ended'} after ${a.done} of ${a.slices} orders: ${msg}`, { algoId: a.id }, t);
+        continue;
+      }
+      a.done++;
+      if (a.done >= a.slices) {
+        a.status = 'finished';
+        this.event('order', `TWAP ${a.side} ${SYMBOL_SPECS[a.symbol].base} finished: ${fmtQ(a.filled, a.symbol, this.config.market)} at an average ${fmtP(a.avgPrice, a.symbol, this.config.market)}`, { algoId: a.id }, t);
+      } else a.nextAt = a.nextAt + a.intervalMs;
+    }
+    // keep the running ones and the last 20 that ended
+    const ended = this.algos.filter((a) => a.status !== 'running');
+    if (ended.length > 20) this.algos = this.algos.filter((a) => a.status === 'running' || ended.indexOf(a) >= ended.length - 20);
+    return changed;
   }
 
   // ---------------------------------------------------------------- helpers
@@ -873,6 +966,7 @@ export class AccountRuntime {
       exposure: l.exposure(marks),
       positions,
       orders: this.orders.slice(),
+      algos: this.algos.slice(),
       holdings,
       dayStartEquity: this.dayStartEquity,
       dayPnl: eq - this.dayStartEquity,
@@ -893,6 +987,13 @@ function fmtQ(q: number, symbol: SymbolId, market: Market): string {
 
 function fmtP(p: number, symbol: SymbolId, market: Market): string {
   return p.toFixed(priceDecimals(symbol, market));
+}
+
+/** A TWAP interval as "10 s", "2.5 min" or "1 h". */
+function fmtDur(ms: number): string {
+  if (ms < 60000) return `${+(ms / 1000).toFixed(1)} s`;
+  if (ms < 3600000) return `${+(ms / 60000).toFixed(1)} min`;
+  return `${+(ms / 3600000).toFixed(2)} h`;
 }
 
 /** An amount with its sign; none when it rounds to zero. */

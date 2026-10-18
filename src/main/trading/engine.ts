@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import type { AppCore } from '../core';
 import { DocStore, uid, writeJsonAtomic, readJson } from '../storage/jsonStore';
 import { AccountRuntime, OrderError, type MarketCtx, type PersistedAccount } from '../../shared/trading/account';
-import type { AccountConfig, AccountEvent, AccountSnapshot, Order, PlaceOrderRequest } from '../../shared/trading/types';
+import type { AccountConfig, AccountEvent, AccountSnapshot, AlgoOrder, Order, PlaceOrderRequest } from '../../shared/trading/types';
 import { SCALED_MAX_ORDERS } from '../../shared/trading/scaled';
 import { ACCOUNT_PRESETS, COST_PRESETS, newAccountConfig } from '../../shared/trading/presets';
 import { setBrackets, parseBracketResponse, bracketsInfo, DEFAULT_BRACKETS } from '../../shared/trading/brackets';
@@ -267,6 +267,15 @@ export class TradingEngine {
       } catch (e) {
         this.core.log('warn', `housekeeping ${rt.config.id}: ${(e as Error).message}`);
       }
+      // TWAP orders that are due
+      try {
+        if (rt.algos.length && rt.stepAlgos(this.ctx)) {
+          this.needsRecalc = true;
+          this.markDirty(rt.config.id);
+        }
+      } catch (e) {
+        this.core.log('warn', `twap ${rt.config.id}: ${(e as Error).message}`);
+      }
     }
     if (this.needsRecalc) this.recalcSubscriptions();
     this.flush(false);
@@ -421,6 +430,29 @@ export class TradingEngine {
     }
   }
 
+  /** Start a TWAP (live accounts only: it runs on the wall clock). */
+  placeTwap(id: string, req: { symbol: SymbolId; side: 'buy' | 'sell'; qty: number; durationMs: number; reduceOnly?: boolean }): AlgoOrder {
+    if (!isSymbol(req.symbol)) throw new Error('Validation: unsupported symbol');
+    const rt = this.get(id);
+    if (rt.config.replay) throw new Error('Validation: TWAP orders run on live prices only, not in a replay');
+    this.assertManual(id);
+    try {
+      const a = rt.placeTwap({ symbol: req.symbol, side: req.side === 'sell' ? 'sell' : 'buy', qty: +req.qty, durationMs: +req.durationMs, reduceOnly: !!req.reduceOnly }, this.ctxFor(id));
+      this.needsRecalc = true;
+      this.markDirty(id);
+      return a;
+    } catch (e) {
+      if (e instanceof OrderError) throw new Error(`Validation: ${e.message}`);
+      throw e;
+    }
+  }
+
+  cancelAlgo(id: string, algoId: string): boolean {
+    const ok = this.get(id).cancelAlgo(algoId);
+    if (ok) this.markDirty(id);
+    return ok;
+  }
+
   /**
    * Several orders at once (a scaled order), all or none: when one is refused, the ones placed
    * before it that still rest are canceled and the refusal names the order.
@@ -488,6 +520,8 @@ export function registerTrading(core: AppCore): TradingEngine {
   r.handle('trading:nextPhase', ([id]) => eng.nextPhase(id));
   r.handle('trading:place', ([id, req]) => eng.place(id, req));
   r.handle('trading:placeBatch', ([id, reqs]) => eng.placeBatch(id, reqs));
+  r.handle('trading:twap', ([id, req]) => eng.placeTwap(id, req));
+  r.handle('trading:cancelAlgo', ([id, algoId]) => eng.cancelAlgo(id, String(algoId)));
   r.handle('trading:cancel', ([id, orderId]) => wrap(() => {
     eng.assertManual(id);
     return eng.get(id).cancelOrder(orderId);

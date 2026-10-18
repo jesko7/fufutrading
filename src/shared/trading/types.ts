@@ -306,6 +306,27 @@ export interface PlaceOrderRequest {
   activationPrice?: number;
 }
 
+/** An algorithmic order working over time (Binance's TWAP: equal market orders at intervals). */
+export interface AlgoOrder {
+  id: string;
+  type: 'twap';
+  symbol: SymbolId;
+  side: OrderSide;
+  /** Total quantity, and how much has been executed. */
+  qty: number;
+  filled: number;
+  avgPrice: number;
+  slices: number;
+  done: number;
+  intervalMs: number;
+  createdAt: number;
+  nextAt: number;
+  endsAt: number;
+  reduceOnly?: boolean;
+  status: 'running' | 'finished' | 'canceled' | 'failed';
+  note?: string;
+}
+
 /** Snapshot of an account for the UI. */
 export interface AccountSnapshot {
   config: AccountConfig;
@@ -328,6 +349,8 @@ export interface AccountSnapshot {
    */
   positions: (Position & { mark: number; uPnl: number; uPnlPct: number; notional: number; liqPrice: number; maintMargin: number; breakEven: number; marginRatio: number; sl?: number; tp?: number; maxRemoveMargin?: number })[];
   orders: Order[];
+  /** TWAP orders: those running and the last few that ended. */
+  algos: AlgoOrder[];
   holdings: { symbol: SymbolId; qty: number; avgCost: number; value: number; uPnl: number }[];
   dayStartEquity: number;
   dayPnl: number;

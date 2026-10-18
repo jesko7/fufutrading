@@ -57,7 +57,7 @@ an AI assistant that builds and tests strategies inside the app.
 - **Paper trading:**
   - multiple accounts with cost presets (Binance ≈0.2% round trip, TradingView-style €1 per
     fill …)
-  - market, limit, stop, stop-limit, trailing-stop and scaled orders, GTC/IOC/FOK, post-only,
+  - market, limit, stop, stop-limit, trailing-stop, scaled and TWAP orders, GTC/IOC/FOK, post-only,
     drag-and-drop SL/TP
   - Binance's order rules (filters refreshed from Binance, price bands, size limits), leverage
     brackets and leverage changes on open positions, maintenance-margin tiers, liquidation

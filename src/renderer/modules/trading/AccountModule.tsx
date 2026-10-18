@@ -139,7 +139,7 @@ export function AccountModule({ module }: ModuleProps) {
           onChange={(t) => set({ tab: t })}
           tabs={[
             { value: 'positions', label: 'Positions', badge: a.positions.length || undefined },
-            { value: 'orders', label: 'Orders', badge: a.orders.length || undefined },
+            { value: 'orders', label: 'Orders', badge: a.orders.length + (a.algos || []).filter((x) => x.status === 'running').length || undefined },
             { value: 'trades', label: 'Trades' },
             { value: 'equity', label: 'Equity' },
             { value: 'events', label: 'Log' },
@@ -380,7 +380,8 @@ function BracketCell({ a, symbol, tp, sl, pd }: { a: AccountSnapshot; symbol: st
 }
 
 export function Orders({ a, readOnly }: { a: AccountSnapshot; readOnly?: boolean }) {
-  if (!a.orders.length) return <Empty icon="list" title="No open orders" />;
+  const twaps = (a.algos || []).filter((x) => x.status === 'running');
+  if (!a.orders.length && !twaps.length) return <Empty icon="list" title="No open orders" />;
   return (
     <table className="table">
       <thead>
@@ -409,6 +410,33 @@ export function Orders({ a, readOnly }: { a: AccountSnapshot; readOnly?: boolean
         </tr>
       </thead>
       <tbody>
+        {twaps.map((t) => (
+          <tr key={t.id} className="twap-row">
+            <td className="faint">{fmtTime(t.createdAt, true)}</td>
+            <td>
+              <span className={t.side === 'buy' ? 'up' : 'down'}>
+                TWAP {t.side === 'buy' ? 'buy' : 'sell'} {fmtNum(t.qty, qtyDecimals(t.symbol, a.config.market))} {SYMBOL_SPECS[t.symbol].base}
+              </span>
+              <span className="faint" style={{ marginLeft: 6 }}>
+                {t.done}/{t.slices} orders · ends {fmtTime(t.endsAt)}
+                {t.filled > 0 ? ` · avg ${fmtNum(t.avgPrice, priceDecimals(t.symbol, a.config.market))}` : ''}
+              </span>
+              {t.reduceOnly && <span className="badge" style={{ marginLeft: 6 }}>reduce</span>}
+              <div className="twap-bar">
+                <div style={{ width: `${Math.min(100, (t.filled / t.qty) * 100).toFixed(1)}%` }} />
+              </div>
+            </td>
+            <td className="r">{fmtNum(t.filled, qtyDecimals(t.symbol, a.config.market))}</td>
+            <td className="faint">twap</td>
+            <td className="r">
+              {!readOnly && (
+                <button className="btn small" onClick={() => api.call('trading:cancelAlgo', a.config.id, t.id).catch((e) => toast({ title: 'Cancel failed', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' }))}>
+                  Cancel
+                </button>
+              )}
+            </td>
+          </tr>
+        ))}
         {a.orders.map((o) => (
           <tr key={o.id}>
             <td className="faint">{fmtTime(o.createdAt, true)}</td>

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AccountRuntime, type MarketCtx } from '../../src/shared/trading/account';
 import { newAccountConfig } from '../../src/shared/trading/presets';
 import type { Order } from '../../src/shared/trading/types';
+import { twapPlan } from '../../src/shared/trading/twap';
 
 const DAY = 86400000;
 
@@ -275,5 +276,68 @@ describe('AccountRuntime break-even price and margin ratio', () => {
     expect(p.marginMode).toBe('isolated');
     expect(p.marginRatio).toBeCloseTo(p.maintMargin / (p.isolatedMargin + p.uPnl), 12);
     expect(q.marginRatio).toBe(0);
+  });
+});
+
+describe('TWAP orders', () => {
+  const futSpec = { stepSize: 0.001, minQty: 0.001, minNotional: 50 };
+
+  it('plans an order every 10 s or more, fewer when they would be too small', () => {
+    expect(twapPlan(1, 3600000, 50000, futSpec)).toMatchObject({ slices: 120, intervalMs: 30000 });
+    expect(twapPlan(1, 5 * 60000, 50000, futSpec)).toMatchObject({ slices: 30, intervalMs: 10000 });
+    // 0.004 BTC is worth 200 USDT: four orders of 50 at most
+    expect(twapPlan(0.004, 3600000, 50000, futSpec)).toMatchObject({ slices: 4, intervalMs: 900000 });
+    expect(twapPlan(0.001, 3600000, 50000, futSpec)).toHaveProperty('error');
+    expect(twapPlan(1, 60000, 50000, futSpec)).toHaveProperty('error');
+  });
+
+  it('executes the quantity in equal market orders on schedule and finishes exactly', () => {
+    const { rt, ctx, m } = setup();
+    const a = rt.placeTwap({ symbol: 'BTCUSDT', side: 'buy', qty: 0.1, durationMs: 5 * 60000 }, ctx);
+    // the first order goes at once
+    expect(a.done).toBe(1);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBeCloseTo(0.003, 9);
+    m.t += 5000;
+    rt.stepAlgos(ctx);
+    expect(a.done).toBe(1);
+    for (let k = 0; k < 40; k++) {
+      m.t += 10000;
+      rt.stepAlgos(ctx);
+    }
+    expect(a.status).toBe('finished');
+    expect(a.done).toBe(30);
+    expect(a.filled).toBeCloseTo(0.1, 9);
+    expect(rt.ledger.signedQty('BTCUSDT')).toBeCloseTo(0.1, 9);
+    expect(a.avgPrice).toBeCloseTo(50000, 6);
+    // equal orders: 0.003 or 0.004 each
+    const sizes = rt.fills.map((f) => f.qty);
+    expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(0.001 + 1e-9);
+  });
+
+  it('stops when canceled, ends a reduce-only TWAP when the position is gone, and resumes after a pause', () => {
+    const { rt, ctx, m } = setup();
+    const a = rt.placeTwap({ symbol: 'BTCUSDT', side: 'buy', qty: 0.1, durationMs: 5 * 60000 }, ctx);
+    m.t += 10000;
+    rt.stepAlgos(ctx);
+    expect(rt.cancelAlgo(a.id)).toBe(true);
+    m.t += 60000;
+    rt.stepAlgos(ctx);
+    expect(a.status).toBe('canceled');
+    expect(a.done).toBe(2);
+    // reduce-only: sell 0.1 over 5 min against the 0.006 long; it ends when the long is closed
+    const r = rt.placeTwap({ symbol: 'BTCUSDT', side: 'sell', qty: 0.1, durationMs: 5 * 60000, reduceOnly: true }, ctx);
+    for (let k = 0; k < 5; k++) {
+      m.t += 10000;
+      rt.stepAlgos(ctx);
+    }
+    expect(rt.ledger.signedQty('BTCUSDT')).toBeCloseTo(0, 9);
+    expect(r.status).toBe('finished');
+    // a pause (app closed): the schedule continues from now instead of catching up at once
+    const p = rt.placeTwap({ symbol: 'BTCUSDT', side: 'buy', qty: 0.1, durationMs: 5 * 60000 }, ctx);
+    m.t += 30 * 60000;
+    rt.stepAlgos(ctx);
+    expect(p.done).toBe(2);
+    expect(p.note).toMatch(/resumed/);
+    expect(p.endsAt).toBeGreaterThan(m.t);
   });
 });

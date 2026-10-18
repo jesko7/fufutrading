@@ -5,28 +5,33 @@ import { useApp, toast } from '../../state/store';
 import { useTicker, useTopicValue } from '../../lib/hooks';
 import { serverNow } from '../../lib/clock';
 import { bus } from '../../lib/bus';
-import { SymbolPicker, Segmented, NumberField, Toggle, Tabs, Menu, usePopover, confirmDialog } from '../../components/ui';
+import { SymbolPicker, Segmented, NumberField, Toggle, Tabs, Menu, Select, usePopover, confirmDialog } from '../../components/ui';
 import { Icon } from '../../components/Icon';
 import { AccountSelect, useAccounts, useAccount, resolveAccountId, statusBadge, openCreateAccount } from './accounts';
 import { SYMBOL_SPECS, floorToStep, priceDecimals, qtyDecimals, roundToTick, type Market, type SymbolId } from '../../../shared/symbols';
 import { liquidationPrice, maxLeverageFor } from '../../../shared/trading/brackets';
 import type { Order, OrderType, PlaceOrderRequest, TimeInForce } from '../../../shared/trading/types';
 import { scaledOrders, SCALED_MAX_ORDERS, SCALED_MIN_ORDERS, type ScaledDistribution } from '../../../shared/trading/scaled';
+import { twapPlan } from '../../../shared/trading/twap';
 import { clsx, fmtNum, fmtUsd } from '../../lib/format';
 import { useReplayView } from '../chart/replay';
 import './trading.css';
 
 type SizeUnit = 'base' | 'quote' | 'pct';
 /** The order types, plus Binance's scaled order (several limit orders over a price range). */
-type Kind = OrderType | 'scaled';
+type Kind = OrderType | 'scaled' | 'twap';
 /** As on Binance: Market and Limit as tabs, the other types behind a third tab with a menu. */
-type Advanced = 'stop' | 'stopLimit' | 'trailingStop' | 'scaled';
+type Advanced = 'stop' | 'stopLimit' | 'trailingStop' | 'scaled' | 'twap';
 const ADVANCED: { value: Advanced; label: string; hint: string }[] = [
   { value: 'stop', label: 'Stop', hint: 'Market order when the price reaches the trigger' },
   { value: 'stopLimit', label: 'Stop-limit', hint: 'Limit order when the price reaches the trigger' },
   { value: 'trailingStop', label: 'Trailing stop', hint: 'Follows the best price by a callback rate' },
   { value: 'scaled', label: 'Scaled', hint: 'Several limit orders over a price range' },
+  { value: 'twap', label: 'TWAP', hint: 'Equal market orders spread over a duration' },
 ];
+/** TWAP durations (Binance: 5 minutes to 24 hours). */
+const TWAP_DURATIONS = [5, 10, 15, 30, 60, 120, 240, 480, 720, 1440].map((m) => ({ value: String(m * 60000), label: m < 60 ? `${m} min` : `${m / 60} h` }));
+const fmtSpan = (ms: number) => (ms < 60000 ? `${+(ms / 1000).toFixed(1)} s` : ms < 3600000 ? `${+(ms / 60000).toFixed(1)} min` : `${+(ms / 3600000).toFixed(2)} h`);
 
 export function OrderEntryModule({ module }: ModuleProps) {
   const cfg = module.config as { accountId: string | null; symbol: SymbolId; market: Market };
@@ -86,6 +91,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
   const [scTo, setScTo] = useState<number | null>(null);
   const [scCount, setScCount] = useState<number | null>(5);
   const [scDist, setScDist] = useState<ScaledDistribution>('flat');
+  const [twapMs, setTwapMs] = useState(30 * 60000);
 
   // price picked from order book / chart
   useEffect(
@@ -166,6 +172,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
     return null;
   }, [type, scaled, scFrom, scTo, spec, reduceOnly, market, last, symbol]);
   const scaledCrossing = type === 'scaled' && last > 0 ? scaled.filter((o) => (side === 'buy' ? o.price >= last : o.price <= last)).length : 0;
+  const twap = type === 'twap' && qty > 0 && last > 0 ? twapPlan(qty, twapMs, last, spec) : null;
   // Binance's "Max": the most this order could be with the available balance (and the leverage)
   const maxQty = useMemo(() => {
     if (!acct || !(refPrice > 0)) return 0;
@@ -193,7 +200,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
     !!acct &&
     qty >= spec.minQty &&
     !busy &&
-    (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0) || (type === 'scaled' && scaled.length >= SCALED_MIN_ORDERS && !scaledIssue));
+    (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0) || (type === 'scaled' && scaled.length >= SCALED_MIN_ORDERS && !scaledIssue) || (type === 'twap' && !!twap && !('error' in twap) && !replay));
 
   const submitScaled = async () => {
     if (!acct) return;
@@ -210,9 +217,23 @@ export function OrderEntryModule({ module }: ModuleProps) {
     }
   };
 
+  const submitTwap = async () => {
+    if (!acct || !twap || 'error' in twap) return;
+    setBusy(true);
+    try {
+      await api.call('trading:twap', acct.config.id, { symbol, side, qty, durationMs: twapMs, reduceOnly: reduceOnly || undefined });
+      toast({ title: 'TWAP started', body: `${side === 'buy' ? 'Buy' : 'Sell'} ${fmtNum(qty, qd)} ${SYMBOL_SPECS[symbol].base}: ${twap.slices} market orders, one every ${fmtSpan(twap.intervalMs)}`, kind: 'ok' });
+    } catch (e) {
+      toast({ title: 'TWAP not started', body: errorMessage(e).replace(/^Validation: /, ''), kind: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const submit = async () => {
     if (!acct) return;
     if (type === 'scaled') return submitScaled();
+    if (type === 'twap') return submitTwap();
     const req: PlaceOrderRequest = { symbol, side, type, qty, reduceOnly: reduceOnly || undefined, source: 'manual' };
     if (type === 'limit' || type === 'stopLimit') req.price = price!;
     if (type === 'stop' || type === 'stopLimit') req.stopPrice = stop!;
@@ -342,7 +363,8 @@ export function OrderEntryModule({ module }: ModuleProps) {
           width={250}
           items={ADVANCED.map((a) => ({
             label: a.label,
-            hint: a.hint,
+            hint: a.value === 'twap' && replay ? 'Live prices only (not in a replay)' : a.hint,
+            disabled: a.value === 'twap' && !!replay,
             checked: type === a.value,
             onClick: () => {
               setAdv(a.value);
@@ -379,6 +401,14 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <PriceRow label="Trigger" value={stop} onChange={setStop} last={last} pd={pd} tick={spec.tickSize} />
       )}
       {(type === 'limit' || type === 'stopLimit') && <PriceRow label="Limit" value={price} onChange={setPrice} last={last} pd={pd} tick={spec.tickSize} />}
+      {type === 'twap' && (
+        <div className="row" style={{ gap: 6 }}>
+          <span className="muted" style={{ width: 70 }} data-tip="The size is executed as equal market orders spread over this time (5 minutes to 24 hours, as on Binance)">
+            Duration
+          </span>
+          <Select value={String(twapMs)} onChange={(v) => setTwapMs(+v)} options={TWAP_DURATIONS} />
+        </div>
+      )}
       {type === 'scaled' && (
         <>
           <PriceRow label="Start" value={scFrom} onChange={setScFrom} last={last} pd={pd} tick={spec.tickSize} />
@@ -466,7 +496,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
         ))}
       </div>
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        {type !== 'scaled' ? (
+        {type !== 'scaled' && type !== 'twap' ? (
           <label className="row" style={{ gap: 6 }}>
             <Toggle value={withBrackets} onChange={setWithBrackets} />
             <span>TP / SL</span>
@@ -495,12 +525,19 @@ export function OrderEntryModule({ module }: ModuleProps) {
         </div>
       )}
       {scaledIssue && <div className="callout warn">{scaledIssue}</div>}
+      {type === 'twap' && twap && ('error' in twap ? (
+        <div className="callout warn">{twap.error}</div>
+      ) : (
+        <div className="hint">
+          {twap.slices} market orders of about {fmtNum(twap.sliceQty, qd)} {SYMBOL_SPECS[symbol].base}, one every {fmtSpan(twap.intervalMs)} (the first right away). Cancel it any time in the Orders tab.
+        </div>
+      ))}
       {!scaledIssue && scaledCrossing > 0 && (
         <div className="hint">
           {scaledCrossing} of {scaled.length} prices are at or through the market: {postOnly ? 'post-only rejects them' : 'they fill right away as taker'}.
         </div>
       )}
-      {withBrackets && !reduceOnly && type !== 'scaled' && (
+      {withBrackets && !reduceOnly && type !== 'scaled' && type !== 'twap' && (
         <div className="card col" style={{ gap: 8, padding: 10 }}>
           <PriceRow label="Take profit" value={tp} onChange={setTp} last={refPrice} pd={pd} tick={spec.tickSize} pctHint={side === 'buy' ? 1 : -1} />
           <PriceRow label="Stop loss" value={sl} onChange={setSl} last={refPrice} pd={pd} tick={spec.tickSize} pctHint={side === 'buy' ? -1 : 1} />
@@ -522,7 +559,7 @@ export function OrderEntryModule({ module }: ModuleProps) {
         <Row k="Max" v={`${fmtNum(maxQty, qd)} ${SYMBOL_SPECS[symbol].base}`} />
       </div>
       <button className={clsx('btn large', side === 'buy' ? 'buy' : 'sell')} disabled={!canSubmit} onClick={submit}>
-        {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : type === 'scaled' && scaled.length ? ` (${scaled.length} orders)` : ''}`}
+        {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : type === 'scaled' && scaled.length ? ` (${scaled.length} orders)` : type === 'twap' ? ` (TWAP ${TWAP_DURATIONS.find((d) => +d.value === twapMs)?.label})` : ''}`}
       </button>
       {pos && (
         <div className="card row" style={{ padding: 8 }}>

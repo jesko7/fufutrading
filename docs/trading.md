@@ -18,8 +18,8 @@ custom:
 - **Risk limits:** max leverage, max position value, max open positions, daily loss limit.
 - **Kind:** manual, or bot (a strategy trades it; see below).
 
-Orders: market, limit, stop, stop-limit, take-profit, trailing stop and scaled, reduce-only
-and post-only, with attached stop-loss / take-profit brackets. On charts you can place orders from
+Orders: market, limit, stop, stop-limit, take-profit, trailing stop, scaled and TWAP,
+reduce-only and post-only, with attached stop-loss / take-profit brackets. On charts you can place orders from
 the "+" beside the price axis (it follows the crosshair: a limit or stop order at that price,
 depending on which side of the market it is) or the right-click menu, and drag orders, SL/TP
 and position brackets.
@@ -35,6 +35,12 @@ and position brackets.
   to an end price. The size is split equally, or grows or shrinks from the first order to the
   last. Each order must meet Binance's minimum value and price band; if one is refused, the
   ones placed before it are canceled.
+- **TWAP orders** (as on Binance) execute a size as equal market orders at regular intervals over
+  5 minutes to 24 hours: an order every 10 seconds or more, at most 120, fewer when they would fall
+  below the minimum order value. The first goes right away; the Orders tab shows the progress and
+  the average price and cancels it. A reduce-only TWAP ends when the position is closed. TWAP
+  orders run on live prices (not in replays); after the app was closed they continue from where
+  they stopped.
 - **Binance's order rules** apply:
   - Tick and lot sizes and minimum order values come from Binance at start-up, with a cached
     copy for offline use.

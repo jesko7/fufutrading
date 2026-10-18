@@ -261,3 +261,16 @@
   align-items: center;
   gap: 3px;
 }
+/* a running TWAP in the orders table: how much is executed */
+.twap-bar {
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  max-width: 220px;
+}
+.twap-bar > div {
+  height: 100%;
+  background: var(--accent);
+}

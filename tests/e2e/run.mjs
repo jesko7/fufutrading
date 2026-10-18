@@ -430,6 +430,23 @@ const S = {
     }, [futAcct.config.id, last]);
     const left = (await page.evaluate(() => window.fufu.invoke('trading:list'))).find((a) => a.config.market === 'futures').orders.length;
     check(/order 2 of 2/.test(refused) && /canceled/.test(refused) && left === 0, `a refused scaled order leaves no orders behind (${refused.replace(/^.*Validation: /, '')})`);
+    // TWAP: 0.02 BTC over 30 minutes (the default) as equal market orders (the first goes at once), cancelled from the Orders tab
+    await orderType('TWAP');
+    const sizeRow = page.locator('.trade-panel .row:has(> span.muted:text-is("Size"))').first();
+    await sizeRow.locator('.seg button:has-text("BTC")').click();
+    await sizeRow.locator('input').fill('0.02');
+    await page.waitForSelector('.trade-panel .hint:has-text("market orders of about")', { timeout: 5000 });
+    await shot('05f-twap');
+    await page.click('.trade-panel button.btn.large:has-text("TWAP")');
+    await page.click('.acct .tabs .tab:has-text("Orders")');
+    await page.waitForSelector('.acct .twap-row', { timeout: 10000 });
+    const twapText = (await page.textContent('.acct .twap-row')) || '';
+    check(/TWAP buy 0\.020 BTC/.test(twapText) && /[1-9]\d*\/\d+ orders/.test(twapText), `TWAP running with its first order done (${twapText.replace(/\s+/g, ' ').slice(0, 90)})`);
+    await page.click('.acct .twap-row button:has-text("Cancel")');
+    await page.waitForSelector('.acct .twap-row', { state: 'detached', timeout: 10000 });
+    check(true, 'TWAP cancelled from the Orders tab');
+    await page.evaluate((id) => window.fufu.invoke('trading:close', id, 'BTCUSDT'), futAcct.config.id);
+    await page.click('.acct .tabs .tab:has-text("Positions")');
     await page.click('.trade-panel .tabs .tab:has-text("Market")');
     // journal: a note, a tag and a rating on the closed trade; stats per setup
     await page.click('.acct .tabs .tab:has-text("Trades")');
