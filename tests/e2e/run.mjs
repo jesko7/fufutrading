@@ -447,6 +447,13 @@ const S = {
     check(true, 'TWAP cancelled from the Orders tab');
     await page.evaluate((id) => window.fufu.invoke('trading:close', id, 'BTCUSDT'), futAcct.config.id);
     await page.click('.acct .tabs .tab:has-text("Positions")');
+    // two positions: "Close all" in the positions table closes both at market (after a confirmation)
+    for (const [sym, q] of [['BTCUSDT', 0.002], ['ETHUSDT', 0.05]]) await page.evaluate(([id, s, qty]) => window.fufu.invoke('trading:place', id, { symbol: s, side: 'buy', type: 'market', qty, source: 'manual' }), [futAcct.config.id, sym, q]);
+    await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 2, null, { timeout: 10000 });
+    await page.click('.acct th button:has-text("Close all")');
+    await page.click('.modal button:has-text("Close all")');
+    await page.waitForFunction(() => !document.querySelector('.acct table.table tbody tr'), null, { timeout: 10000 });
+    check(true, 'Close all closes every position');
     await page.click('.trade-panel .tabs .tab:has-text("Market")');
     // journal: a note, a tag and a rating on the closed trade; stats per setup
     await page.click('.acct .tabs .tab:has-text("Trades")');

@@ -193,7 +193,20 @@ export function Positions({ a, readOnly }: { a: AccountSnapshot; readOnly?: bool
           {isFut && <th className="r">Margin</th>}
           <th className="r">P&L</th>
           <th>TP / SL</th>
-          <th />
+          <th className="r">
+            {!readOnly && a.positions.length > 1 && (
+              <button
+                className="btn small"
+                data-tip="Close every position at market (their TP/SL are canceled with them)"
+                onClick={async () => {
+                  if (!(await confirmDialog({ title: `Close all ${a.positions.length} positions at market?`, body: a.config.name, confirm: 'Close all', danger: true }))) return;
+                  for (const p of a.positions) await act(api.call('trading:close', a.config.id, p.symbol), `Close ${SYMBOL_SPECS[p.symbol].base}`);
+                }}
+              >
+                Close all
+              </button>
+            )}
+          </th>
         </tr>
       </thead>
       <tbody>
