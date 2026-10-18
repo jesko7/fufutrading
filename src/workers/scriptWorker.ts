@@ -28,6 +28,9 @@ async function ensurePython(): Promise<void> {
     p.setInterruptBuffer(pyInterrupt);
     interruptInstalled = true;
   }
+  // every Python job starts uninterrupted: a time limit that fired as the previous job was ending
+  // must not stop this one
+  pyInterrupt[0] = 0;
 }
 
 function transferables(x: unknown, out: ArrayBuffer[] = [], seen = new Set<unknown>(), depth = 0): ArrayBuffer[] {
