@@ -383,6 +383,16 @@ const S = {
       legs.length === 4 && Math.abs(prices[0] - Math.round(last * 0.99)) < 1 && Math.abs(prices[3] - Math.round(last * 0.97)) < 1 && sizes.every((q, k) => k === 0 || q > sizes[k - 1]),
       `scaled order: ${legs.map((o) => `${o.qty}@${o.price}`).join(', ')}`,
     );
+    // the order book marks the levels of your resting orders (perpetual book, grouped by 100)
+    await page.locator('.stack:has(.ob) .stack-head .sym-btn').first().click();
+    await page.locator('.popover .menu-item:has(.menu-hint:text-is("PERP")):has-text("BTC")').first().click();
+    await page.locator('.stack:has(.ob) .stack-head select').first().selectOption('100');
+    const marks = await page.waitForFunction(() => document.querySelectorAll('.ob .ob-row.mine').length, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => 0);
+    check(marks >= 1, `the order book marks the levels of your orders (${marks})`);
+    await shot('05e-book-orders');
+    await page.locator('.stack:has(.ob) .stack-head select').first().selectOption('0');
+    await page.locator('.stack:has(.ob) .stack-head .sym-btn').first().click();
+    await page.locator('.popover .menu-item:has(.menu-hint:text-is("USDT")):has-text("BTC")').first().click();
     // the Orders tab cancels them all at once (after a confirmation)
     await page.click('.acct .tabs .tab:has-text("Orders")');
     await page.click('.acct th button:has-text("Cancel all")');

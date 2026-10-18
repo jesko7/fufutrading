@@ -9,6 +9,7 @@ import { SymbolPicker, Select, Popover, usePopover, Segmented, NumberField } fro
 import { Icon } from '../../components/Icon';
 import { fmtNum, fmtCompact, fmtUsd } from '../../lib/format';
 import { bus } from '../../lib/bus';
+import { useAccounts } from '../trading/accounts';
 import './market.css';
 
 export const GROUPS: Record<SymbolId, number[]> = {
@@ -72,6 +73,31 @@ export function OrderBookModule({ module }: ModuleProps) {
     return { bids, asks: asks.slice().reverse(), maxC, maxQ };
   }, [snap]);
   const thrQty = large ? large.threshold / (snap?.metrics?.mid || 1) : Infinity;
+  // your resting limit orders at their level (grouped like the book: bids down, asks up), as on Binance
+  const accounts = useAccounts();
+  const mine = useMemo(() => {
+    const out = new Map<string, { qty: number; who: Set<string> }>();
+    const g = cfg.group || 0;
+    for (const a of accounts) {
+      if (a.config.archived || a.config.market !== cfg.market) continue;
+      for (const o of a.orders) {
+        if (o.symbol !== cfg.symbol || !(o.type === 'limit' || (o.type === 'stopLimit' && o.triggered)) || !o.price) continue;
+        const lv = g > 0 ? (o.side === 'buy' ? Math.floor(o.price / g + 1e-9) * g : Math.ceil(o.price / g - 1e-9) * g) : o.price;
+        const key = `${o.side === 'buy' ? 'b' : 'a'}${lv.toFixed(8)}`;
+        const cur = out.get(key) || { qty: 0, who: new Set<string>() };
+        cur.qty += o.qty - (o.filledQty || 0);
+        cur.who.add(a.config.name);
+        out.set(key, cur);
+      }
+    }
+    return out;
+  }, [accounts, cfg.symbol, cfg.market, cfg.group]);
+  /** Your orders at a level: the row's class and tooltip. */
+  const own = (side: 'b' | 'a', p: number) => {
+    const x = mine.get(`${side}${p.toFixed(8)}`);
+    return x ? `Your orders here: ${fmtNum(x.qty, qtyDecimals(cfg.symbol, cfg.market))} ${spec.base} (${[...x.who].join(', ')})` : null;
+  };
+  const rowTip = (large: boolean, mineTip: string | null) => [mineTip, large ? 'Large resting order (displayed liquidity — may be pulled)' : null].filter(Boolean).join('\n') || undefined;
   const pick = (p: number) => bus.emit('price:pick', { symbol: cfg.symbol, market: cfg.market, price: p }, false);
   const m = snap?.metrics;
   return (
@@ -104,14 +130,17 @@ export function OrderBookModule({ module }: ModuleProps) {
       ) : (
         <>
           <div className="ob-side asks">
-            {rows.asks.map((r) => (
-              <div key={r.p} className={`ob-row${r.q >= thrQty ? ' large' : ''}`} onClick={() => pick(r.p)} data-tip={r.q >= thrQty ? 'Large resting order (displayed liquidity — may be pulled)' : undefined}>
-                <div className="bar" style={{ width: `${((mode === 'total' ? r.c / rows.maxC : r.q / rows.maxQ) * 100).toFixed(1)}%`, background: 'color-mix(in srgb, var(--down) 15%, transparent)' }} />
-                <span className="down">{fmtNum(r.p, pd)}</span>
-                <span>{fmtNum(r.q, qd)}</span>
-                <span className="muted">{mode === 'total' ? fmtNum(r.c, qd) : fmtCompact(r.q * r.p)}</span>
-              </div>
-            ))}
+            {rows.asks.map((r) => {
+              const mineTip = own('a', r.p);
+              return (
+                <div key={r.p} className={`ob-row${r.q >= thrQty ? ' large' : ''}${mineTip ? ' mine' : ''}`} onClick={() => pick(r.p)} data-tip={rowTip(r.q >= thrQty, mineTip)}>
+                  <div className="bar" style={{ width: `${((mode === 'total' ? r.c / rows.maxC : r.q / rows.maxQ) * 100).toFixed(1)}%`, background: 'color-mix(in srgb, var(--down) 15%, transparent)' }} />
+                  <span className="down">{fmtNum(r.p, pd)}</span>
+                  <span>{fmtNum(r.q, qd)}</span>
+                  <span className="muted">{mode === 'total' ? fmtNum(r.c, qd) : fmtCompact(r.q * r.p)}</span>
+                </div>
+              );
+            })}
           </div>
           <div className="ob-mid">
             <span className="mid-price num">{m ? fmtNum(m.mid, priceDecimals(cfg.symbol, cfg.market)) : '—'}</span>
@@ -122,14 +151,17 @@ export function OrderBookModule({ module }: ModuleProps) {
             <span className="num down">{m ? fmtCompact(m.askDepth1pct) : ''}</span>
           </div>
           <div className="ob-side">
-            {rows.bids.map((r) => (
-              <div key={r.p} className={`ob-row${r.q >= thrQty ? ' large' : ''}`} onClick={() => pick(r.p)}>
-                <div className="bar" style={{ width: `${((mode === 'total' ? r.c / rows.maxC : r.q / rows.maxQ) * 100).toFixed(1)}%`, background: 'color-mix(in srgb, var(--up) 15%, transparent)' }} />
-                <span className="up">{fmtNum(r.p, pd)}</span>
-                <span>{fmtNum(r.q, qd)}</span>
-                <span className="muted">{mode === 'total' ? fmtNum(r.c, qd) : fmtCompact(r.q * r.p)}</span>
-              </div>
-            ))}
+            {rows.bids.map((r) => {
+              const mineTip = own('b', r.p);
+              return (
+                <div key={r.p} className={`ob-row${r.q >= thrQty ? ' large' : ''}${mineTip ? ' mine' : ''}`} onClick={() => pick(r.p)} data-tip={rowTip(r.q >= thrQty, mineTip)}>
+                  <div className="bar" style={{ width: `${((mode === 'total' ? r.c / rows.maxC : r.q / rows.maxQ) * 100).toFixed(1)}%`, background: 'color-mix(in srgb, var(--up) 15%, transparent)' }} />
+                  <span className="up">{fmtNum(r.p, pd)}</span>
+                  <span>{fmtNum(r.q, qd)}</span>
+                  <span className="muted">{mode === 'total' ? fmtNum(r.c, qd) : fmtCompact(r.q * r.p)}</span>
+                </div>
+              );
+            })}
           </div>
           {m && (
             <div className="imb" data-tip={`${IMB_LABEL[m.imbalanceMethod]} (${m.imbalanceParam})\nDisplayed liquidity only; not executed trades.`}>

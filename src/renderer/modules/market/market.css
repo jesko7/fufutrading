@@ -207,3 +207,11 @@
   color: var(--text-3);
   pointer-events: none;
 }
+/* a level where your own limit orders rest (Binance marks these too): the price in an accent outline */
+.ob-row.mine span:nth-child(2) {
+  justify-self: start;
+  padding: 0 4px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--accent);
+  font-weight: 650;
+}
