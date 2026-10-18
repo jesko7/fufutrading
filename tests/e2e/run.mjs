@@ -257,6 +257,24 @@ const S = {
     check(true, 'custom timeframe 7m applied via command palette');
     await wait(2500);
     await shot('03-chart-7m');
+    // Alt+S copies a chart image with a header (instrument, timeframe, last OHLC) to the clipboard
+    const cid0 = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
+    await page.waitForFunction((id) => window.__charts[id].bars().n > 50, cid0, { timeout: 60000 });
+    await page.locator('.chart-host').first().click({ position: { x: 220, y: 160 } });
+    await page.keyboard.press('Alt+s');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some((t) => /Chart image copied/.test(t.textContent || '')), null, { timeout: 8000 });
+    const img = await app.evaluate(async ({ clipboard }) => {
+      // Electron 44: ClipboardItems; the PNG's size sits in its IHDR header
+      for (const it of await clipboard.read()) {
+        if (!it.types.includes('image/png')) continue;
+        const b = Buffer.from(await (await it.getType('image/png')).arrayBuffer());
+        return { width: b.readUInt32BE(16), height: b.readUInt32BE(20), png: b.toString('base64') };
+      }
+      return { width: 0, height: 0 };
+    });
+    const canvasH = await page.$eval('.chart-host canvas', (c) => c.height);
+    check(img.width > 200 && img.height > canvasH, `chart image with a header copied (${img.width}×${img.height}, chart ${canvasH} px high)`);
+    if (img.png) fs.writeFileSync(path.join(shots, '03b-chart-image.png'), Buffer.from(img.png, 'base64'));
   },
   async trading() {
     console.log('scenario: trading');

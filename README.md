@@ -21,6 +21,7 @@ an AI assistant that builds and tests strategies inside the app.
   - log and percentage scales; drag to pan (a flick glides briefly, also up and down; it can be
     turned off), wheel or pinch to zoom, a "+" at the crosshair price for orders, alerts and
     lines, and one click back to the latest bar
+  - chart images with the instrument, timeframe and OHLC (Alt+S copies, right-click saves)
 - **Order flow:** live order book with grouping, imbalance and your own resting orders marked,
   depth chart, liquidity heatmap with large-order tracking, time & sales.
 - **Workspaces:** dockable, multi-window layouts and presets. Panels move by their tab or header

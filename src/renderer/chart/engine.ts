@@ -1375,14 +1375,55 @@ export class ChartEngine {
     return this.mouse;
   }
 
-  /** Export the chart (both layers) as a PNG data URL. */
-  snapshot(): string {
+  /**
+   * The chart (both layers) as a PNG data URL, with a header strip above it like TradingView's
+   * snapshots: the instrument and timeframe, then the last bar's open, high, low and close.
+   */
+  snapshot(title?: string): string {
+    const dpr = this.dpr;
+    const head = title ? Math.round(30 * dpr) : 0;
     const c = document.createElement('canvas');
     c.width = this.base.width;
-    c.height = this.base.height;
+    c.height = this.base.height + head;
     const ctx = c.getContext('2d')!;
-    ctx.drawImage(this.base, 0, 0);
-    ctx.drawImage(this.over, 0, 0);
+    ctx.fillStyle = this.theme.bg;
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(this.base, 0, head);
+    // the overlay without the crosshair (where the mouse happens to be is not part of the picture)
+    const mouse = this.mouse;
+    const synced = this.syncedCrosshairTime;
+    this.mouse = { ...mouse, inside: false };
+    this.syncedCrosshairTime = null;
+    this.renderOverlay();
+    ctx.drawImage(this.over, 0, head);
+    this.mouse = mouse;
+    this.syncedCrosshairTime = synced;
+    this.renderOverlay();
+    if (title) {
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.textBaseline = 'middle';
+      ctx.font = `650 ${this.theme.fontSize + 2}px ${this.theme.font}`;
+      ctx.fillStyle = this.theme.textStrong;
+      ctx.fillText(title, 10, 15);
+      let x = 10 + ctx.measureText(title).width + 14;
+      const b = this.bars;
+      const n = b.length - 1;
+      if (n >= 0) {
+        const up = b.c[n] >= b.o[n];
+        ctx.font = `${this.theme.fontSize}px ${this.theme.font}`;
+        for (const [k, v] of [['O', b.o[n]], ['H', b.h[n]], ['L', b.l[n]], ['C', b.c[n]]] as [string, number][]) {
+          ctx.fillStyle = this.theme.text;
+          ctx.fillText(k, x, 15);
+          x += ctx.measureText(k).width + 3;
+          ctx.fillStyle = up ? this.theme.up : this.theme.down;
+          const txt = formatAxis(v, this.priceDecimals);
+          ctx.fillText(txt, x, 15);
+          x += ctx.measureText(txt).width + 10;
+        }
+      }
+      ctx.restore();
+    }
     return c.toDataURL('image/png');
   }
 }

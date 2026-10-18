@@ -1,7 +1,7 @@
 /**
  * AppCore — constructs and wires all main-process services and exposes them over IPC.
  */
-import { app, shell, Notification, clipboard, ClipboardItem } from 'electron';
+import { app, shell, Notification, clipboard, ClipboardItem, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { pineFunctionReference } from '../engine/docs';
@@ -152,6 +152,14 @@ export class AppCore {
       const bytes = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
       await clipboard.write([new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) })]);
       return true;
+    });
+    // a PNG (a chart image) saved where the user chooses
+    r.handle('file:savePng', async ([dataUrl, name]) => {
+      if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/png')) throw new Error('Validation: PNG data URL expected');
+      const res = await dialog.showSaveDialog({ title: 'Save chart image', defaultPath: path.join(app.getPath('pictures'), String(name || 'chart.png').replace(/[\\/:*?"<>|]/g, '-')), filters: [{ name: 'PNG image', extensions: ['png'] }] });
+      if (res.canceled || !res.filePath) return null;
+      fs.writeFileSync(res.filePath, Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'));
+      return res.filePath;
     });
     r.handle('clipboard:text', async ([text]) => {
       await clipboard.writeText(String(text));

@@ -12,7 +12,7 @@ import { SYMBOL_SPECS, SYMBOLS, priceDecimals, type Market, type SymbolId } from
 import { parseTimeframe, tfDurationMs, bucketEnd, isFixedDuration } from '../../../shared/timeframes';
 import { Icon, CoinIcon } from '../../components/Icon';
 import { SymbolPicker, TimeframePicker, Menu, usePopover, Popover, Segmented, NumberField, Toggle, promptDialog, type MenuItemSpec } from '../../components/ui';
-import { clsx, fmtNum, fmtPct, fmtDateTime } from '../../lib/format';
+import { clsx, fmtNum, fmtPct, fmtDateTime, fmtIsoDate } from '../../lib/format';
 import { priceLevelAt, type AlertLine } from '../../../shared/alerts';
 import { formatVolume } from '../../chart/scale';
 import { bus } from '../../lib/bus';
@@ -321,17 +321,38 @@ export function ChartModule({ module }: ModuleProps) {
         else addIndicator(module.id, id);
         break;
       }
-      case 'snapshot': {
-        const url = e?.snapshot();
-        if (url) void api.call('clipboard:image', url).then(() => toast({ title: 'Chart snapshot copied', kind: 'ok' }));
+      case 'snapshot':
+        void copySnapshot();
         break;
-      }
       case 'replay':
         replay.toggle?.();
         break;
     }
   };
   useEffect(() => bus.on('chart:cmd', (d: { moduleId: string; cmd: string; arg?: unknown }) => d.moduleId === module.id && cmdRef.current(d.cmd, d.arg)), [module.id]);
+
+  // ---------------------------------------------------------------- chart images (Alt+S, the context menu)
+  const snapshotTitle = () => `${SYMBOL_SPECS[cfg.symbol].base}/${SYMBOL_SPECS[cfg.symbol].quote}${cfg.market === 'futures' ? ' Perp' : ''} · ${cfg.tf} · Binance · ${fmtDateTime(Date.now())}`;
+  const copySnapshot = async () => {
+    const url = engRef.current?.snapshot(snapshotTitle());
+    if (!url) return;
+    try {
+      await api.call('clipboard:image', url);
+      toast({ title: 'Chart image copied', body: 'Paste it anywhere (Ctrl+V)', kind: 'ok' });
+    } catch (err) {
+      toast({ title: 'Chart image not copied', body: errorMessage(err), kind: 'error' });
+    }
+  };
+  const saveSnapshot = async () => {
+    const url = engRef.current?.snapshot(snapshotTitle());
+    if (!url) return;
+    try {
+      const file = await api.call<string | null>('file:savePng', url, `${SYMBOL_SPECS[cfg.symbol].base}${cfg.market === 'futures' ? '-perp' : ''}-${cfg.tf}-${fmtIsoDate(Date.now())}.png`);
+      if (file) toast({ title: 'Chart image saved', body: file, kind: 'ok' });
+    } catch (err) {
+      toast({ title: 'Chart image not saved', body: errorMessage(err), kind: 'error' });
+    }
+  };
 
   // ---------------------------------------------------------------- engine callbacks
   // ---------------------------------------------------------------- drawing history (Ctrl+Z / Ctrl+Y)
@@ -454,6 +475,7 @@ export function ChartModule({ module }: ModuleProps) {
       if (drawingClipboard.length) items.push({ label: 'Paste drawing', icon: 'copy', hint: 'Ctrl+V', onClick: () => void pasteDrawings() });
       if (drawHist.current.undo.length) items.push({ label: 'Undo drawing change', icon: 'undo', hint: 'Ctrl+Z', onClick: () => void stepDrawings('undo') });
       items.push({ sep: true }, { label: 'Reset chart view', icon: 'refresh', hint: 'Dbl-click axis', onClick: () => engRef.current?.resetView() }, { label: 'Scroll to latest', icon: 'chevRight', hint: 'End', onClick: () => engRef.current?.scrollToLatest() });
+      items.push({ sep: true }, { label: 'Copy chart image', icon: 'camera', hint: 'Alt+S', onClick: () => void copySnapshot() }, { label: 'Save chart image…', icon: 'download', onClick: () => void saveSnapshot() });
       setCtxItems(items);
       ctxMenu.open(null);
       setCtxAnchor({ x: info.clientX, y: info.clientY });
