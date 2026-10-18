@@ -158,7 +158,9 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  overflow: hidden;
+  /* clip, not hidden: a hidden overflow can still be scrolled (focus, scrollIntoView), which slid
+     the panel's header out of view */
+  overflow: clip;
   position: relative;
 }
 .stack.focused {
