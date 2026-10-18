@@ -345,19 +345,19 @@ function LegendRow({ moduleId, ind, live, output, index, store, cfg, update }: {
       {r && <span className="muted">{inputSummary(r, ind)}</span>}
       <span className="ind-actions">
         <button className="icon-btn" onClick={() => setInd({ visible: hidden })} data-tip={hidden ? 'Show' : 'Hide'}>
-          <Icon name={hidden ? 'eyeOff' : 'eye'} size={15} />
+          <Icon name={hidden ? 'eyeOff' : 'eye'} size={16} />
         </button>
         <button className="icon-btn" onClick={() => openIndicatorSettings(moduleId, ind.id)} data-tip="Settings">
-          <Icon name="gear" size={15} />
+          <Icon name="gear" size={16} />
         </button>
         <button className="icon-btn" onClick={() => void openScriptInEditor(ind.scriptId)} data-tip="Source code">
-          <Icon name="code" size={15} />
+          <Icon name="code" size={16} />
         </button>
         <button className="icon-btn" onClick={(e) => menu.toggle(e.currentTarget)} data-tip="More">
-          <Icon name="more" size={15} />
+          <Icon name="more" size={16} />
         </button>
         <button className="icon-btn" onClick={remove} data-tip="Remove">
-          <Icon name="x" size={15} />
+          <Icon name="x" size={16} />
         </button>
       </span>
       {live?.status === 'loading' && <Spinner size={11} />}

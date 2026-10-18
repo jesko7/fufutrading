@@ -490,8 +490,12 @@ const S = {
     const rsiRow = page.locator('.pane-legend .ind-item', { hasText: 'RSI' }).first();
     const before = await rsiRow.textContent();
     await rsiRow.hover();
+    await wait(300);
+    await shot('07a-legend-buttons');
     await rsiRow.locator('button[data-tip="Settings"]').click();
     await page.waitForSelector('.modal .set-row');
+    await wait(400);
+    await shot('07b-indicator-settings');
     const len = page.locator('.modal .set-row', { hasText: 'RSI Length' }).locator('input');
     await len.fill('5');
     await len.press('Enter');
