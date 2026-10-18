@@ -4,12 +4,12 @@ import { toast } from '../../state/store';
 import { Modal, openModal, NumberField, Toggle, Select, Segmented, SymbolPicker, TimeframePicker, Spinner } from '../../components/ui';
 import { useScripts, type AnalyzeResult } from '../scripts/client';
 import { InputControl } from '../chart/indicators';
-import { describeAlert, newAlert, priceLevelAt, webhookUrlError, OPTIONS_LEVEL_LABEL, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type OptionsAlert, type OptionsLevel, type OptionsMetric, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
+import { describeAlert, newAlert, priceLevelAt, webhookUrlError, OPTIONS_LEVEL_LABEL, type Alert, type AlertKind, type BookAlert, type FuturesAlert, type FuturesMetric, type IndicatorAlert, type MoveAlert, type NewsAlert, type NewsMood, type OptionsAlert, type OptionsLevel, type OptionsMetric, type PriceAlert, type ScriptAlert } from '../../../shared/alerts';
 import { clsx, fmtNum, fmtDateTime } from '../../lib/format';
 import type { Market, SymbolId } from '../../../shared/symbols';
 import { SYMBOL_SPECS, roundToTick, priceDecimals } from '../../../shared/symbols';
 
-export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book', futures: 'Futures data', options: 'Options' };
+export const KIND_LABEL: Record<AlertKind, string> = { price: 'Price level', move: 'Price move', indicator: 'Indicator', script: 'Script / strategy', book: 'Order book', futures: 'Futures data', options: 'Options', news: 'News' };
 
 /** Open the alert editor for a new alert (kind + defaults) or an existing one. */
 export function openAlertEditor(init: Alert | { kind: AlertKind; symbol: SymbolId; market: Market; patch?: Partial<Alert> }): void {
@@ -83,7 +83,13 @@ function AlertEditor({ initial, onClose }: { initial: Alert; onClose: () => void
         )}
         <div className="ae-row">
           <span className="ae-label">Market</span>
-          <SymbolPicker symbol={a.symbol} market={a.market} showMarket={a.kind !== 'options'} onChange={(s, m) => set({ symbol: s, market: a.kind === 'futures' ? 'futures' : a.kind === 'options' ? 'spot' : m })} />
+          <SymbolPicker
+            symbol={a.symbol}
+            market={a.market}
+            showMarket={a.kind !== 'options' && a.kind !== 'news'}
+            markets={a.kind === 'futures' ? ['futures'] : a.kind === 'options' || a.kind === 'news' ? ['spot'] : undefined}
+            onChange={(s, m) => set({ symbol: s, market: a.kind === 'futures' ? 'futures' : a.kind === 'options' || a.kind === 'news' ? 'spot' : m })}
+          />
         </div>
         {a.kind === 'price' && <PriceFields a={a} set={set} />}
         {a.kind === 'move' && <MoveFields a={a} set={set} />}
@@ -91,6 +97,7 @@ function AlertEditor({ initial, onClose }: { initial: Alert; onClose: () => void
         {a.kind === 'book' && <BookFields a={a} set={set} />}
         {a.kind === 'futures' && <FuturesFields a={a} set={set} />}
         {a.kind === 'options' && <OptionsFields a={a} set={set} />}
+        {a.kind === 'news' && <NewsFields a={a} set={set} />}
         <div className="ae-preview">
           <span className="faint small">Notify when</span>
           <b>{preview}</b>
@@ -498,6 +505,33 @@ const OPTIONS_DEFAULTS: Record<OptionsMetric, Partial<OptionsAlert>> = {
   putCall: { condition: 'above', value: 1.5 },
   level: { condition: 'crosses', level: 'flip' },
 };
+
+function NewsFields({ a, set }: { a: NewsAlert; set: (p: Partial<NewsAlert>) => void }) {
+  return (
+    <>
+      <div className="ae-row">
+        <span className="ae-label">Headlines</span>
+        <Select
+          value={a.mood}
+          onChange={(m) => set({ mood: m as NewsMood })}
+          options={[
+            { value: 'bearish', label: 'Bearish (Claude)' },
+            { value: 'bullish', label: 'Bullish (Claude)' },
+            { value: 'either', label: 'Bullish or bearish (Claude)' },
+            { value: 'any', label: 'Any new headline' },
+          ]}
+        />
+      </div>
+      <div className="ae-row">
+        <span className="ae-label">Keywords</span>
+        <input className="input grow" placeholder="Optional, comma-separated: ETF, SEC, hack" value={a.keywords || ''} onChange={(e) => set({ keywords: e.target.value })} />
+      </div>
+      <div className="faint small">
+        New headlines about the coin from the News module's feeds, rated by Claude there (AI sentiment must be on). Each headline fires once; the feeds keep refreshing while the alert is on, also with the News module closed.
+      </div>
+    </>
+  );
+}
 
 function OptionsFields({ a, set }: { a: OptionsAlert; set: (p: Partial<OptionsAlert>) => void }) {
   const hint: Record<OptionsMetric, string> = {

@@ -16,12 +16,13 @@ import { DocStore, uid, readJson, writeJsonAtomic } from './storage/jsonStore';
 import { applyPatch } from '../engine/patch';
 import type { ScriptResult } from '../engine/types';
 import type { TradeTick } from '../shared/live';
-import { alertTitle, describeAlert, instrumentLabel, priceLevelAt, renderMessage, OPTIONS_LEVEL_LABEL, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type OptionsAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
+import { alertTitle, describeAlert, instrumentLabel, newsMatches, priceLevelAt, renderMessage, OPTIONS_LEVEL_LABEL, type Alert, type AlertEvent, type BookAlert, type FuturesAlert, type IndicatorAlert, type MoveAlert, type NewsAlert, type OptionsAlert, type PriceAlert, type ScriptAlert } from '../shared/alerts';
 import { isSymbol, SYMBOL_SPECS, type Market, type SymbolId } from '../shared/symbols';
 import { parseTimeframe } from '../shared/timeframes';
 import { webhookBody, webhookUrlError } from '../shared/alerts';
 import type { DerivativesService } from './market/derivatives';
 import type { OptionsService } from './market/options';
+import type { NewsService } from './news';
 import { marketFigures, optionLevels } from '../shared/options';
 import { oiValueAt } from '../shared/derivatives';
 
@@ -67,6 +68,8 @@ export class AlertService {
   /** Futures data for futures alerts (set at registration). */
   derivatives?: DerivativesService;
   options?: OptionsService;
+  /** Headlines and Claude's ratings for news alerts (set at registration). */
+  news?: NewsService;
 
   constructor(
     readonly core: AppCore,
@@ -171,6 +174,12 @@ export class AlertService {
           if (a.metric !== 'skew' && !(+a.value > 0)) throw new Error('Validation: the value must be positive');
         }
         break;
+      case 'news':
+        a.market = 'spot';
+        if (!['bullish', 'bearish', 'either', 'any'].includes(a.mood)) throw new Error('Validation: choose which headlines');
+        a.keywords = String(a.keywords || '').slice(0, 160);
+        if (a.mood !== 'any' && this.news && !this.news.ai.enabled) throw new Error('Validation: turn on AI sentiment in the News module first (Claude rates the headlines)');
+        break;
       case 'futures':
         a.market = 'futures';
         if (!Number.isFinite(+a.value)) throw new Error('Validation: enter a value');
@@ -253,6 +262,7 @@ export class AlertService {
       else if (a.kind === 'book') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.bookEvaluator(a) });
       else if (a.kind === 'futures') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.futuresEvaluator(a) });
       else if (a.kind === 'options') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.optionsEvaluator(a) });
+      else if (a.kind === 'news') this.evaluators.set(a.id, { hash: this.hashOf(a), ev: this.newsEvaluator(a) });
     }
   }
 
@@ -549,6 +559,41 @@ export class AlertService {
     return { stop: off };
   }
 
+  /**
+   * New headlines about the coin, by Claude's rating: what is listed when the alert starts is not
+   * news; a headline fires once, when it is rated (or right away for "any"). The feed keeps
+   * refreshing (and being rated) while the alert is on, also with the News module closed.
+   */
+  private newsEvaluator(a: NewsAlert): Evaluator {
+    const news = this.news;
+    if (!news) return { stop: () => {} };
+    const base = SYMBOL_SPECS[a.symbol].base;
+    const done = new Set(news.items.map((it) => it.id));
+    const check = () => {
+      try {
+        for (const it of news.items) {
+          if (done.has(it.id)) continue;
+          const r = news.sentiment[it.id];
+          if (a.mood !== 'any' && !r) continue; // not rated yet
+          done.add(it.id);
+          if (!newsMatches(a, it, r?.s)) continue;
+          const tone = r && r.s !== 'neutral' ? `${r.s} ` : '';
+          this.fire(a, `${base} ${tone}news: ${it.title} — ${it.source}${r?.why ? ` (${r.why})` : ''}`, { price: this.lastPrice('spot', a.symbol), value: r?.s === 'bullish' ? 1 : r?.s === 'bearish' ? -1 : 0 });
+        }
+      } catch (e) {
+        this.core.log('warn', `news alert ${a.id}: ${(e as Error).message}`);
+      }
+    };
+    const off = news.onChange(check);
+    const release = news.retain();
+    return {
+      stop: () => {
+        off();
+        release();
+      },
+    };
+  }
+
   private bookEvaluator(a: BookAlert): Evaluator {
     const { book, release } = this.core.hub.acquireBook(a.market, a.symbol);
     let since: number | null = null;
@@ -757,10 +802,11 @@ export class AlertService {
   }
 }
 
-export function registerAlerts(core: AppCore, scripts: ScriptService, derivatives?: DerivativesService, options?: OptionsService): AlertService {
+export function registerAlerts(core: AppCore, scripts: ScriptService, derivatives?: DerivativesService, options?: OptionsService, news?: NewsService): AlertService {
   const svc = new AlertService(core, scripts);
   svc.derivatives = derivatives;
   svc.options = options;
+  svc.news = news;
   const r = core.router;
   r.handle('alerts:list', () => svc.list());
   r.handle('alerts:save', ([a]) => svc.save(a));

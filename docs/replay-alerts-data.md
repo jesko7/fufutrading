@@ -58,6 +58,10 @@ indicator's menu ("Add alert…"):
   a level (spikes come with fear and big moves), the 25-delta skew (strongly negative: demand
   for downside protection), put/call open interest, or the index crossing (or being above or
   below) the gamma flip, max pain or the call or put wall.
+- **News:** a new headline about the coin that Claude rates bullish, bearish or either (in the
+  News module, with AI sentiment on), or any new headline, optionally only when it mentions one
+  of a few keywords ("ETF, SEC, hack"). Each headline fires once. The feeds keep refreshing and
+  being rated while such an alert is on, also with the News module closed.
 
 Each alert has a frequency (once, once per bar, at most once a minute, every time with a
 pause), optional expiry, a message template (`{{symbol}} {{price}} {{value}} {{name}}

@@ -997,11 +997,11 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       name: 'create_alert',
       readOnly: false,
       description:
-        "Create an alert in the user's Alerts module (desktop notification and sound; it also shows in the alert log). Kinds: price (a level is crossed, or the price is above/below it), move (the price moves pct% within minutes), futures (metric funding | oiChange | liquidations | longShortRatio: funding in % per 8 h above/below value; open-interest change of value% within minutes, condition up/down/either; liquidations of value USDT within minutes, condition longs/shorts/either; long/short ratio above/below value), options (metric iv30 | skew | putCall: 30-day implied volatility in %, 25-delta skew at 30 days in volatility points, put/call open interest, condition above/below value; or metric level with optionsLevel flip | maxPain | callWall | putWall and condition crosses/above/below) and script (an indicator's alertcondition() or a strategy's orders: scriptId and tf). Confirm the condition in one sentence afterwards.",
+        "Create an alert in the user's Alerts module (desktop notification and sound; it also shows in the alert log). Kinds: price (a level is crossed, or the price is above/below it), move (the price moves pct% within minutes), futures (metric funding | oiChange | liquidations | longShortRatio: funding in % per 8 h above/below value; open-interest change of value% within minutes, condition up/down/either; liquidations of value USDT within minutes, condition longs/shorts/either; long/short ratio above/below value), options (metric iv30 | skew | putCall: 30-day implied volatility in %, 25-delta skew at 30 days in volatility points, put/call open interest, condition above/below value; or metric level with optionsLevel flip | maxPain | callWall | putWall and condition crosses/above/below), news (new headlines about the coin: mood bullish | bearish | either, as rated by Claude in the News module, or any; optional comma-separated keywords) and script (an indicator's alertcondition() or a strategy's orders: scriptId and tf). Confirm the condition in one sentence afterwards.",
       inputSchema: {
         type: 'object',
         properties: {
-          kind: { type: 'string', enum: ['price', 'move', 'futures', 'options', 'script'] },
+          kind: { type: 'string', enum: ['price', 'move', 'futures', 'options', 'news', 'script'] },
           symbol: INSTRUMENT_SCHEMA.symbol,
           market: INSTRUMENT_SCHEMA.market,
           condition: { type: 'string', description: 'price: crosses | crossesAbove | crossesBelow | above | below; move: up | down | either; futures/options: see the description' },
@@ -1009,6 +1009,8 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           pct: { type: 'number', description: 'move alerts: the move in %' },
           minutes: { type: 'number', description: 'move, open interest and liquidation alerts: the window' },
           metric: { type: 'string', description: 'futures or options metric (see the description)' },
+          mood: { type: 'string', enum: ['bullish', 'bearish', 'either', 'any'], description: 'news alerts: which headlines' },
+          keywords: { type: 'string', description: 'news alerts: optional comma-separated words a headline must mention' },
           value: { type: 'number', description: 'futures/options threshold' },
           optionsLevel: { type: 'string', enum: ['flip', 'maxPain', 'callWall', 'putWall'] },
           scriptId: { type: 'string', description: 'script alerts: the script (alertcondition() of an indicator, or the orders of a strategy)' },
@@ -1021,7 +1023,7 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
       async run(args) {
         if (!deps.alerts) throw new Error('alerts are not available');
         const kind = String(args.kind) as AlertKind;
-        if (!['price', 'move', 'futures', 'options', 'script'].includes(kind)) throw new Error('kind must be price, move, futures, options or script');
+        if (!['price', 'move', 'futures', 'options', 'news', 'script'].includes(kind)) throw new Error('kind must be price, move, futures, options, news or script');
         const symbol = (isSymbol(args.symbol) ? args.symbol : 'BTCUSDT') as SymbolId;
         const market: Market = args.market === 'futures' ? 'futures' : 'spot';
         const extra: Record<string, unknown> = { name: typeof args.name === 'string' ? args.name : '' };
@@ -1032,6 +1034,11 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
           extra.pct = Number(args.pct);
           extra.minutes = Number(args.minutes) || 15;
           if (typeof args.condition === 'string') extra.direction = args.condition;
+          delete extra.condition;
+        }
+        if (kind === 'news') {
+          extra.mood = ['bullish', 'bearish', 'either', 'any'].includes(String(args.mood)) ? args.mood : 'either';
+          if (typeof args.keywords === 'string') extra.keywords = args.keywords;
           delete extra.condition;
         }
         if (kind === 'futures' || kind === 'options') {

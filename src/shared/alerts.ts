@@ -2,7 +2,7 @@
 import type { Market, SymbolId } from './symbols';
 import { SYMBOL_SPECS } from './symbols';
 
-export type AlertKind = 'price' | 'move' | 'indicator' | 'script' | 'book' | 'futures' | 'options';
+export type AlertKind = 'price' | 'move' | 'indicator' | 'script' | 'book' | 'futures' | 'options' | 'news';
 export type AlertFrequency = 'once' | 'perBar' | 'perMinute' | 'every';
 export type CrossCondition = 'crossesAbove' | 'crossesBelow' | 'crosses' | 'above' | 'below';
 
@@ -138,7 +138,34 @@ export interface OptionsAlert extends AlertBase {
   level?: OptionsLevel;
 }
 
-export type Alert = PriceAlert | MoveAlert | IndicatorAlert | ScriptAlert | BookAlert | FuturesAlert | OptionsAlert;
+/** Which headlines about the coin: those Claude rates bullish or bearish (or either), or any new one. */
+export type NewsMood = 'bullish' | 'bearish' | 'either' | 'any';
+
+/** New headlines about the coin, by Claude's rating in the News module, optionally with keywords. */
+export interface NewsAlert extends AlertBase {
+  kind: 'news';
+  mood: NewsMood;
+  /** Comma-separated words; a headline (or its summary) must mention one of them. */
+  keywords?: string;
+}
+
+export type Alert = PriceAlert | MoveAlert | IndicatorAlert | ScriptAlert | BookAlert | FuturesAlert | OptionsAlert | NewsAlert;
+
+/** Whether a headline is one a news alert asks for (`mood`: Claude's rating, if any). */
+export function newsMatches(a: Pick<NewsAlert, 'symbol' | 'mood' | 'keywords'>, it: { title: string; summary: string; coins: string[] }, mood?: 'bullish' | 'bearish' | 'neutral'): boolean {
+  if (!it.coins.includes(SYMBOL_SPECS[a.symbol].base)) return false;
+  const words = (a.keywords || '')
+    .split(',')
+    .map((w) => w.trim().toLowerCase())
+    .filter(Boolean);
+  if (words.length) {
+    const text = `${it.title} ${it.summary}`.toLowerCase();
+    if (!words.some((w) => text.includes(w))) return false;
+  }
+  if (a.mood === 'any') return true;
+  if (a.mood === 'either') return mood === 'bullish' || mood === 'bearish';
+  return mood === a.mood;
+}
 
 export const OPTIONS_LEVEL_LABEL: Record<OptionsLevel, string> = { flip: 'the gamma flip', maxPain: 'max pain', callWall: 'the call wall', putWall: 'the put wall' };
 
@@ -252,6 +279,11 @@ export function describeAlert(a: Alert): string {
       }
       return b;
     }
+    case 'news': {
+      const what = a.mood === 'any' ? 'a new headline' : a.mood === 'either' ? 'a bullish or bearish headline' : `a ${a.mood} headline`;
+      const kw = (a.keywords || '').trim();
+      return `${SYMBOL_SPECS[a.symbol].base} news: ${what}${kw ? ` mentioning ${kw.split(',').map((w) => `“${w.trim()}”`).filter((w) => w !== '“”').join(' or ')}` : ''}`;
+    }
     case 'book': {
       const unit = a.metric === 'imbalance' ? '%' : a.metric === 'spreadBps' ? ' bps' : ' USDT';
       const m = a.metric === 'imbalance' ? `order-book imbalance (±${a.rangePct}%)` : a.metric === 'bidDepth' ? `bid liquidity within ${a.rangePct}%` : a.metric === 'askDepth' ? `ask liquidity within ${a.rangePct}%` : a.metric === 'spreadBps' ? 'spread' : `a resting order within ${a.rangePct}%`;
@@ -283,6 +315,8 @@ export function newAlert(kind: AlertKind, symbol: SymbolId, market: Market, extr
       return { ...base, kind, market: 'futures', metric: 'liquidations', condition: 'either', value: 1000000, minutes: 5, frequency: 'every', cooldownSec: 300, ...extra } as FuturesAlert;
     case 'options':
       return { ...base, kind, market: 'spot', metric: 'iv30', condition: 'above', value: 60, level: 'flip', frequency: 'every', cooldownSec: 3600, ...extra } as OptionsAlert;
+    case 'news':
+      return { ...base, kind, market: 'spot', mood: 'bearish', keywords: '', frequency: 'every', cooldownSec: 0, ...extra } as NewsAlert;
   }
 }
 

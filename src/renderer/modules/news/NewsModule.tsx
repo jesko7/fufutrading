@@ -94,6 +94,16 @@ export function NewsModule({ module }: ModuleProps) {
   }, [data, filter, q, chartCoin, sentFilter]);
   const setAi = (p: Partial<NewsAi>) => void api.call('news:ai', p).catch((e) => toast({ title: 'Setting not saved', body: errorMessage(e), kind: 'error' }));
   const rated = data ? data.items.filter((it) => data.sentiment?.[it.id]).length : 0;
+  // the mood of what is listed (coin and search filters applied)
+  const mood = useMemo(() => {
+    const out = { bullish: 0, bearish: 0 };
+    if (!data?.sentiment || !sentOn) return out;
+    for (const it of items) {
+      const s = data.sentiment[it.id]?.s;
+      if (s === 'bullish' || s === 'bearish') out[s]++;
+    }
+    return out;
+  }, [items, data, sentOn]);
 
   const refresh = () => {
     setRefreshing(true);
@@ -155,6 +165,12 @@ export function NewsModule({ module }: ModuleProps) {
                 ]}
               />
               <span className="spacer" />
+              {mood.bullish + mood.bearish > 0 && (
+                <span className="news-mood" data-tip="Bullish and bearish headlines among those listed">
+                  <span className="up">▲ {mood.bullish}</span>
+                  <span className="down">▼ {mood.bearish}</span>
+                </span>
+              )}
               <span className={clsx('small', data?.aiStatus?.error ? 'warn-text' : 'faint')} data-tip={data?.aiStatus?.error}>
                 {data?.aiStatus?.running ? (
                   <>

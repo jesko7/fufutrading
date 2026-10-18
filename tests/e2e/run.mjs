@@ -1084,6 +1084,11 @@ const S = {
     check(rated && sc.up + sc.down > 0, `Claude rated the headlines (${sc.up} bullish, ${sc.down} bearish, ${sc.flat} neutral · ${sc.status.replace(/\s+/g, ' ').slice(-50)})`);
     await wait(500);
     await shot('29b-news-sentiment');
+    // a news alert on bearish BTC headlines (Claude's rating) with keywords
+    const na = await page.evaluate(() => window.fufu.invoke('alerts:save', { kind: 'news', name: '', symbol: 'BTCUSDT', market: 'spot', enabled: true, frequency: 'every', cooldownSec: 0, mood: 'bearish', keywords: 'ETF, hack', notify: { desktop: false, sound: false }, created: 0, updated: 0, triggerCount: 0, status: 'active' }));
+    const listedNews = (await page.evaluate(() => window.fufu.invoke('alerts:list'))).find((x) => x.id === na.id);
+    check(!!listedNews && listedNews.kind === 'news' && listedNews.status === 'active', 'a news alert on bearish BTC headlines is saved and active');
+    await page.evaluate((id) => window.fufu.invoke('alerts:delete', id), na.id);
     await page.keyboard.press('Control+k');
     await page.waitForSelector('.palette input');
     await page.fill('.palette input', 'Add Data');
@@ -1096,10 +1101,17 @@ const S = {
   },
   async drawings() {
     console.log('scenario: drawings');
-    const id = await page.evaluate(() => Object.keys(window.__charts || {})[0]);
+    // a fresh chart, maximized: earlier scenarios stacked indicators and panes on the first one
+    const known = await page.evaluate(() => Object.keys(window.__charts || {}));
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Chart');
+    await page.click('.palette .p-item:has(span:text-is("Add Chart"))');
+    await page.waitForFunction((k) => Object.keys(window.__charts || {}).some((x) => !k.includes(x)), known, { timeout: 10000 });
+    const id = await page.evaluate((k) => Object.keys(window.__charts).find((x) => !k.includes(x)), known);
+    await page.waitForFunction((id) => window.__charts[id].bars().n > 50, id, { timeout: 30000 });
     const before = await page.evaluate((id) => window.__charts[id].drawings().length, id);
-    // earlier scenarios stacked indicator panes under the price: work on the maximized chart, in its price pane
-    await page.locator('.stack:has(.chart-host) .stack-tab.on').first().dblclick();
+    await page.locator(`.stack-tab[data-mid="${id}"]`).dblclick();
     await page.waitForSelector('.stack.maximized .chart-host', { timeout: 5000 });
     await wait(400);
     const box = await page.locator('.stack.maximized .chart-host').boundingBox();
@@ -1164,7 +1176,7 @@ const S = {
     await page.keyboard.press('Escape');
     // Esc with nothing to cancel on the chart restores the maximized panel: maximize it again
     if (!(await page.isVisible('.stack.maximized'))) {
-      await page.locator('.stack:has(.chart-host) .stack-tab.on').first().dblclick();
+      await page.locator(`.stack-tab[data-mid="${id}"]`).dblclick();
       await page.waitForSelector('.stack.maximized .chart-host', { timeout: 5000 });
       await page.locator('.stack.maximized .chart-host').click({ position: { x: 30, y: Math.round(main.top + 30) } });
     }
@@ -1212,9 +1224,11 @@ const S = {
     await shot('50-candlestick-patterns');
     await page.keyboard.press('Escape');
     await page.waitForSelector('.modal', { state: 'detached', timeout: 5000 });
-    // restore the layout for the scenarios after this one
+    // restore the layout for the scenarios after this one, without the extra chart
     if (await page.isVisible('.stack.maximized')) await page.locator('.stack.maximized .stack-tab.on').dblclick();
     await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
+    await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), id);
+    await page.waitForFunction((mid) => !window.__charts?.[mid], id, { timeout: 5000 });
   },
   async derivatives() {
     console.log('scenario: derivatives');

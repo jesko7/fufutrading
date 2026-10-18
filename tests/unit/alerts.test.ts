@@ -276,3 +276,60 @@ describe('options alerts', () => {
     svc.shutdown();
   });
 });
+
+describe('news alerts', () => {
+  function fakeNews(aiOn = true) {
+    const listeners: (() => void)[] = [];
+    const news = {
+      items: [{ id: 'old', title: 'Bitcoin slides', summary: '', coins: ['BTC'], source: 'X' }] as { id: string; title: string; summary: string; coins: string[]; source: string }[],
+      sentiment: {} as Record<string, { s: 'bullish' | 'bearish' | 'neutral'; why: string; model: string; t: number }>,
+      ai: { enabled: aiOn },
+      retained: 0,
+      onChange: (l: () => void) => (listeners.push(l), () => {}),
+      retain: () => (news.retained++, () => news.retained--),
+      ping: () => listeners.forEach((l) => l()),
+    };
+    return news;
+  }
+
+  it("fires once per new headline about the coin, when Claude has rated it", () => {
+    const news = fakeNews();
+    const svc = new AlertService(fakeCore() as any, { library: { get: () => undefined } } as any);
+    svc.news = news as any;
+    const a = svc.save(mk('news', { mood: 'bearish', keywords: 'ETF, hack' } as any));
+    expect(describeAlert(a)).toBe('BTC news: a bearish headline mentioning “ETF” or “hack”');
+    expect(news.retained).toBe(1);
+    // what was listed when the alert started is not news, even once rated
+    news.sentiment.old = { s: 'bearish', why: '', model: 'haiku', t: 0 };
+    // a new BTC headline waits for its rating, then fires once
+    news.items.unshift({ id: 'n1', title: 'Exchange hack drains BTC wallets', summary: '', coins: ['BTC'], source: 'The Block' });
+    news.ping();
+    expect(fired).toHaveLength(0);
+    news.sentiment.n1 = { s: 'bearish', why: 'funds stolen', model: 'haiku', t: 1 };
+    news.ping();
+    news.ping();
+    expect(fired.map((e) => e.message)).toEqual(['BTC bearish news: Exchange hack drains BTC wallets — The Block (funds stolen)']);
+    // other coins, other moods and headlines without the keywords stay quiet
+    news.items.unshift(
+      { id: 'n2', title: 'ETH ETF approved', summary: '', coins: ['ETH'], source: 'X' },
+      { id: 'n3', title: 'Bitcoin ETF inflows surge', summary: '', coins: ['BTC'], source: 'X' },
+      { id: 'n4', title: 'Bitcoin dips', summary: '', coins: ['BTC'], source: 'X' },
+    );
+    news.sentiment.n2 = { s: 'bearish', why: '', model: 'haiku', t: 2 };
+    news.sentiment.n3 = { s: 'bullish', why: '', model: 'haiku', t: 2 };
+    news.sentiment.n4 = { s: 'bearish', why: '', model: 'haiku', t: 2 };
+    news.ping();
+    expect(fired).toHaveLength(1);
+    svc.shutdown();
+    expect(news.retained).toBe(0);
+  });
+
+  it('needs AI sentiment for rated headlines; "any" does not', () => {
+    const svc = new AlertService(fakeCore() as any, { library: { get: () => undefined } } as any);
+    svc.news = fakeNews(false) as any;
+    expect(() => svc.save(mk('news', { mood: 'bullish' } as any))).toThrow(/AI sentiment/);
+    const any = svc.save(mk('news', { mood: 'any', keywords: '' } as any));
+    expect(describeAlert(any)).toBe('BTC news: a new headline');
+    svc.shutdown();
+  });
+});

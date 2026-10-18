@@ -85,8 +85,9 @@ an AI assistant that builds and tests strategies inside the app.
   data, at real data resolution. A session report compares your replay trades with buy & hold
   and random entries.
 - **Alerts:** price, moves, indicators, script conditions, order-book conditions, futures
-  data (liquidations, open interest, funding) and options (implied volatility, skew, put/call,
-  the gamma flip and other levels), with desktop notifications and webhooks.
+  data (liquidations, open interest, funding), options (implied volatility, skew, put/call,
+  the gamma flip and other levels) and news (headlines Claude rates bullish or bearish), with
+  desktop notifications and webhooks.
 - **News:** headlines from crypto news feeds, filtered by coin, with Claude's read of each one
   (green for likely bullish, red for likely bearish; model, effort and thinking chosen in the
   module).
