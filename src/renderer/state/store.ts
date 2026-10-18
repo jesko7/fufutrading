@@ -118,7 +118,13 @@ export const useApp = create<AppState>((set, get) => ({
   },
   toast(t) {
     const id = toastId++;
-    set({ toasts: [...get().toasts, { ...t, id }] });
+    // at most three at once (a busy bot must not bury the panels): the oldest go first, errors last
+    let list = [...get().toasts, { ...t, id }];
+    while (list.length > 3) {
+      const k = list.findIndex((x) => x.kind !== 'error');
+      list = list.filter((_, i) => i !== (k >= 0 && k < list.length - 1 ? k : 0));
+    }
+    set({ toasts: list });
     const timeout = t.timeout ?? (t.kind === 'error' ? 8000 : 4500);
     if (timeout > 0) setTimeout(() => get().dismissToast(id), timeout);
   },
