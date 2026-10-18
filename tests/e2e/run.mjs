@@ -1412,7 +1412,11 @@ const S = {
     await shot('60-layout-drag');
     // drop it on the Book panel's tab strip, before the Book tab: it joins that panel as the first tab
     await page.dragAndDrop('.stack-tab:has-text("Tape")', '.stack:has(.stack-tab:has-text("Book")) .stack-tabs', { targetPosition: { x: 3, y: 12 } });
-    await page.waitForFunction(() => /Tape/.test(document.querySelector('.stack:has(.stack-tab:has-text("Book")) .stack-tab')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => {
+      // plain DOM (":has-text" is Playwright's, not CSS): the first tab of the panel holding Book
+      const st = [...document.querySelectorAll('.stack')].find((x) => [...x.querySelectorAll('.stack-tab')].some((t) => /Book/.test(t.textContent || '')));
+      return /Tape/.test(st?.querySelector('.stack-tab')?.textContent || '');
+    }, null, { timeout: 5000 });
     const order = await page.$$eval('.stack:has(.stack-tab:has-text("Book")) .stack-tab', (t) => t.map((x) => (x.textContent || '').trim()));
     check(order.length === 2 && /Tape/.test(order[0]) && /Book/.test(order[1]) && (await stacks()) === n0, `a tab dropped on a tab strip goes where it was dropped (${order.join(' | ')})`);
     // a panel moves by the empty part of its header too: the watchlist below the chart

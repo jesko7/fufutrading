@@ -665,6 +665,8 @@ export class BotService {
       b.state.guardsFrom = ctx.now();
       rt.event('bot', 'Bot resumed', { bot: true });
     }
+    // a manual TWAP would fight the bot over the position: the bot takes over
+    for (const algo of rt.algos) if (algo.status === 'running') rt.cancelAlgo(algo.id, ctx.now());
     b.status = 'running';
     b.lastError = undefined;
     this.engine.persist(id);
