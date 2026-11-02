@@ -10,6 +10,8 @@ export interface LineSeries {
   color: string;
   label: string;
   area?: boolean;
+  /** Fill the area between the line and this value (default: the bottom of the chart); the fill is strongest away from it. */
+  areaBase?: number;
   dashed?: boolean;
   width?: number;
   /** Line opacity (0–1). */
@@ -190,11 +192,12 @@ export function LineChart({ t, series, bands = [], height = 220, format = (v) =>
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
       if (s.area && started) {
-        const base = y(Math.max(lo, Math.min(hi, zeroLine ? 0 : lo)));
+        const base = y(Math.max(lo, Math.min(hi, s.areaBase ?? (zeroLine ? 0 : lo))));
         ctx.lineTo(lastX, base);
         ctx.lineTo(firstX, base);
         ctx.closePath();
-        const g = ctx.createLinearGradient(0, padT, 0, padT + plotH);
+        // strongest at the far side from the base: below the line for equity, at the deepest point for drawdowns
+        const g = base < padT + plotH / 2 ? ctx.createLinearGradient(0, padT + plotH, 0, padT) : ctx.createLinearGradient(0, padT, 0, padT + plotH);
         g.addColorStop(0, s.color.startsWith('#') ? `${s.color}40` : s.color);
         g.addColorStop(1, s.color.startsWith('#') ? `${s.color}05` : s.color);
         ctx.fillStyle = g;

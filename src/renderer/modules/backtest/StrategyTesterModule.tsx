@@ -481,7 +481,7 @@ function Overview({ rec, setTab }: { rec: BacktestRecord; setTab: (t: string) =>
       </div>
       <div className="chart-card">
         <div className="section-title">Drawdown</div>
-        <LineChart t={c.t} height={120} format={(v) => `${v.toFixed(1)}%`} maxY={0} series={[{ values: c.drawdownPct.map((x) => x * 100), color: '#ef4444', label: 'Drawdown', area: true, width: 1.2 }]} />
+        <LineChart t={c.t} height={120} format={(v) => `${v.toFixed(1)}%`} maxY={0} series={[{ values: c.drawdownPct.map((x) => x * 100), color: '#ef4444', label: 'Drawdown', area: true, areaBase: 0, width: 1.2 }]} />
       </div>
     </div>
   );
