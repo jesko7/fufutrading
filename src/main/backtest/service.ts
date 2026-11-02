@@ -18,6 +18,9 @@ import { computeMetrics, type Metrics } from '../../engine/backtest/metrics';
 import { randomBenchmark, tradeMonteCarlo, type RandomBenchmark, type TradeMonteCarlo } from '../../engine/backtest/benchmarks';
 import { describeKey, keyParts } from '../../engine/host';
 import { METRICS } from '../../shared/metrics';
+import { bookKeyParts, isBookKey } from '../../shared/bookFrame';
+import type { BookWire } from '../../engine/book';
+import { bookCoverageNote } from '../market/bookRecorder';
 import { fromCandles } from '../../engine/data';
 import type { BrokerConfig } from '../../engine/backtest/broker';
 import { buildMagnifier, magnifierCoverage, type Magnifier } from '../../engine/backtest/magnifier';
@@ -135,6 +138,8 @@ export interface Prepared {
   tradeFrom: number;
   brokerCfg: Partial<BrokerConfig>;
   security: Record<string, BarSeries>;
+  /** Recorded order-book frames per bar, once the script asked for them. */
+  book?: BookWire;
   loadSecurity: (keys: string[]) => Promise<void>;
   warnings: string[];
   fills: string;
@@ -337,6 +342,16 @@ export class BacktestService {
     const security: Record<string, BarSeries> = {};
     const loadSecurity = async (keys: string[]) => {
       for (const key of keys) {
+        if (isBookKey(key)) {
+          if (P.book) continue;
+          const bk = bookKeyParts(key);
+          const label = `${bk.symbol}${bk.market === 'futures' ? '.P' : ''}`;
+          progress({ phase: `Loading the recorded ${label} order book` });
+          P.book = this.core.books.wireFor(bk.market, bk.symbol, bars.t, bars.tc, bars.length);
+          const note = bookCoverageNote(P.book, tradeFrom, label);
+          if (note) warnings.push(note);
+          continue;
+        }
         if (security[key]) continue;
         const kp = keyParts(key);
         if (!isSymbol(kp.symbol)) throw new Error(`Unsupported symbol ${kp.symbol}`);
@@ -355,7 +370,8 @@ export class BacktestService {
         security[key] = fromCandles(other, kp.tf, kp.chartType);
       }
     };
-    return { code, language, name, ctx, bars, tradeFrom, brokerCfg, security, loadSecurity, warnings, fills, fundingN, markUsed, source: `Binance ${req.market} klines (${baseIntervalFor(tf, req.market)} cache, aggregated to ${req.tf})`, inputs: an.inputs, magnifier };
+    const P: Prepared = { code, language, name, ctx, bars, tradeFrom, brokerCfg, security, loadSecurity, warnings, fills, fundingN, markUsed, source: `Binance ${req.market} klines (${baseIntervalFor(tf, req.market)} cache, aggregated to ${req.tf})`, inputs: an.inputs, magnifier };
+    return P;
   }
 
   /** Finest lower-timeframe interval that is useful (≥ 3 per bar) and practical (≤ 1.5 M klines). */
@@ -380,7 +396,7 @@ export class BacktestService {
     const { bars, tradeFrom, brokerCfg, security } = P;
     const runOnce = async (cfg: Partial<BrokerConfig>) => {
       for (let round = 0; round < 4; round++) {
-        const handle = this.scripts.pool.run({ lang: P.language, code: P.code, ctx: P.ctx, inputs: req.inputs || {}, strategy: cfg, data: bars, security, magnifier: P.magnifier }, { timeoutMs: 30 * 60000 });
+        const handle = this.scripts.pool.run({ lang: P.language, code: P.code, ctx: P.ctx, inputs: req.inputs || {}, strategy: cfg, data: bars, security, book: P.book, magnifier: P.magnifier }, { timeoutMs: 30 * 60000 });
         signal.onCancel = () => handle.cancel();
         const r = await handle.promise;
         if (!r.need.length) return r.result;

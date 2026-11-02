@@ -18,6 +18,12 @@ export interface ChartStyle {
   momentum?: boolean;
 }
 
+/** Order-book recording: instruments ("futures:BTCUSDT") saved once a minute, kept for keepDays. */
+export interface BookRecordingSettings {
+  record: string[];
+  keepDays: number;
+}
+
 export interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   accent: string;
@@ -32,6 +38,7 @@ export interface AppSettings {
   notifications: { desktop: boolean; sound: boolean; botTrades: boolean; botProblems: boolean };
   shortcuts: Record<string, string>;
   news: { sources: string[]; refreshMinutes: number };
+  books: BookRecordingSettings;
   onboarded: boolean;
 }
 
@@ -61,6 +68,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   notifications: { desktop: true, sound: true, botTrades: true, botProblems: true },
   shortcuts: {},
   news: { sources: ['coindesk', 'cointelegraph', 'decrypt', 'bitcoinmagazine', 'theblock'], refreshMinutes: 5 },
+  books: { record: [], keepDays: 30 },
   onboarded: false,
 };
 
@@ -77,6 +85,7 @@ export function mergeSettings(saved: Partial<AppSettings> | null | undefined): A
     trading: { ...DEFAULT_SETTINGS.trading, ...(s.trading || {}) },
     notifications: { ...DEFAULT_SETTINGS.notifications, ...(s.notifications || {}) },
     news: { ...DEFAULT_SETTINGS.news, ...(s.news || {}) },
+    books: { ...DEFAULT_SETTINGS.books, ...(s.books || {}) },
     shortcuts: { ...(s.shortcuts || {}) },
   };
 }

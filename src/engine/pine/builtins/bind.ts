@@ -2,6 +2,7 @@
 import * as ta from './ta';
 import { math, nz, str, color, array, map, time, label, line, box, table, linefill, polyline, chartPoint, log, alert } from './lib';
 import { matrix, PineMatrix } from './matrix';
+import { book } from './book';
 import type { Runtime } from '../runtime';
 import { parseTimeframe, tfDurationMs, bucketStart, normalize, tfToString } from '../../../shared/timeframes';
 import type { StrategyBroker } from '../../backtest/broker';
@@ -80,6 +81,7 @@ export const B = {
   polyline,
   chartPoint,
   matrix,
+  book,
   /** for-in: matrices iterate over their rows (as arrays). */
   iter: (x: unknown) => (x instanceof PineMatrix ? Array.from({ length: x.rows }, (_, r) => x.rowArray(r)) : x),
   tickerInherit: (_from: string, symbol: string) => symbol,

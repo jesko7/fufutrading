@@ -1533,6 +1533,80 @@ const S = {
     check(notLive, 'the live replay confirms it: a bot would have traded differently');
     if (opened) await shot('50-tester-lookahead');
   },
+  async book() {
+    console.log('scenario: order book in scripts');
+    await page.waitForSelector('.start, .workspace', { timeout: 30000 });
+    if (!(await page.isVisible('.chart-host canvas'))) await openPreset('Trader');
+    await page.waitForSelector('.chart-host canvas', { timeout: 30000 });
+    // record the spot BTC book (the chart's instrument)
+    await page.evaluate(() => window.fufu.invoke('settings:set', { books: { record: ['spot:BTCUSDT'], keepDays: 30 } }));
+    await page.locator('button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    for (const q of ['Order Book Imbalance', 'Python: Book Walls']) {
+      await page.fill('.picker-main input', q);
+      await page.locator('.picker-row .picker-name', { hasText: q }).first().click();
+      await wait(200);
+    }
+    await page.keyboard.press('Escape');
+    // the forming bar reads the live book: a value between −1 and +1 in the legend
+    const imbOk = await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Book imbalance/.test(r.textContent || '') && [...r.querySelectorAll('.ind-val')].some((v) => /^[−-]?[01]\.\d{3}$/.test((v.textContent || '').trim()))), null, { timeout: 60000, polling: 500 }).then(() => true).catch(() => false);
+    const imbText = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Book imbalance/.test(t)).join(' | '));
+    check(imbOk, `Order Book Imbalance shows the live book (${imbText.replace(/\s+/g, ' ').slice(0, 90)})`);
+    const wallsOk = await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Walls/.test(r.textContent || '') && /\d{1,3}(,\d{3})+\.\d\d/.test(r.textContent || '')), null, { timeout: 120000, polling: 500 }).then(() => true).catch(() => false);
+    const wallsText = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Walls/.test(t)).join(' | '));
+    check(wallsOk, `Python Book Walls reads data.book (${wallsText.replace(/\s+/g, ' ').slice(0, 90)})`);
+    const errs = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
+    check(!errs.length, `no script errors (${JSON.stringify(errs)})`);
+    await wait(1000);
+    await shot('58-book-scripts');
+    // the Data panel: recording on, connected
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Data');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.data-mod [data-book="spot:BTCUSDT"]', { timeout: 15000 });
+    let recOk = false;
+    for (const deadline = Date.now() + 60000; Date.now() < deadline && !recOk; ) {
+      const o = await page.evaluate(() => window.fufu.invoke('data:overview')).catch(() => null);
+      recOk = o?.books.recording['spot:BTCUSDT']?.status === 'live';
+      if (!recOk) await wait(1000);
+    }
+    check(recOk, 'recording the BTC spot book');
+    // the first snapshot is saved a quarter second before the next full minute
+    let saved = 0;
+    let overviewErr = '';
+    for (const deadline = Date.now() + 80000; Date.now() < deadline && !saved; ) {
+      const o = await page.evaluate(() => window.fufu.invoke('data:overview')).catch((e) => ({ error: String(e?.message || e) }));
+      if (o.error) overviewErr = o.error;
+      else saved = o.books.stats.find((b) => b.market === 'spot' && b.symbol === 'BTCUSDT')?.bytes || 0;
+      if (!saved) await wait(1000);
+    }
+    if (!saved) {
+      const logs = await page.evaluate(() => window.fufu.invoke('log:recent')).catch(() => []);
+      console.log(`    ${overviewErr} ${logs.filter((l) => /book/i.test(l.msg || l.message || '')).slice(-5).map((l) => l.msg || l.message).join(' | ')}`);
+    }
+    check(saved > 20000, `a full book snapshot was recorded (${saved} bytes)`);
+    await page.click('.data-mod .stack-head button[data-tip="Refresh"], .stack:has(.data-mod) button[data-tip="Refresh"]').catch(() => {});
+    await wait(800);
+    await page.locator('.data-mod [data-book="spot:BTCUSDT"]').scrollIntoViewIfNeeded();
+    await shot('59-order-book-recording');
+    // after the bar closes, scripts read the recorded book on that (now historical) bar
+    await wait(2500);
+    const insp = await page.evaluate(() => window.fufu.invoke('scripts:inspect', { language: 'pine', code: '//@version=6\nindicator("b")\nbb = book.best_bid()\nn = book.bid_levels()\nplot(bb)', spec: { symbol: 'BTCUSDT', market: 'spot', tf: '1m', chartType: 'candles' }, bars: 300 }));
+    const bbs = Object.values(insp.vars?.bb || {}).filter((v) => Number.isFinite(v));
+    const levels = Object.values(insp.vars?.n || {}).filter((v) => Number.isFinite(v));
+    check(insp.ok && bbs.length >= 1 && levels.some((x) => x >= 1000), `a closed bar carries the recorded book (${bbs.length} bar, best bid ${bbs[bbs.length - 1]}, ${levels[levels.length - 1]} bid levels)`);
+    await page.evaluate(() => window.fufu.invoke('settings:set', { books: { record: [], keepDays: 30 } }));
+    // leave the workspace as it was: close the Data Manager, remove the two indicators
+    const dataMid = await page.evaluate(() => document.querySelector('.stack:has(.data-mod) .stack-tab.on')?.getAttribute('data-mid'));
+    if (dataMid) await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), dataMid);
+    for (const name of ['Book imbalance', 'Walls']) {
+      const row = page.locator('.ind-item', { hasText: name }).first();
+      if (!(await row.isVisible().catch(() => false))) continue;
+      await row.hover();
+      await row.locator('button[data-tip="Remove"]').click().catch(() => {});
+    }
+  },
   async options() {
     console.log('scenario: options & Greeks');
     await page.keyboard.press('Control+k');

@@ -7,6 +7,9 @@ import { initPython, type PyInitOptions } from '../../src/engine/python/host';
 import { parseTimeframe, tfDurationMs } from '../../src/shared/timeframes';
 import { bars, aggregateBars, ctx, MIN } from '../helpers/bars';
 import type { BarSeries } from '../../src/engine/types';
+import { isBookKey } from '../../src/shared/bookFrame';
+import type { BookWire } from '../../src/engine/book';
+import { syntheticBook } from '../helpers/book';
 
 const root = path.resolve(__dirname, '../..');
 const PY: PyInitOptions = {
@@ -55,11 +58,16 @@ describe('built-in script library', () => {
       let r = await host.run({ lang, code, ctx, inputs: {}, data });
       if (r.need.length) {
         const security: Record<string, BarSeries> = {};
+        let book: BookWire | undefined;
         for (const k of r.need) {
+          if (isBookKey(k)) {
+            book = syntheticBook(data, 3);
+            continue;
+          }
           const tf = parseTimeframe(keyParts(k).tf)!;
           security[k] = aggregateBars(data, Math.round(tfDurationMs(tf) / MIN));
         }
-        r = await host.run({ lang, code, ctx, inputs: {}, data, security });
+        r = await host.run({ lang, code, ctx, inputs: {}, data, security, book });
       }
       const res = r.result;
       if (!res.ok) throw new Error(`${f}: ${res.error?.kind} ${res.error?.message} (line ${res.error?.line})\n${res.error?.traceback || ''}`);
@@ -83,12 +91,16 @@ describe('built-in script library', () => {
       const data = walk(f.includes('mtf') ? 6000 : 1500);
       const host = new ScriptHost(PY);
       let security: Record<string, BarSeries> = {};
+      let book: BookWire | undefined;
       let r;
       for (let round = 0; round < 4; round++) {
-        r = await repaintCheck(host, { lang, code, ctx, inputs: {}, data, security, window: 80, maxChecks: lang === 'python' ? 4 : 16, budgetMs: 60000 });
+        r = await repaintCheck(host, { lang, code, ctx, inputs: {}, data, security, book, window: 80, maxChecks: lang === 'python' ? 4 : 16, budgetMs: 60000 });
         if (!r.need.length) break;
         security = { ...security };
-        for (const k of r.need) security[k] = aggregateBars(data, Math.round(tfDurationMs(parseTimeframe(keyParts(k).tf)!) / MIN));
+        for (const k of r.need) {
+          if (isBookKey(k)) book = syntheticBook(data, 3);
+          else security[k] = aggregateBars(data, Math.round(tfDurationMs(parseTimeframe(keyParts(k).tf)!) / MIN));
+        }
       }
       expect(r!.ok, r!.error).toBe(true);
       const diffs = r!.diffs.map((d) => d.title);

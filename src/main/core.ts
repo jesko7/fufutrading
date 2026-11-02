@@ -12,6 +12,7 @@ import { CandleStore, binanceKlineSource } from './storage/candleStore';
 import { MarketHub } from './market/hub';
 import { SeriesService, type SeriesHandle } from './market/series';
 import { FundingCache } from './market/funding';
+import { BookRecorder } from './market/bookRecorder';
 import { isMetric } from '../shared/metrics';
 import { WorkspaceService, type WorkspaceOp } from './workspaces';
 import { WindowManager } from './windows';
@@ -47,6 +48,8 @@ export class AppCore {
   readonly series: SeriesService;
   /** Historical funding rates (backtests, replays, funding-rate series). */
   readonly funding: FundingCache;
+  /** Order-book recording and the book frames scripts read. */
+  readonly books: BookRecorder;
   readonly workspaces: WorkspaceService;
   readonly windows: WindowManager;
   quitting = false;
@@ -64,6 +67,7 @@ export class AppCore {
     this.store = new CandleStore(paths.data, binanceKlineSource(this.hub.rest), log, () => this.hub.clock.now());
     this.funding = new FundingCache(path.join(paths.data, 'funding'), this.hub.rest, () => this.hub.clock.now());
     this.series = new SeriesService(this.hub, this.store, log, this.funding);
+    this.books = new BookRecorder(this.hub, path.join(paths.data, 'books'), log);
     this.workspaces = new WorkspaceService(paths.userData);
     this.windows = new WindowManager(this.workspaces, this.router, log, {
       iconPath: path.join(paths.resources, process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
@@ -94,6 +98,8 @@ export class AppCore {
   pauseAllBots: () => void = () => {};
   /** Acquire a replay series (set by the replay service). */
   replayAcquire: ((spec: SeriesSpec, ref: { session: string; epoch: number }) => { series: SeriesHandle; release: () => void }) | null = null;
+  /** A replay session's clock (NaN once it ended or restarted). */
+  replayClock: ((ref: { session: string; epoch: number }) => number) | null = null;
 
   notify(title: string, body: string): void {
     if (!this.settings.notifications.desktop) return;
@@ -109,6 +115,7 @@ export class AppCore {
     this.router.install();
     this.registerCore();
     this.registerMarket();
+    this.books.configure(this.settings.books);
     const dark = this.settings.theme !== 'light';
     this.windows.setTheme(dark);
     this.log('info', `FuFu Trading ${app.getVersion()} started (electron ${process.versions.electron}, ${process.platform})`);
@@ -131,6 +138,7 @@ export class AppCore {
       const next = mergeSettings({ ...this.settings, ...patch });
       this.settingsFile.set(next);
       if (patch.theme) this.windows.setTheme(next.theme !== 'light');
+      if (patch.books) this.books.configure(next.books);
       if (patch.background && typeof patch.background.startAtLogin === 'boolean') {
         try {
           setAutostart(patch.background.startAtLogin, this.paths.resources);
@@ -334,6 +342,7 @@ export class AppCore {
         this.log('warn', `shutdown hook: ${(e as Error).message}`);
       }
     }
+    this.books.stop();
     this.workspaces.flush();
     this.settingsFile.flush();
     this.hub.shutdown();

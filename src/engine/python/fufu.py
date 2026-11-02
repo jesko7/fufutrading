@@ -276,6 +276,9 @@ class Bars:
         self.tf = meta.get('tf')
         self.mintick = meta.get('mintick', 0.01)
         self._htf = meta.get('htf', {})
+        self._book_on = bool(meta.get('book'))
+        self._book_key = meta.get('book_key')
+        self._book = None
 
     def __len__(self):
         n = len(self._cols['close'])
@@ -305,6 +308,13 @@ class Bars:
     @property
     def bar_index(self):
         return np.arange(len(self), dtype=np.float64)
+
+    @property
+    def book(self) -> 'Book':
+        """The chart symbol's order book per bar (see Book)."""
+        if self._book is None:
+            self._book = Book(self)
+        return self._book
 
     def security(self, symbol=None, tf=None, field='close', lookahead=False, market=None):
         """Another symbol / timeframe aligned to the chart bars.
@@ -352,6 +362,178 @@ class Bars:
     def htf(self, tf: str, field='close', lookahead=False):
         """Higher-timeframe series of this symbol aligned to the chart bars (no lookahead by default)."""
         return self.security(None, tf, field, lookahead)
+
+
+# ------------------------------------------------------------------ order book
+
+
+class BookFrame:
+    """One order-book snapshot: `bids` and `asks` are (n, 2) arrays of [price, qty], best first."""
+
+    __slots__ = ('time', 'bids', 'asks')
+
+    def __init__(self, time, bids, asks):
+        self.time = time
+        self.bids = bids
+        self.asks = asks
+
+    @property
+    def best_bid(self):
+        return float(self.bids[0, 0]) if len(self.bids) else na
+
+    @property
+    def best_ask(self):
+        return float(self.asks[0, 0]) if len(self.asks) else na
+
+    @property
+    def mid(self):
+        b, a = self.best_bid, self.best_ask
+        return (b + a) / 2 if not (_math.isnan(b) or _math.isnan(a)) else (a if _math.isnan(b) else b)
+
+    @property
+    def spread(self):
+        return self.best_ask - self.best_bid
+
+    def _side(self, side):
+        return self.asks if side == 'ask' else self.bids
+
+    def depth(self, side='bid', pct=None, notional=False):
+        """Resting quantity on one side within `pct` % of the mid (all levels without pct)."""
+        lv = self._side(side)
+        if pct is not None and pct > 0 and len(lv):
+            m = self.mid
+            lv = lv[lv[:, 0] >= m * (1 - pct / 100)] if side == 'bid' else lv[lv[:, 0] <= m * (1 + pct / 100)]
+        return float((lv[:, 0] * lv[:, 1]).sum() if notional else lv[:, 1].sum())
+
+    def imbalance(self, levels=10):
+        """(bid qty - ask qty) / (bid qty + ask qty) over the best `levels` levels a side: -1 ... +1."""
+        b = self.bids[:levels, 1].sum() if levels else self.bids[:, 1].sum()
+        a = self.asks[:levels, 1].sum() if levels else self.asks[:, 1].sum()
+        return float((b - a) / (b + a)) if b + a > 0 else na
+
+    def wall(self, side='bid', pct=None):
+        """The largest level on one side within `pct` % of the mid: (price, qty)."""
+        lv = self._side(side)
+        if pct is not None and pct > 0 and len(lv):
+            m = self.mid
+            lv = lv[lv[:, 0] >= m * (1 - pct / 100)] if side == 'bid' else lv[lv[:, 0] <= m * (1 + pct / 100)]
+        if not len(lv):
+            return na, na
+        k = int(np.argmax(lv[:, 1]))
+        return float(lv[k, 0]), float(lv[k, 1])
+
+    def __repr__(self):
+        return f'BookFrame(time={self.time:.0f}, bids={len(self.bids)}, asks={len(self.asks)}, best={self.best_bid}/{self.best_ask})'
+
+
+class Book:
+    """The chart symbol's order book per bar.
+
+    Every bar carries the last snapshot taken while it formed: recorded history (Settings ->
+    Data -> Order-book recording, once a minute) and the live book on the forming bar. Bars
+    without one are na. Binance publishes price levels, not individual orders: a snapshot is
+    every level of both sides (up to 5000 a side on spot, 1000 on futures, plus levels the diff
+    stream added since).
+
+    `data.book[-1]` is the current bar's BookFrame (None without a book); the series methods
+    return one value per bar and, inside Strategy.next(), end at the current bar.
+    """
+
+    def __init__(self, bars: 'Bars'):
+        self._bars = bars
+        self._cache = {}
+
+    def _n(self):
+        return len(self._bars._cols['close'])
+
+    def _cut(self, a):
+        return a if _ctx.i < 0 else a[: _ctx.i + 1]
+
+    def _series(self, kind, *params):
+        key = (kind,) + params
+        a = self._cache.get(key)
+        if a is None:
+            if not self._bars._book_on:
+                _ctx.need.add(self._bars._book_key)
+                a = np.full(self._n(), np.nan)
+            else:
+                a = _from_js(_js.book_series(kind, [na if p is None else float(p) for p in params]))
+            self._cache[key] = a
+        return self._cut(a)
+
+    def __len__(self):
+        return len(self._bars)
+
+    def __getitem__(self, k) -> 'BookFrame | None':
+        cur = self._n() - 1 if _ctx.i < 0 else _ctx.i
+        i = cur + 1 + k if k < 0 else k
+        if i < 0 or i > cur:
+            raise IndexError(f'book index {k} out of range (bars 0 ... {cur})')
+        if not self._bars._book_on:
+            _ctx.need.add(self._bars._book_key)
+            return None
+        r = _js.book_frame(int(i))
+        if r is None:
+            return None
+        t, bp, bq, ap, aq = _from_js(r)
+        return BookFrame(float(t[0]), np.column_stack((bp, bq)), np.column_stack((ap, aq)))
+
+    @property
+    def available(self):
+        """True on bars that have a book."""
+        return self._series('available') == 1
+
+    time = property(lambda s: s._series('time'))
+    best_bid = property(lambda s: s._series('best_bid'))
+    best_ask = property(lambda s: s._series('best_ask'))
+    mid = property(lambda s: s._series('mid'))
+    spread = property(lambda s: s._series('spread'))
+
+    @staticmethod
+    def _sd(side):
+        if side not in ('bid', 'ask'):
+            raise ValueError('side must be "bid" or "ask"')
+        return 1 if side == 'ask' else 0
+
+    def levels(self, side='bid'):
+        """Number of price levels on one side."""
+        return self._series('levels', self._sd(side))
+
+    def price(self, side='bid', level=0):
+        """Price of a level (0 = best)."""
+        return self._series('price', self._sd(side), level)
+
+    def qty(self, side='bid', level=0):
+        """Quantity resting at a level (0 = best)."""
+        return self._series('qty', self._sd(side), level)
+
+    def depth(self, side='bid', pct=None):
+        """Resting quantity (base asset) on one side within `pct` % of the mid (all levels without pct)."""
+        return self._series('depth', self._sd(side), pct)
+
+    def notional(self, side='bid', pct=None):
+        """Like depth(), in the quote currency (price x qty)."""
+        return self._series('notional', self._sd(side), pct)
+
+    def imbalance(self, levels=10):
+        """(bid qty - ask qty) / (bid qty + ask qty) over the best `levels` levels a side: -1 ... +1."""
+        return self._series('imbalance', levels)
+
+    def depth_imbalance(self, pct=1.0):
+        """Imbalance of the quantity within `pct` % of the mid."""
+        return self._series('depth_imbalance', pct)
+
+    def wall(self, side='bid', pct=None):
+        """The largest level on one side within `pct` % of the mid: (prices, qtys) per bar."""
+        return self._series('wall_price', self._sd(side), pct), self._series('wall_qty', self._sd(side), pct)
+
+    def qty_at(self, price):
+        """Quantity resting at exactly `price` (0 where no level)."""
+        return self._series('qty_at', price)
+
+    def fill_price(self, qty):
+        """Average fill price of a market order walked through the book: qty > 0 buys, < 0 sells."""
+        return self._series('fill_price', qty)
 
 
 # ------------------------------------------------------------------ technical analysis (shared JS implementations)

@@ -99,6 +99,51 @@ oi = request.security(syminfo.prefix + ":" + syminfo.ticker + "_OI", timeframe.p
   **Long/Short Ratio**, **Funding Rate** and the **OI Breakout Strategy**. The strategy builder
   offers these as conditions too.
 
+## Order book (`book.*`)
+
+Scripts can read the chart symbol's order book: every price level of both sides, not only the
+grouped view of the Order Book panel. This is a FuFu extension; TradingView has no equivalent.
+Binance publishes price levels, not single orders (market-by-price, not market-by-order). A
+snapshot holds every level the local book knows: up to 5000 a side on spot, 1000 on the
+perpetuals plus the levels the update stream has added since.
+
+Each bar sees the last snapshot taken while it formed. On the forming bar of a live chart that
+is the live book, refreshed every second. History comes from recordings: turn them on per
+instrument in **Data → Order books** (once a minute, about 30 MB a day for a spot book and 7 MB
+for a perpetual). Bars without a snapshot return na, and so does `book.*` inside
+`request.security`.
+
+| Function | Returns |
+| --- | --- |
+| `book.available()` | the bar has a snapshot |
+| `book.time()` | when it was taken |
+| `book.bid_levels()`, `book.ask_levels()` | number of levels a side |
+| `book.bid_price(level)`, `book.bid_qty(level)`, `book.ask_price(level)`, `book.ask_qty(level)` | one level, 0 = best |
+| `book.best_bid()`, `book.best_ask()`, `book.mid()`, `book.spread()` | the top of the book |
+| `book.bid_depth(percent)`, `book.ask_depth(percent)` | quantity (base asset) within `percent` % of the mid; all levels with na |
+| `book.bid_notional(percent)`, `book.ask_notional(percent)` | the same in USDT (price × quantity) |
+| `book.imbalance(levels)` | (bid − ask) / (bid + ask) quantity over the best `levels` levels a side, −1 … +1 (default 10) |
+| `book.depth_imbalance(percent)` | the same within `percent` % of the mid (default 1) |
+| `[price, qty] = book.bid_wall(percent)`, `book.ask_wall(percent)` | the largest level within `percent` % |
+| `book.qty_at(price)` | quantity resting at exactly that price (0 if none) |
+| `book.fill_price(qty)` | average fill of a market order walked through the book: qty > 0 buys, < 0 sells; na if too thin |
+| `book.bid_prices()`, `book.bid_qtys()`, `book.ask_prices()`, `book.ask_qtys()` | the full level lists as `array<float>`, best first |
+
+```pine
+//@version=6
+indicator("Book imbalance")
+imb = book.imbalance(20)
+plot(imb, "Imbalance", imb >= 0 ? color.teal : color.red, style=plot.style_columns)
+[wp, wq] = book.bid_wall(1)
+plot(book.bid_depth(0.5), "Bids within 0.5 %", color.green, display=display.data_window)
+```
+
+- History operators work: `book.imbalance(10)[1]` is the previous bar's value.
+- Strategies read the book of the bar that just closed, like `close`. Backtests and the
+  optimizer use the recordings and warn when part of the range has none. Live bots also capture
+  the live book every second while they run.
+- Built-in examples: **Order Book Imbalance** (Pine) and **Book Walls** (Python).
+
 ## Strategies
 
 `strategy.entry`, `strategy.order`, `strategy.exit` (profit/loss/trail in ticks, limit/stop

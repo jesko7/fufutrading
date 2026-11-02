@@ -82,3 +82,34 @@
     margin-left: auto;
   }
 }
+.data-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.data-title-row .select {
+  height: 26px;
+  font-size: 12px;
+}
+.book-rec {
+  font-size: 11px;
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+.book-rec.live {
+  color: var(--down);
+  border-color: color-mix(in srgb, var(--down) 45%, transparent);
+}
+.book-rec.live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--down);
+  margin-right: 5px;
+  vertical-align: 1px;
+}

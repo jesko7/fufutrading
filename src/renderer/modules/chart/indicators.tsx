@@ -191,7 +191,7 @@ function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStor
   const shapes: ShapeSeries[] = [];
   for (const p of r.plots) {
     const st = styles[p.id] || {};
-    const visible = st.visible ?? p.display;
+    const visible = st.visible ?? (p.display && !p.legendOnly);
     if (p.kind === 'candle' || p.kind === 'bar') {
       plots.push({ id: p.id, title: p.title, type: p.kind === 'candle' ? 'candles' : 'bars', values: shiftNum(p.values, off), o: p.o && shiftNum(p.o, off), h: p.h && shiftNum(p.h, off), l: p.l && shiftNum(p.l, off), color: st.color || p.color, colors: st.color ? undefined : shiftArr(p.colors, off), width: 1, offset: 0, visible, precision: r.meta.precision });
     } else if (p.kind === 'plot') {
@@ -481,7 +481,7 @@ export function PaneLegends({ moduleId, cfg, outputs, lives, index, store, updat
 
 // ------------------------------------------------------------------ picker
 
-const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Patterns', 'Futures', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
+const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Patterns', 'Futures', 'Order book', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
 
 export function addIndicator(moduleId: string, scriptId: string): void {
   const st = useApp.getState();
@@ -774,7 +774,7 @@ function IndicatorSettings({ moduleId, indId, onClose }: { moduleId: string; ind
               const st = ind.styles?.[p.id] || {};
               return (
                 <div key={p.id} className="set-row">
-                  <Toggle value={st.visible ?? p.display} onChange={(v) => setStyle(p.id, { visible: v })} />
+                  <Toggle value={st.visible ?? (p.display && !p.legendOnly)} onChange={(v) => setStyle(p.id, { visible: v })} />
                   <span>{p.title}</span>
                   <input type="color" className="color-input" value={cssToHex(st.color || p.color)} onChange={(e) => setStyle(p.id, { color: e.target.value })} />
                   {p.kind === 'plot' && <NumberField value={st.width ?? p.width} onChange={(w) => setStyle(p.id, { width: Math.max(1, Math.min(6, Math.round(w))) })} min={1} max={6} decimals={0} style={{ width: 70 }} />}

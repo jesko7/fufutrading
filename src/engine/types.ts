@@ -28,6 +28,8 @@ export interface ScriptPlot {
   offset: number;
   histbase: number;
   display: boolean;
+  /** Shown as a legend value only (Pine display.data_window / display.status_line), not drawn in the pane. */
+  legendOnly?: boolean;
   trackPrice: boolean;
   location?: string;
   text?: string;

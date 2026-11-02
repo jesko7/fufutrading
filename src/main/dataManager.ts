@@ -44,7 +44,7 @@ function dirSize(dir: string): number {
 export function registerDataManager(core: AppCore, trades: TradeStore): void {
   const r = core.router;
   const store = core.store;
-  const overview = (): { root: string; entries: CacheEntry[]; trades: ReturnType<TradeStore['stats']>; totalBytes: number } => {
+  const overview = (): { root: string; entries: CacheEntry[]; trades: ReturnType<TradeStore['stats']>; books: { stats: ReturnType<typeof core.books.store.stats>; recording: ReturnType<typeof core.books.status> }; totalBytes: number } => {
     const entries: CacheEntry[] = [];
     const base = path.join(store.root, 'candles');
     for (const kind of KINDS) {
@@ -72,7 +72,7 @@ export function registerDataManager(core: AppCore, trades: TradeStore): void {
       }
     }
     entries.sort((a, b) => a.symbol.localeCompare(b.symbol) || a.market.localeCompare(b.market) || INTERVALS.indexOf(a.interval) - INTERVALS.indexOf(b.interval));
-    return { root: core.paths.data, entries, trades: trades.stats(), totalBytes: dirSize(core.paths.data) };
+    return { root: core.paths.data, entries, trades: trades.stats(), books: { stats: core.books.store.stats(), recording: core.books.status() }, totalBytes: dirSize(core.paths.data) };
   };
   r.handle('data:overview', () => overview());
   r.handle('data:clear', ([kind, market, symbol, interval]) => {
@@ -82,6 +82,11 @@ export function registerDataManager(core: AppCore, trades: TradeStore): void {
     return true;
   });
   r.handle('data:openFolder', () => shell.openPath(core.paths.data));
+  r.handle('books:clear', ([market, symbol]) => {
+    if (!isSymbol(symbol) || (market !== 'spot' && market !== 'futures')) throw new Error('Validation: invalid instrument');
+    core.books.store.clear(market, symbol);
+    return true;
+  });
   /** Prefetch a range (progress pushed while downloading). */
   r.topic('data:download', (p: { kind?: CandleKind | 'funding'; market: Market; symbol: SymbolId; interval: string; from: number; to: number }, push) => {
     let cancelled = false;

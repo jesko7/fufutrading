@@ -97,14 +97,14 @@ export class LiveBars {
   }
 }
 
-/** Copy every Float64Array in a plain object tree into SharedArrayBuffer memory (zero-copy to workers). */
+/** Copy every Float64Array / Uint8Array in a plain object tree into SharedArrayBuffer memory (zero-copy to workers). */
 export function shareDeep<T>(x: T, seen = new Map<unknown, unknown>()): T {
-  if (x instanceof Float64Array) {
+  if (x instanceof Float64Array || x instanceof Uint8Array) {
     if (x.buffer instanceof SharedArrayBuffer) return x;
     const cached = seen.get(x);
     if (cached) return cached as T;
     const sab = new SharedArrayBuffer(x.byteLength);
-    const out = new Float64Array(sab);
+    const out = x instanceof Float64Array ? new Float64Array(sab) : new Uint8Array(sab);
     out.set(x);
     seen.set(x, out);
     return out as T;

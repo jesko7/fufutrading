@@ -652,6 +652,10 @@ export class ReplayService {
       return null;
     };
     core.replayAcquire = (spec, ref) => this.acquire(spec, ref);
+    core.replayClock = (ref) => {
+      const s = this.bySession(ref.session);
+      return s && s.epoch === ref.epoch ? s.cursor : NaN;
+    };
   }
 
   /** Latest replayable time: closed data only. */

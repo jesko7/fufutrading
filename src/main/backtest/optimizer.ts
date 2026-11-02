@@ -138,6 +138,7 @@ export class OptimizerService {
     let bars = shareDeep(P.bars);
     let broker = shareDeep(P.brokerCfg);
     let security = shareDeep(P.security);
+    let book = P.book ? shareDeep(P.book) : undefined;
     const magnifier = P.magnifier ? shareDeep(P.magnifier) : undefined;
     const n = bars.length;
     const from = P.tradeFrom;
@@ -154,7 +155,7 @@ export class OptimizerService {
       const job = (async () => {
         for (let round = 0; round < 4; round++) {
           if (signal.cancelled) throw new Error('Cancelled');
-          const h = this.scripts.pool.trial({ lang: P.language, code: P.code, ctx: P.ctx, inputs: { ...(req.inputs || {}), ...pt }, strategy: broker, data: bars, security, from, riskFree: req.riskFree ?? 0, magnifier });
+          const h = this.scripts.pool.trial({ lang: P.language, code: P.code, ctx: P.ctx, inputs: { ...(req.inputs || {}), ...pt }, strategy: broker, data: bars, security, book, from, riskFree: req.riskFree ?? 0, magnifier });
           handles.add(h);
           let r: TrialResult;
           try {
@@ -165,6 +166,8 @@ export class OptimizerService {
           if (!r.need.length) return r;
           await P.loadSecurity(r.need);
           security = shareDeep(P.security);
+          if (P.book && !book) book = shareDeep(P.book);
+          for (const w of P.warnings) if (!warnings.includes(w)) warnings.push(w);
         }
         throw new Error('Could not resolve the data the script requests');
       })();

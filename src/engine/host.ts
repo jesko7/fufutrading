@@ -17,6 +17,8 @@ import { computeMetrics, type Metrics } from './backtest/metrics';
 import type { CompactTrade } from './optimize/analysis';
 import type { BrokerConfig, PendingSnap, TickProvider } from './backtest/broker';
 import { magnifierTicks, type Magnifier } from './backtest/magnifier';
+import { BookFrames, type BookDelta, type BookWire } from './book';
+import { bookKey, bookKeyParts, isBookKey } from '../shared/bookFrame';
 
 export type { ResultPatch, PlotPatch } from './patch';
 export { applyPatch, makePatch } from './patch';
@@ -52,6 +54,8 @@ export interface InstanceSpec {
   realtime: boolean;
   /** Other symbols/timeframes by key "market:SYMBOL:tf:chartType" (packed). */
   security?: Record<string, Float64Array>;
+  /** Order-book frames per bar, when the script reads the book (data key book:<market>:<SYMBOL>). */
+  book?: BookWire;
   trace?: boolean;
 }
 
@@ -67,6 +71,8 @@ export interface InstanceUpdate {
   reset?: Float64Array;
   security?: Record<string, BarsDelta>;
   securityFull?: Record<string, Float64Array>;
+  book?: BookDelta;
+  bookFull?: BookWire;
   inputs?: Record<string, unknown>;
   strategy?: Partial<BrokerConfig> | null;
   realtime?: boolean;
@@ -85,6 +91,8 @@ export interface RunSpec {
   strategy?: Partial<BrokerConfig> | null;
   data: BarSeries | Float64Array;
   security?: Record<string, BarSeries | Float64Array>;
+  /** Order-book frames per bar (see InstanceSpec.book). */
+  book?: BookWire | BookFrames;
   ticks?: TickProvider;
   maxMs?: number;
   trace?: boolean;
@@ -109,6 +117,10 @@ export function keyParts(key: string): { market: 'spot' | 'futures'; symbol: str
 
 /** A data key for people: "ETHUSDT.P 4h", "BTCUSDT 1h Heikin-Ashi", "BTCUSDT.P open interest (contracts) 1h". */
 export function describeKey(key: string): string {
+  if (isBookKey(key)) {
+    const b = bookKeyParts(key);
+    return `${b.symbol}${b.market === 'futures' ? '.P' : ''} order book`;
+  }
   const kp = keyParts(key);
   const sym = `${kp.symbol}${kp.market === 'futures' ? '.P' : ''}`;
   if (kp.metric) return `${sym} ${METRICS[kp.metric].title.toLowerCase()} ${kp.tf}`;
@@ -122,6 +134,7 @@ export function toBars(x: BarSeries | Float64Array, tf: string, chartType: strin
 class Instance {
   bars: LiveBars;
   sec = new Map<string, LiveBars>();
+  book: BookFrames | null = null;
   pine: PineInstance | null = null;
   last: ScriptResult | null = null;
   lastT0 = NaN;
@@ -136,8 +149,10 @@ class Instance {
       const kp = keyParts(k);
       this.sec.set(k, new LiveBars(p, kp.tf, kp.chartType));
     }
+    if (spec.book) this.book = BookFrames.from(spec.book);
     spec.bars = new Float64Array(0);
     spec.security = undefined;
+    spec.book = undefined;
   }
 
   securityBars(): Record<string, BarSeries> {
@@ -306,6 +321,14 @@ export class ScriptHost {
       b.apply(d.index, d.packed, d.length);
       secChanged = true;
     }
+    if (u.bookFull) {
+      inst.book = BookFrames.from(u.bookFull);
+      rebuild = true;
+    }
+    if (u.book && inst.book) {
+      inst.book.apply(u.book);
+      from = Math.min(from, u.book.index);
+    }
     if (u.inputs) {
       inst.spec.inputs = u.inputs;
       rebuild = true;
@@ -363,6 +386,7 @@ export class ScriptHost {
       } catch (e) {
         return this.reply(inst, emptyResult('pine', toScriptError(e)), t0bars, [], -1);
       }
+      if (c.usesBook && !inst.book) need.push(bookKey(spec.ctx.market, spec.ctx.symbol));
       if (need.length) {
         const r = emptyResult('pine');
         r.meta = { type: c.meta.type === 'strategy' ? 'strategy' : 'indicator', title: c.meta.title, shortTitle: c.meta.shortTitle, overlay: c.meta.overlay, precision: c.meta.precision };
@@ -376,10 +400,10 @@ export class ScriptHost {
         // strategies run on closed bars only and fully re-run when a bar closes
         if (!o.rebuild && !o.secChanged && inst.closedRun === data.length && inst.last) return { kind: 'none', need: [] };
         inst.closedRun = data.length;
-        inst.pine = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security: inst.securityBars(), strategy: spec.strategy, realtime: false, trace: spec.trace });
+        inst.pine = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security: inst.securityBars(), book: inst.book, strategy: spec.strategy, realtime: false, trace: spec.trace });
         res = inst.pine.run();
       } else if (o.rebuild || !inst.pine || inst.pine.error || o.from < inst.lastN - 1) {
-        inst.pine = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security: inst.securityBars(), strategy: null, realtime: spec.realtime, trace: spec.trace });
+        inst.pine = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security: inst.securityBars(), book: inst.book, strategy: null, realtime: spec.realtime, trace: spec.trace });
         res = inst.pine.run();
       } else {
         const oldN = inst.lastN;
@@ -395,10 +419,10 @@ export class ScriptHost {
         if (!o.rebuild && !o.secChanged && inst.closedRun === data.length && inst.last) return { kind: 'none', need: [] };
         inst.closedRun = data.length;
       }
-      const r = await runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security: inst.securityBars() });
+      const r = await runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security: inst.securityBars(), book: inst.book });
       res = r.result;
       res.warnings.unshift(...pythonWarnings(spec.code));
-      need = r.need.filter((k) => !inst.sec.has(k));
+      need = r.need.filter((k) => !inst.sec.has(k) && !(inst.book && k === bookKey(spec.ctx.market, spec.ctx.symbol)));
     }
     return this.reply(inst, res, t0bars, need, hint);
   }
@@ -426,8 +450,9 @@ export class ScriptHost {
       const kp = keyParts(k);
       security[k] = toBars(v, kp.tf, kp.chartType);
     }
+    const book = spec.book ? (spec.book instanceof BookFrames ? spec.book : BookFrames.from(spec.book)) : null;
     if (spec.lang === 'python') {
-      const r = await runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security, ticks: spec.ticks, debug: spec.debug, maxMs: spec.maxMs, bot: spec.bot, stateAt: spec.stateAt });
+      const r = await runPython(this.pyOpts(), { code: spec.code, data, ctx: spec.ctx, inputs: spec.inputs, strategy: spec.strategy, security, book, ticks: spec.ticks, debug: spec.debug, maxMs: spec.maxMs, bot: spec.bot, stateAt: spec.stateAt });
       r.result.warnings.unshift(...pythonWarnings(spec.code));
       return r;
     }
@@ -438,8 +463,9 @@ export class ScriptHost {
       return { result: emptyResult('pine', toScriptError(e)), need: [] };
     }
     const need = [...new Set(securityRequests(c, spec.inputs, spec.ctx).map((r) => r.key))].filter((k) => !security[k]);
+    if (c.usesBook && !book) need.push(bookKey(spec.ctx.market, spec.ctx.symbol));
     if (need.length) return { result: emptyResult('pine', { message: `Missing data: ${need.map(describeKey).join(', ')}`, kind: 'runtime' }), need };
-    const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop, bot: spec.bot, realtime: spec.realtime, stateAt: spec.stateAt });
+    const inst = new PineInstance(c, { data, ctx: spec.ctx, inputs: spec.inputs, security, book, strategy: spec.strategy, ticks: spec.ticks, maxMs: spec.maxMs, trace: spec.trace, upTo: spec.upTo, shouldStop: spec.shouldStop, bot: spec.bot, realtime: spec.realtime, stateAt: spec.stateAt });
     return { result: inst.run(), need: [] };
   }
 }

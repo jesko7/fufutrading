@@ -33,6 +33,10 @@ an AI assistant that builds and tests strategies inside the app.
   - Pine Script v3–v6 (including v4's un-namespaced built-ins, drawings with linefills,
     polylines and chart points, maps, matrices; honest about what isn't supported) and Python
     (Pyodide with NumPy), with identical indicator math in both languages
+  - the full order book in scripts: every price level of both sides per bar (Pine `book.*`,
+    Python `data.book`): depth, imbalance, walls, fill prices and the raw level lists. The live
+    book on the forming bar, recordings (once a minute, per instrument) for history, backtests,
+    the optimizer and bots. Binance publishes price levels, not single orders
   - built-in library, favorites, import/export
   - editor with autocomplete, diagnostics and lookahead/repaint warnings, plus a repaint check
     that replays recent bars as if live and compares them with the history (for strategies: what
@@ -141,7 +145,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings book
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

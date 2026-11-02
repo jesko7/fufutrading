@@ -88,6 +88,14 @@ per alert.
   minutes after measuring it. Backtests, replays and bots therefore see what a live trader
   saw. The Data Manager can prefetch them. Funding rates work the same way
   (`BINANCE:BTCUSDT.P_FUNDING`), one value per settlement.
+- **Order books:** Binance's history APIs have no order book, so FuFu records it. Turn
+  recording on per instrument in **Data Manager → Order books**: every price level of the local
+  book is saved once a minute, a quarter second before the minute closes (about 30 MB a day for
+  a spot book, 7 MB for a perpetual; kept 7 days to a year). Scripts read the recordings
+  through `book.*` (Pine) and `data.book` (Python): each bar gets the last snapshot taken while
+  it formed. Charts add the live book on the forming bar, replays read the recordings up to
+  their clock, and bots also capture the live book every second while they run. Binance
+  publishes price levels, not single orders, so there is no per-order (market-by-order) data.
 - **Options** (the **Options** module): Binance's USDT-margined European options on BTC, ETH and
   SOL, with the Greeks as Binance publishes them.
   - **Chain:** strikes of one expiry with calls and puts side by side. Choose **Prices** (mark

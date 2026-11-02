@@ -8,6 +8,7 @@ import { Runtime, type BarData, type PlotOut, type SymbolCtx } from './runtime';
 import { B, oursToPineTf, pineTfToOurs } from './builtins/bind';
 import { cssColor } from './builtins/lib';
 import { StrategyBroker, type BrokerConfig, type TickProvider } from '../backtest/broker';
+import type { BookFrames } from '../book';
 import type { ScriptResult, ScriptError, BarSeries, RunContext, StrategyRaw } from '../types';
 import { emptyResult } from '../types';
 import { SYMBOLS, type SymbolId } from '../../shared/symbols';
@@ -232,6 +233,8 @@ export interface PineRunOptions {
   bot?: boolean;
   /** Record the strategy's position and working orders after these bars (repaint check). */
   stateAt?: number[];
+  /** Order-book frames per chart bar (book.*). */
+  book?: BookFrames | null;
 }
 
 function brokerFromScript(c: CompiledPine, opts: PineRunOptions): Partial<BrokerConfig> {
@@ -282,6 +285,7 @@ export class PineInstance {
     const sym = makeSym(opts.ctx, this.c.version);
     this.R = new Runtime(data, sym, opts.inputs || {}, this.c.rootSlots.num, this.c.rootSlots.obj, this.c.rootSlots.vars);
     this.R.overlay = this.c.meta.overlay;
+    this.R.book = opts.book || null;
     if (this.c.meta.maxLabels) this.R.maxLabels = Math.min(500, this.c.meta.maxLabels);
     if (this.c.meta.maxLines) this.R.maxLines = Math.min(500, this.c.meta.maxLines);
     if (this.c.meta.maxBoxes) this.R.maxBoxes = Math.min(500, this.c.meta.maxBoxes);
@@ -334,6 +338,7 @@ export class PineInstance {
         offset: this.offsetOf(p),
         histbase: p.histbase,
         display: p.display,
+        legendOnly: p.legendOnly,
         trackPrice: p.trackPrice,
         style: p.style,
         location: p.location,
@@ -506,6 +511,7 @@ export class PineInstance {
       offset: p.offset,
       histbase: p.histbase,
       display: p.display,
+      legendOnly: p.legendOnly,
       trackPrice: p.trackPrice,
       location: p.location,
       text: p.text,

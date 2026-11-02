@@ -15,7 +15,10 @@ import type { TradingEngine } from './engine';
 import type { SeriesHandle } from '../market/series';
 import { keyParts, type BotStepResult } from '../../engine/host';
 import type { BrokerConfig } from '../../engine/backtest/broker';
-import { fromPacked } from '../../engine/data';
+import { closeTimes, fromPacked } from '../../engine/data';
+import { alignBook, packBook, type BookWire } from '../../engine/book';
+import { isBookKey } from '../../shared/bookFrame';
+import type { BookManager } from '../market/orderbook';
 import { planBot, type BotPlan } from '../../shared/trading/botPlan';
 import type { BotConfig, BotGuards, BotRunState, BotView, AccountEvent, ClosedTrade } from '../../shared/trading/types';
 import { SYMBOL_SPECS, isSymbol, type SymbolId } from '../../shared/symbols';
@@ -46,6 +49,11 @@ class BotRunner {
   private releaseSeries: (() => void) | null = null;
   private unsub: (() => void) | null = null;
   private sec = new Map<string, { series: SeriesHandle; release: () => void }>();
+  /**
+   * Order book, once the strategy reads it: recorded frames, and the live book captured every
+   * second while the bot runs (the last capture inside each bar stands for that bar).
+   */
+  private book: { mgr: BookManager; release: () => void; timer: NodeJS.Timeout; live: { t: number; bytes: Uint8Array }[] } | null = null;
   private timer: NodeJS.Timeout | null = null;
   private busy = false;
   private again = false;
@@ -122,6 +130,46 @@ class BotRunner {
     this.releaseSeries?.();
     for (const s of this.sec.values()) s.release();
     this.sec.clear();
+    if (this.book) {
+      clearInterval(this.book.timer);
+      this.book.release();
+      this.book = null;
+    }
+  }
+
+  private startBook(): void {
+    if (this.book || this.closed) return;
+    const { book: mgr, release } = this.svc.core.hub.acquireBook(this.rt.config.market, this.bot.symbol);
+    const live: { t: number; bytes: Uint8Array }[] = [];
+    const timer = setInterval(() => {
+      const f = this.svc.core.books.liveFrame(mgr);
+      if (!f) return;
+      const last = live[live.length - 1];
+      // one capture per bar is enough: keep the newest
+      if (last && this.bot.chartType !== 'renko' && bucketStart(this.tf, last.t) === bucketStart(this.tf, f.t)) live[live.length - 1] = { t: f.t, bytes: f.bytes };
+      else live.push({ t: f.t, bytes: f.bytes });
+      if (live.length > 500) live.splice(0, live.length - 500);
+    }, 1000);
+    timer.unref?.();
+    this.book = { mgr, release, timer, live };
+  }
+
+  /** Book frames for the closed bars [from, to) of the bot's series. */
+  private bookWire(from: number, to: number): BookWire | undefined {
+    if (!this.book || !this.series) return undefined;
+    const out = this.series.out;
+    const n = to - from;
+    const t = out.t.subarray(from, to);
+    const tc = closeTimes(out.t.subarray(0, to), to, this.bot.tf, this.bot.chartType === 'heikinashi' || this.bot.chartType === 'renko' ? this.bot.chartType : 'candles').subarray(from, to);
+    const f = this.svc.core.books.framesFor(this.rt.config.market, this.bot.symbol, t, tc, n);
+    const live = this.book.live;
+    const pick = alignBook(t, tc, n, live.map((x) => x.t));
+    for (let i = 0; i < n; i++)
+      if (!f.frames[i] && pick[i] >= 0) {
+        f.t[i] = live[pick[i]].t;
+        f.frames[i] = live[pick[i]].bytes;
+      }
+    return packBook(f.t, f.frames);
   }
 
   private schedule(delay: number): void {
@@ -214,7 +262,7 @@ class BotRunner {
       if (b.chartType === 'heikinashi') broker.fillData = fromPacked(s.source().pack(startIdx, closed), b.tf, 'candles') as unknown as BrokerConfig['fillData'];
       let res: BotStepResult | null = null;
       for (let attempt = 0; attempt < 4; attempt++) {
-        const h = this.svc.scripts.pool.botStep({ lang: doc.language, code: doc.code, ctx, inputs: b.params || {}, strategy: broker, data: packed, security: this.packSecurity(), since: st.simFrom, maxMs: 90000 });
+        const h = this.svc.scripts.pool.botStep({ lang: doc.language, code: doc.code, ctx, inputs: b.params || {}, strategy: broker, data: packed, security: this.packSecurity(), book: this.bookWire(startIdx, closed), since: st.simFrom, maxMs: 90000 });
         this.cancelStep = h.cancel;
         res = await h.promise;
         this.cancelStep = null;
@@ -297,6 +345,10 @@ class BotRunner {
 
   private async loadSecurity(keys: string[], fromT: number): Promise<void> {
     for (const key of keys) {
+      if (isBookKey(key)) {
+        this.startBook();
+        continue;
+      }
       if (this.sec.has(key)) continue;
       const { market, symbol, tf, chartType, metric } = keyParts(key);
       const ptf = parseTimeframe(tf);

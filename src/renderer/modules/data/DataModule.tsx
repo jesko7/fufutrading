@@ -3,9 +3,10 @@ import { HeadControls, type ModuleProps } from '../../app/WorkspaceView';
 import { api, errorMessage } from '../../api';
 import { toast } from '../../state/store';
 import { Icon, CoinIcon } from '../../components/Icon';
-import { Select, SymbolPicker, Spinner, Empty, confirmDialog } from '../../components/ui';
-import { fmtDate } from '../../lib/format';
-import { SYMBOL_SPECS, type Market, type SymbolId } from '../../../shared/symbols';
+import { Select, SymbolPicker, Spinner, Empty, Toggle, confirmDialog } from '../../components/ui';
+import { fmtDate, fmtDateTime } from '../../lib/format';
+import { SYMBOLS, SYMBOL_SPECS, type Market, type SymbolId } from '../../../shared/symbols';
+import { useApp } from '../../state/store';
 import './data.css';
 
 type Kind = 'klines' | 'mark' | 'metrics' | 'funding';
@@ -26,12 +27,23 @@ interface TradeStat {
   days: number;
   coverage: [number, number][];
 }
+interface BookStat {
+  market: Market;
+  symbol: SymbolId;
+  days: number;
+  bytes: number;
+  first: number;
+  last: number;
+}
 interface Overview {
   root: string;
   entries: Entry[];
   trades: TradeStat[];
+  books: { stats: BookStat[]; recording: Record<string, { status: string; saved: number }> };
   totalBytes: number;
 }
+
+const KEEP = [7, 14, 30, 90, 365].map((d) => ({ value: String(d), label: d === 365 ? 'Keep 1 year' : `Keep ${d} days` }));
 
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`;
@@ -62,6 +74,7 @@ const FUNDING = 'funding';
 
 export function DataModule(_p: ModuleProps) {
   const [data, setData] = useState<Overview | null>(null);
+  const books = useApp((s) => s.settings.books);
   const [busy, setBusy] = useState<{ label: string; done: number; total: number } | null>(null);
   const [sym, setSym] = useState<{ symbol: SymbolId; market: Market }>({ symbol: 'BTCUSDT', market: 'spot' });
   const [interval, setIntervalV] = useState('1m');
@@ -139,6 +152,51 @@ export function DataModule(_p: ModuleProps) {
               </div>
             </div>
           )}
+        </section>
+        <section className="data-card">
+          <div className="data-title-row">
+            <div className="data-title">Order books</div>
+            <span className="spacer" />
+            <Select value={String(books.keepDays)} title="How long recorded order books are kept" options={KEEP} onChange={(v) => void useApp.getState().updateSettings({ books: { ...books, keepDays: +v } })} />
+          </div>
+          <div className="faint small">
+            Every price level of the book, saved once a minute for scripts (Pine <code>book.*</code>, Python <code>data.book</code>): backtests, bots and chart history read it. Binance publishes price levels, not single orders. About 30 MB a day for a spot book, 7 MB for a perpetual.
+          </div>
+          <div className="data-rows">
+            {SYMBOLS.flatMap((symbol) => (['spot', 'futures'] as Market[]).map((market) => ({ symbol, market }))).map(({ symbol, market }) => {
+              const key = `${market}:${symbol}`;
+              const on = books.record.includes(key);
+              const st = data?.books.stats.find((b) => b.market === market && b.symbol === symbol);
+              const rec = data?.books.recording[key];
+              return (
+                <div className="data-row" key={key} data-book={key}>
+                  <div className="data-ins">
+                    <Toggle value={on} title={on ? 'Stop recording' : 'Record this order book'} onChange={(v) => void useApp.getState().updateSettings({ books: { ...books, record: v ? [...books.record.filter((k) => k !== key), key] : books.record.filter((k) => k !== key) } }).then(() => setTimeout(load, 300))} />
+                    <CoinIcon symbol={symbol} size={13} />
+                    <b>{ins(symbol, market)}</b>
+                    {on && <span className={`book-rec ${rec?.status === 'live' ? 'live' : ''}`}>{rec?.status === 'live' ? 'Recording' : 'Connecting…'}</span>}
+                  </div>
+                  <div className="data-cov faint">{st ? `${fmtDateTime(st.first)} → ${fmtDateTime(st.last)} · ${st.days} day${st.days === 1 ? '' : 's'}` : on ? 'The first snapshot is saved at the next full minute' : '—'}</div>
+                  <div className="data-size faint">{st ? fmtBytes(st.bytes) : ''}</div>
+                  <div className="data-act">
+                    {st && (
+                      <button
+                        className="icon-btn small"
+                        data-tip="Delete the recorded order book"
+                        onClick={async () => {
+                          if (!(await confirmDialog({ title: `Delete the recorded ${ins(symbol, market)} order book?`, body: `${st.days} day${st.days === 1 ? '' : 's'}, ${fmtBytes(st.bytes)}. Backtests and charts lose its history.`, confirm: 'Delete', danger: true }))) return;
+                          await api.call('books:clear', market, symbol).catch(fail('Not deleted'));
+                          load();
+                        }}
+                      >
+                        <Icon name="trash" size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </section>
         <section className="data-card">
           <div className="data-title">Candle cache</div>

@@ -15,6 +15,7 @@ import type { StrategyState } from './backtest/broker';
 import { keyParts, toBars, type RunSpec, type ScriptHost } from './host';
 import { truncateBars } from './data';
 import { parseTimeframe, tfDurationMs } from '../shared/timeframes';
+import { BookFrames } from './book';
 
 export interface RepaintSpec extends Omit<RunSpec, 'debug' | 'trace' | 'upTo' | 'bot' | 'realtime' | 'stateAt' | 'magnifier' | 'ticks'> {
   /** Most recent bars to replay (default 300). */
@@ -199,7 +200,9 @@ export async function repaintCheck(host: ScriptHost, spec: RepaintSpec): Promise
     }
   }
   for (let off = 1; off <= window; off++) if (!seen.has(off)) order.push(n - 1 - off);
-  const base = { lang: spec.lang, code: spec.code, ctx, inputs: spec.inputs, strategy: spec.strategy, maxMs: spec.maxMs, shouldStop: spec.shouldStop };
+  // recorded order-book frames are the same for the history and the replayed bars (a forming bar's book is not recorded)
+  const book = spec.book ? (spec.book instanceof BookFrames ? spec.book : BookFrames.from(spec.book)) : undefined;
+  const base = { lang: spec.lang, code: spec.code, ctx, inputs: spec.inputs, strategy: spec.strategy, maxMs: spec.maxMs, shouldStop: spec.shouldStop, book };
 
   // 1) the history: one run over all bars (strategies record their state after every candidate bar)
   const full = await host.run({ ...base, data, security, stateAt: order });

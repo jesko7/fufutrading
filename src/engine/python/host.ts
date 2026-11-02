@@ -13,6 +13,8 @@ import { StrategyBroker, type BrokerConfig, type TickProvider } from '../backtes
 import type { BarSeries, RunContext, ScriptResult, ScriptError, ScriptInputDef } from '../types';
 import { emptyResult } from '../types';
 import type { SymbolId } from '../../shared/symbols';
+import type { BookFrames } from '../book';
+import { bestAsk, bestBid, bookDepth, bookDepthImbalance, bookFillPrice, bookImbalance, bookKey, bookMid, bookQtyAt, bookWall, type BookView } from '../../shared/bookFrame';
 
 export interface PyInitOptions {
   /** Directory of the pyodide npm package (pyodide.js, *.wasm, python_stdlib.zip, lock file). */
@@ -46,6 +48,44 @@ export interface PyAnalysis {
 let py: any = null;
 let initPromise: Promise<any> | null = null;
 let currentData: BarSeries | null = null;
+
+/** One value per bar from the order book (data.book in Python); NaN on bars without a book. */
+export function bookSeries(book: BookFrames | null, n: number, kind: string, ps: number[]): Float64Array {
+  const out = new Float64Array(n).fill(NaN);
+  if (!book) return out;
+  const [a, b] = ps;
+  const side = (x: number) => (x === 1 ? 'ask' : 'bid');
+  const f: ((v: BookView) => number) | null =
+    kind === 'best_bid' ? bestBid
+    : kind === 'best_ask' ? bestAsk
+    : kind === 'mid' ? bookMid
+    : kind === 'spread' ? (v) => bestAsk(v) - bestBid(v)
+    : kind === 'levels' ? (v) => v.count(side(a))
+    : kind === 'price' ? (v) => v.price(side(a), b)
+    : kind === 'qty' ? (v) => v.qty(side(a), b)
+    : kind === 'depth' ? (v) => bookDepth(v, side(a), b)
+    : kind === 'notional' ? (v) => bookDepth(v, side(a), b, true)
+    : kind === 'imbalance' ? (v) => bookImbalance(v, a)
+    : kind === 'depth_imbalance' ? (v) => bookDepthImbalance(v, a)
+    : kind === 'wall_price' ? (v) => bookWall(v, side(a), b)[0]
+    : kind === 'wall_qty' ? (v) => bookWall(v, side(a), b)[1]
+    : kind === 'qty_at' ? (v) => bookQtyAt(v, a)
+    : kind === 'fill_price' ? (v) => bookFillPrice(v, a)
+    : null;
+  for (let i = 0; i < n && i < book.length; i++) {
+    if (kind === 'time') {
+      out[i] = book.time(i);
+      continue;
+    }
+    const v = book.at(i);
+    if (!v) continue;
+    if (kind === 'available') out[i] = 1;
+    else if (f) out[i] = f(v);
+    else throw new Error(`Unknown order-book series "${kind}"`);
+  }
+  return out;
+}
+let currentBook: BookFrames | null = null;
 let stdoutBuf: string[] = [];
 
 export function pythonReady(): boolean {
@@ -165,6 +205,16 @@ export async function initPython(opts: PyInitOptions): Promise<any> {
         params?.destroy?.();
         if (!currentData) throw new Error('fufu.ta can only be used while a script runs');
         return vecTa(String(name), ins.map(toF64), ps, currentData);
+      },
+      book_frame: (i: number) => {
+        const b = currentBook?.at(i);
+        return b ? [Float64Array.of(b.t), b.bp, b.bq, b.ap, b.aq] : undefined;
+      },
+      book_series: (kind: string, params: any) => {
+        const ps = (params && typeof params.toJs === 'function' ? params.toJs({ create_proxies: false }) : params || []) as number[];
+        params?.destroy?.();
+        if (!currentData) throw new Error('data.book can only be used while a script runs');
+        return bookSeries(currentBook, currentData.length, String(kind), ps.map((x) => (x === null || x === undefined ? NaN : +x)));
       },
       map_htf: (t: any, tc: any, ht: any, htc: any, values: any, lookahead: boolean) => {
         const chartT = toF64(t);
@@ -305,6 +355,8 @@ export interface PyRunOptions {
   debug?: DebugControl;
   /** Other symbols / timeframes by key "market:SYMBOL:tf:candles". */
   security?: Record<string, BarSeries>;
+  /** Order-book frames per bar (data.book); null/absent: not loaded (the script asks for it). */
+  book?: BookFrames | null;
   maxMs?: number;
   /** Live bot step: market orders created on the last bar fill at its close. */
   bot?: boolean;
@@ -340,10 +392,11 @@ export async function runPython(init: PyInitOptions, o: PyRunOptions): Promise<P
   const runner = p.globals.get('fufu_runner');
   const n = o.data.length;
   currentData = o.data;
+  currentBook = o.book || null;
   stdoutBuf = [];
   const htf: Record<string, Record<string, Float64Array>> = {};
   for (const [k, b] of Object.entries(o.security || {})) htf[k] = { t: b.t, tc: b.tc, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v };
-  const meta = p.toPy({ symbol: o.ctx.symbol, market: o.ctx.market, tf: o.ctx.tf, mintick: o.ctx.mintick, htf });
+  const meta = p.toPy({ symbol: o.ctx.symbol, market: o.ctx.market, tf: o.ctx.tf, mintick: o.ctx.mintick, htf, book: !!o.book, book_key: bookKey(o.ctx.market, o.ctx.symbol) });
   const cols = p.toPy(dataDict(o.data));
   const inputs = p.toPy(clean(o.inputs));
   const res = emptyResult('python');
@@ -475,6 +528,7 @@ export async function runPython(init: PyInitOptions, o: PyRunOptions): Promise<P
     for (const x of [meta, cols, inputs]) x?.destroy?.();
     runner.destroy?.();
     currentData = null;
+    currentBook = null;
   }
   if (stdoutBuf.length) {
     const last = Math.max(0, n - 1);

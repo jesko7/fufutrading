@@ -29,6 +29,8 @@ import { parseTimeframe, tfDurationMs } from '../../shared/timeframes';
 import { COST_PRESETS } from '../../shared/trading/presets';
 import type { CandleSeries } from '../../shared/candles';
 import type { MetricKind } from '../../shared/metrics';
+import { isBookKey } from '../../shared/bookFrame';
+import type { BookWire } from '../../engine/book';
 
 export interface AiToolDeps {
   core: AppCore;
@@ -461,11 +463,14 @@ export function aiTools(deps: AiToolDeps): AiTool[] {
         const ctx = runContext(spec);
         const bars = fromPacked(data, ins.tf, 'candles');
         let security: Record<string, Float64Array> = {};
+        let book: BookWire | undefined;
         let res: { result: ScriptResult; need: string[] } | null = null;
         for (let k = 0; k < 3; k++) {
-          res = await scripts.pool.run({ lang: src.language, code: src.code, ctx, inputs: (args.inputs as Record<string, unknown>) || {}, data, security }, { timeoutMs: 120000 }).promise;
+          res = await scripts.pool.run({ lang: src.language, code: src.code, ctx, inputs: (args.inputs as Record<string, unknown>) || {}, data, security, book }, { timeoutMs: 120000 }).promise;
           if (!res.need.length) break;
-          security = { ...security, ...(await loadSecurityFor(deps, res.need, bars.length ? bars.tc[bars.length - 1] - bars.t[0] : 0)) };
+          if (res.need.some(isBookKey)) book = scripts.bookWire(spec.market, spec.symbol, bars, spec.tf);
+          const other = res.need.filter((x) => !isBookKey(x));
+          if (other.length) security = { ...security, ...(await loadSecurityFor(deps, other, bars.length ? bars.tc[bars.length - 1] - bars.t[0] : 0)) };
         }
         const r = res!.result;
         const n = bars.length;

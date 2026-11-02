@@ -1,0 +1,17 @@
+//@version=6
+// @name Order Book Imbalance
+// @category Order book
+// @description Bid against ask quantity resting in the order book, per bar: (bids − asks) / (bids + asks) over the best levels or within a distance from the mid, from −1 (only asks) to +1 (only bids). The forming bar shows the live book; history needs order-book recordings (Data → Order books).
+indicator("Order Book Imbalance", "Book imbalance", precision=3)
+measure = input.string("Best levels", "Measure", options=["Best levels", "Distance from mid"])
+levels = input.int(20, "Levels a side", minval=1, maxval=5000)
+pct = input.float(0.25, "Within % of the mid", minval=0.01, step=0.05)
+smooth = input.int(1, "Average over bars", minval=1)
+raw = measure == "Best levels" ? book.imbalance(levels) : book.depth_imbalance(pct)
+imb = smooth > 1 ? ta.sma(raw, smooth) : raw
+plot(imb, "Imbalance", imb >= 0 ? color.new(color.teal, 15) : color.new(color.red, 15), style=plot.style_columns)
+hline(0, "Zero", color.gray, hline.style_solid)
+plot(book.bid_depth(pct), "Bids (base)", color.teal, display=display.data_window)
+plot(book.ask_depth(pct), "Asks (base)", color.red, display=display.data_window)
+alertcondition(ta.crossover(imb, 0.5), "Bids dominate", "Order book: bids outweigh asks 3:1")
+alertcondition(ta.crossunder(imb, -0.5), "Asks dominate", "Order book: asks outweigh bids 3:1")

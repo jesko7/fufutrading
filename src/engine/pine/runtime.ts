@@ -10,6 +10,7 @@
  * bar first rolls back to that commit (varip state is excluded from rollback).
  */
 import { PineError } from './lexer';
+import type { BookFrames } from '../book';
 
 export class Series {
   a: Float64Array;
@@ -100,6 +101,7 @@ export interface PlotOut {
   offset: number;
   histbase: number;
   display: boolean;
+  legendOnly?: boolean;
   trackPrice: boolean;
   /** plotshape/plotchar specifics */
   style?: string;
@@ -302,6 +304,8 @@ export class Runtime {
   secKeyOf: Record<number, string> = {};
   /** strategy broker (when running a strategy) */
   broker: any = null;
+  /** order-book frames per chart bar (book.*), when the script reads the book */
+  book: BookFrames | null = null;
   /** bar inspector: per-bar values of top-level variables */
   traceOn = false;
   traceData: Float64Array[] = [];

@@ -112,6 +112,32 @@ sells). Pine has no equivalent, so the built-in **Cumulative Volume Delta** is a
   `'_FUNDING'` gives the funding rate in % per funding interval at each settlement. See the
   Pine guide for details. Example: `oi = data.security('BTCUSDT.P_OI', '1h')`.
 
+### Order book (`data.book`)
+
+The chart symbol's order book per bar: every price level of both sides (Binance publishes
+levels, not single orders). Each bar carries the last snapshot taken while it formed: the live
+book on a live chart's forming bar, recordings (Data → Order books, once a minute) before.
+Bars without one are na. See the Pine guide's order-book section for the details.
+
+- `data.book[-1]` is the current bar's `BookFrame` (None without a snapshot), `data.book[-2]`
+  the previous bar's. Inside `next()` you cannot index past the current bar.
+- `BookFrame`: `.bids` and `.asks` are `(n, 2)` numpy arrays of `[price, qty]`, best first;
+  `.time`, `.best_bid`, `.best_ask`, `.mid`, `.spread`, `.depth(side, pct=None,
+  notional=False)`, `.imbalance(levels=10)`, `.wall(side, pct=None)`.
+- One value per bar (numpy arrays, cut at the current bar inside `next()`): `available`, `time`,
+  `best_bid`, `best_ask`, `mid`, `spread`, `levels(side)`, `price(side, level)`, `qty(side,
+  level)`, `depth(side, pct)`, `notional(side, pct)`, `imbalance(levels=10)`,
+  `depth_imbalance(pct=1.0)`, `wall(side, pct)` → `(prices, qtys)`, `qty_at(price)`,
+  `fill_price(qty)` (qty > 0 buys, < 0 sells). `side` is `'bid'` or `'ask'`; the values match
+  Pine's `book.*` exactly.
+
+```python
+@indicator("Bid/ask depth", overlay=False)
+def main(data, pct=input.float(0.5, "Within %")):
+    plot(data.book.depth('bid', pct), "Bids", color="#26a69a")
+    plot(-data.book.depth('ask', pct), "Asks", color="#ef5350")
+```
+
 ## Inputs
 
 `input.int(defval, title, min, max, step, options, tooltip, group)`, `input.float(...)`,

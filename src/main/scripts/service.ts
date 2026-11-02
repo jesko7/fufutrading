@@ -15,6 +15,12 @@ import { ScriptPool, type RunHandle } from './pool';
 import { ScriptLibrary } from './library';
 import type { SeriesHandle } from '../market/series';
 import type { InstanceReply, InstanceUpdate } from '../../engine/host';
+import type { BookDelta, BookWire } from '../../engine/book';
+import { packBook } from '../../engine/book';
+import { closeTimes } from '../../engine/data';
+import { isBookKey } from '../../shared/bookFrame';
+import type { BarSeries } from '../../engine/types';
+import type { BookManager } from '../market/orderbook';
 import { describeKey, keyParts } from '../../engine/host';
 import type { RunContext, ScriptLanguage } from '../../engine/types';
 import type { BrokerConfig } from '../../engine/backtest/broker';
@@ -81,6 +87,11 @@ export class LiveScript {
   private scriptName = '';
   private offLib: (() => void) | null = null;
   private offLost: (() => void) | null = null;
+  /**
+   * Order book (book.* / data.book): recorded frames for the history, then the live book (or the
+   * replay's recorded book up to its clock) on the forming bar, refreshed every second.
+   */
+  private book: { mgr: BookManager | null; release: (() => void) | null; timer: NodeJS.Timeout; sent: boolean; dirty: boolean; from: number } | null = null;
 
   constructor(
     private svc: ScriptService,
@@ -169,6 +180,7 @@ export class LiveScript {
     this.dirtyFrom = Infinity;
     this.needReset = false;
     for (const s of this.sec.values()) s.dirtyFrom = Infinity;
+    if (this.book) this.book.sent = true;
     const out = this.series.out;
     this.sentLen = out.length;
     this.inflight = true;
@@ -182,6 +194,7 @@ export class LiveScript {
         bars: out.pack(),
         realtime: true,
         security: this.securityPacked(),
+        book: this.book ? this.bookWire() : undefined,
       });
       this.opened = true;
       this.handle(reply, true);
@@ -216,6 +229,10 @@ export class LiveScript {
   private async loadSecurity(keys: string[]): Promise<void> {
     const fresh: string[] = [];
     for (const key of keys) {
+      if (isBookKey(key)) {
+        this.startBook();
+        continue;
+      }
       if (this.sec.has(key)) continue;
       const kp = keyParts(key);
       if (!isSymbol(kp.symbol)) {
@@ -311,7 +328,17 @@ export class LiveScript {
         s.dirtyFrom = Infinity;
       }
     }
-    if (!u.bars && !u.reset && !u.security && !u.securityFull) return;
+    if (this.book) {
+      if (!this.book.sent || u.reset) {
+        u.bookFull = this.bookWire();
+        this.book.sent = true;
+        this.book.dirty = false;
+      } else if (this.book.dirty || u.bars) {
+        u.book = this.bookTail();
+        this.book.dirty = false;
+      }
+    }
+    if (!u.bars && !u.reset && !u.security && !u.securityFull && !u.book && !u.bookFull) return;
     this.sentLen = out.length;
     this.inflight = true;
     try {
@@ -341,7 +368,67 @@ export class LiveScript {
       s.release();
     }
     this.sec.clear();
+    if (this.book) {
+      clearInterval(this.book.timer);
+      this.book.release?.();
+      this.book = null;
+    }
     this.releaseSeries?.();
+  }
+
+  private startBook(): void {
+    if (this.book || this.closed) return;
+    const { market, symbol } = this.p.spec;
+    const live = this.p.replay ? null : this.svc.core.hub.acquireBook(market, symbol);
+    const timer = setInterval(() => {
+      if (!this.book) return;
+      this.book.dirty = true;
+      this.schedule(THROTTLE_MS);
+    }, 1000);
+    timer.unref?.();
+    this.book = { mgr: live?.book ?? null, release: live?.release ?? null, timer, sent: false, dirty: false, from: 0 };
+    this.schedule(0);
+  }
+
+  /** Replay: the session's clock; live: no limit. */
+  private bookUntil(): number {
+    return this.p.replay ? (this.svc.core.replayClock?.(this.p.replay) ?? NaN) : Infinity;
+  }
+
+  /** Frames for bars [from, n): recorded ones (unless `recorded` is false), and the live book on the forming bar. */
+  private bookFrames(from: number, recorded = true): { t: number[]; frames: (Uint8Array | null)[] } {
+    const out = this.series.out;
+    const n = out.length;
+    const t = out.t.subarray(from, n);
+    const tc = closeTimes(out.t.subarray(0, n), n, this.p.spec.tf, runContext(this.p.spec).chartType).subarray(from, n);
+    const until = this.bookUntil();
+    const f = recorded && until === until ? this.svc.core.books.framesFor(this.p.spec.market, this.p.spec.symbol, t, tc, n - from, until) : { t: new Array(n - from).fill(NaN), frames: new Array(n - from).fill(null) };
+    const live = this.book?.mgr ? this.svc.core.books.liveFrame(this.book.mgr) : null;
+    if (live && n > from && live.t >= t[n - from - 1]) {
+      f.t[n - from - 1] = live.t;
+      f.frames[n - from - 1] = live.bytes;
+    }
+    return f;
+  }
+
+  private bookWire(): BookWire {
+    const f = this.bookFrames(0);
+    if (this.book) this.book.from = Math.max(0, this.series.out.length - 1);
+    return packBook(f.t, f.frames);
+  }
+
+  /**
+   * The forming bar's frame (live), or every bar since the last update (replay, from its
+   * recording). A bar that closed keeps the last live frame it was sent.
+   */
+  private bookTail(): BookDelta | undefined {
+    const n = this.series.out.length;
+    if (!this.book || !n) return undefined;
+    const from = this.p.replay ? Math.min(this.book.from, n - 1) : n - 1;
+    const f = this.bookFrames(from, !!this.p.replay);
+    this.book.from = n - 1;
+    if (!this.p.replay && !f.frames[f.frames.length - 1]) return undefined;
+    return { index: from, length: n, t: f.t, frames: f.frames };
   }
 }
 
@@ -352,6 +439,22 @@ export class ScriptService {
   readonly library: ScriptLibrary;
   readonly pyOpts: PyInitOptions | null;
   private debugSessions = new Map<string, RunHandle>();
+
+  /** Recorded order-book frames for bars (packed klines or a BarSeries) of the chart symbol. */
+  bookWire(market: 'spot' | 'futures', symbol: string, bars: Float64Array | BarSeries, tf: string, chartType = 'candles', until = Infinity): BookWire {
+    let t: Float64Array;
+    let tc: Float64Array;
+    if (bars instanceof Float64Array) {
+      const n = Math.floor(bars.length / STRIDE);
+      t = new Float64Array(n);
+      for (let i = 0; i < n; i++) t[i] = bars[i * STRIDE];
+      tc = closeTimes(t, n, tf, chartType).subarray(0, n);
+    } else {
+      t = bars.t;
+      tc = bars.tc;
+    }
+    return this.core.books.wireFor(market, symbol, t, tc, t.length, until);
+  }
 
   /** Closed bars of a series (snapshot) for one-shot runs started from the editor. */
   async closedBars(spec: SeriesSpec, bars?: number): Promise<Float64Array> {
@@ -408,6 +511,7 @@ export class ScriptService {
     const tf = parseTimeframe(spec.tf)!;
     const span = n ? data[(n - 1) * STRIDE] + tfDurationMs(tf) - data[0] : 0;
     const security: Record<string, Float64Array> = {};
+    let book: BookWire | undefined;
     const market = o.strategy?.market || spec.market;
     for (let round = 0; round < 4; round++) {
       const h = this.pool.repaint(
@@ -419,6 +523,7 @@ export class ScriptService {
           strategy: o.strategy === null ? null : { market, step: SYMBOL_SPECS[spec.symbol][market].stepSize, ...(o.strategy || {}) },
           data,
           security,
+          book,
           window: Math.max(20, Math.min(1000, Math.round(+(o.window ?? 0)) || 300)),
           budgetMs: Math.min(60000, Math.max(1000, o.budgetMs ?? (lang === 'python' ? 30000 : 12000))),
           maxChecks: Math.min(500, Math.max(8, o.maxChecks ?? (lang === 'python' ? 40 : 150))),
@@ -427,7 +532,10 @@ export class ScriptService {
       );
       const rep = await h.promise;
       if (!rep.need.length) return rep;
-      for (const key of rep.need) if (!security[key]) security[key] = await this.securitySeries(key, span);
+      for (const key of rep.need) {
+        if (isBookKey(key)) book = this.bookWire(spec.market, spec.symbol, data, spec.tf, runContext(spec).chartType);
+        else if (!security[key]) security[key] = await this.securitySeries(key, span);
+      }
     }
     throw new Error('The data the script asks for could not be loaded');
   }
@@ -523,7 +631,8 @@ export class ScriptService {
       const lang: ScriptLanguage = o?.language === 'python' ? 'python' : 'pine';
       const spec = o.spec as SeriesSpec;
       const data = await this.closedBars(spec, Math.min(5000, Math.max(200, +o.bars || 1500)));
-      const h = this.pool.run({ lang, code: String(o.code ?? ''), ctx: runContext(spec), inputs: o.inputs || {}, data, trace: true, strategy: { market: spec.market, step: SYMBOL_SPECS[spec.symbol][spec.market].stepSize } }, { timeoutMs: 120000 });
+      const book = /\bbook\b/.test(String(o.code ?? '')) ? this.bookWire(spec.market, spec.symbol, data, spec.tf, runContext(spec).chartType) : undefined;
+      const h = this.pool.run({ lang, code: String(o.code ?? ''), ctx: runContext(spec), inputs: o.inputs || {}, data, book, trace: true, strategy: { market: spec.market, step: SYMBOL_SPECS[spec.symbol][spec.market].stepSize } }, { timeoutMs: 120000 });
       const { result } = await h.promise;
       const times = new Float64Array(Math.floor(data.length / 9));
       for (let i = 0; i < times.length; i++) times[i] = data[i * 9];
@@ -540,7 +649,7 @@ export class ScriptService {
       const id = uid('dbg');
       const bps = Array.isArray(o.breakpoints) ? o.breakpoints.map(Number).filter((x: number) => x > 0) : [];
       const h = this.pool.run(
-        { lang: 'python', code: String(o.code ?? ''), ctx: runContext(spec), inputs: o.inputs || {}, data, strategy: { market: spec.market, step: SYMBOL_SPECS[spec.symbol][spec.market].stepSize } },
+        { lang: 'python', code: String(o.code ?? ''), ctx: runContext(spec), inputs: o.inputs || {}, data, book: /\bbook\b/.test(String(o.code ?? '')) ? this.bookWire(spec.market, spec.symbol, data, spec.tf, runContext(spec).chartType) : undefined, strategy: { market: spec.market, step: SYMBOL_SPECS[spec.symbol][spec.market].stepSize } },
         { debug: { breakpoints: bps, breakOnNext: !!o.breakOnNext, onPause: (snapshot, reason) => this.core.router.broadcast('scripts:debug', { id, kind: 'pause', snapshot, reason }) } },
       );
       this.debugSessions.set(id, h);

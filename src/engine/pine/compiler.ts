@@ -48,6 +48,8 @@ export interface PlotStatic {
   offsetJs?: string;
   histbase: number;
   display: boolean;
+  /** display.data_window / display.status_line: a value in the legend, not drawn in the pane. */
+  legendOnly?: boolean;
   trackPrice: boolean;
   location?: string;
   text?: string;
@@ -117,6 +119,8 @@ export interface CompiledPine {
   rootSlots: { num: number; obj: number; vars: number };
   warnings: { line: number; message: string; kind: 'lookahead' | 'repaint' | 'compat' | 'info' }[];
   usesStrategy: boolean;
+  /** calls book.* (needs the order-book frames) */
+  usesBook: boolean;
   /** user functions (for the debugger / outline) */
   functions: { name: string; line: number; params: string[] }[];
   variables: { name: string; line: number }[];
@@ -193,6 +197,7 @@ class Compiler {
   globalsUsedInFns = new Set<string>();
   version: number;
   usesStrategy = false;
+  usesBook = false;
   /** globals whose history is read inside functions: name -> decl (filled when the global is declared) */
   globalHist = new Map<string, VarInfo | null>();
   /** initializer expressions of global (non-var) declarations, for static resolution in request.security */
@@ -331,6 +336,7 @@ class Compiler {
       rootSlots: { num: this.root.num, obj: this.root.obj, vars: this.root.vars },
       warnings: this.warnings,
       usesStrategy: this.usesStrategy,
+      usesBook: this.usesBook,
       functions: [...this.fns.values()].map((f) => ({ name: f.def.name, line: f.def.line, params: f.def.params.map((p) => p.name) })),
       variables: this.variablesList,
       traceNames: this.traceVars.map((v) => ({ name: v.name, line: v.line })),
@@ -1331,6 +1337,7 @@ class Compiler {
       while (argJs.length && argJs[argJs.length - 1] === 'undefined') argJs.pop();
     }
     if (name === 'request.security') this.err('internal', e);
+    if (name.startsWith('book.')) this.usesBook = true;
     let js: string;
     if (spec.mode === 'state') js = `${spec.impl}(R.state(ctx, ${this.fn.states++}), R${argJs.length ? `, ${argJs.join(', ')}` : ''})`;
     else if (spec.mode === 'rt') js = `${spec.impl}(R${argJs.length ? `, ${argJs.join(', ')}` : ''})`;
@@ -1404,6 +1411,7 @@ class Compiler {
           ...this.plotOffset(offset, e),
           histbase: Number(this.constEval(histbase) ?? 0),
           display: disp !== 'none',
+          legendOnly: typeof disp === 'string' && /data_window|status_line/.test(disp) && !/all|pane/.test(disp),
           trackPrice: !!this.constEval(trackprice),
           format: this.constEval(format) as string | undefined,
           precision: this.constEval(precision) as number | undefined,
