@@ -45,7 +45,7 @@ interface NewsData {
 }
 
 type Filter = 'all' | 'BTC' | 'ETH' | 'SOL' | 'chart';
-type SentFilter = 'all' | 'bullish' | 'bearish';
+type SentFilter = 'all' | Sentiment;
 
 const AI_MODELS = [
   { value: 'haiku', label: 'Haiku' },
@@ -96,11 +96,11 @@ export function NewsModule({ module }: ModuleProps) {
   const rated = data ? data.items.filter((it) => data.sentiment?.[it.id]).length : 0;
   // the mood of what is listed (coin and search filters applied)
   const mood = useMemo(() => {
-    const out = { bullish: 0, bearish: 0 };
+    const out = { bullish: 0, bearish: 0, neutral: 0 };
     if (!data?.sentiment || !sentOn) return out;
     for (const it of items) {
       const s = data.sentiment[it.id]?.s;
-      if (s === 'bullish' || s === 'bearish') out[s]++;
+      if (s === 'bullish' || s === 'bearish' || s === 'neutral') out[s]++;
     }
     return out;
   }, [items, data, sentOn]);
@@ -142,7 +142,7 @@ export function NewsModule({ module }: ModuleProps) {
       </div>
       {ai && (
         <div className="news-ai">
-          <label className="row" style={{ gap: 6 }} data-tip="Claude rates each headline: green for likely bullish, red for likely bearish. It uses your Claude Code plan, like AI Studio.">
+          <label className="row" style={{ gap: 6 }} data-tip="Claude rates each headline: green for likely bullish, red for likely bearish, gray for neutral (no clear effect). It uses your Claude Code plan, like AI Studio.">
             <Toggle value={ai.enabled} onChange={(v) => setAi({ enabled: v })} />
             <span>AI sentiment</span>
           </label>
@@ -162,13 +162,15 @@ export function NewsModule({ module }: ModuleProps) {
                   { value: 'all', label: 'All' },
                   { value: 'bullish', label: 'Bullish', cls: 'sent-opt bullish' },
                   { value: 'bearish', label: 'Bearish', cls: 'sent-opt bearish' },
+                  { value: 'neutral', label: 'Neutral', cls: 'sent-opt neutral' },
                 ]}
               />
               <span className="spacer" />
-              {mood.bullish + mood.bearish > 0 && (
-                <span className="news-mood" data-tip="Bullish and bearish headlines among those listed">
+              {mood.bullish + mood.bearish + mood.neutral > 0 && (
+                <span className="news-mood" data-tip="Bullish, bearish and neutral headlines among those listed">
                   <span className="up">▲ {mood.bullish}</span>
                   <span className="down">▼ {mood.bearish}</span>
+                  <span className="neutral">● {mood.neutral}</span>
                 </span>
               )}
               <span className={clsx('small', data?.aiStatus?.error ? 'warn-text' : 'faint')} data-tip={data?.aiStatus?.error}>
@@ -207,9 +209,9 @@ export function NewsModule({ module }: ModuleProps) {
                   <div className="news-meta">
                     <span className="news-src">{it.source}</span>
                     <span className="faint">{it.t ? fmtAgo(it.t) : ''}</span>
-                    {sent && sent.s !== 'neutral' && (
+                    {sent && (
                       <span className={clsx('sent-badge', sent.s)} data-tip={`Claude (${sent.model}): ${sent.why || sent.s}`}>
-                        {sent.s === 'bullish' ? '▲ Bullish' : '▼ Bearish'}
+                        {sent.s === 'bullish' ? '▲ Bullish' : sent.s === 'bearish' ? '▼ Bearish' : '● Neutral'}
                       </span>
                     )}
                     <span className="spacer" />

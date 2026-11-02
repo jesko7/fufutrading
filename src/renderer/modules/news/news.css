@@ -120,6 +120,9 @@
 .news-item.sent-bearish {
   box-shadow: inset 3px 0 0 var(--down);
 }
+.news-item.sent-neutral {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--text-3) 70%, transparent);
+}
 .sent-badge {
   font-size: 10.5px;
   font-weight: 650;
@@ -135,11 +138,21 @@
   color: var(--down);
   background: color-mix(in srgb, var(--down) 14%, transparent);
 }
+.sent-badge.neutral {
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--text-3) 16%, transparent);
+}
 .seg .sent-opt.bullish.on {
   color: var(--up);
 }
 .seg .sent-opt.bearish.on {
   color: var(--down);
+}
+.seg .sent-opt.neutral.on {
+  color: var(--text-2);
+}
+.news-mood .neutral {
+  color: var(--text-3);
 }
 .news-mood {
   display: inline-flex;

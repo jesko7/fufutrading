@@ -94,8 +94,8 @@ an AI assistant that builds and tests strategies inside the app.
   the gamma flip and other levels) and news (headlines Claude rates bullish or bearish), with
   desktop notifications and webhooks.
 - **News:** headlines from crypto news feeds, filtered by coin, with Claude's read of each one
-  (green for likely bullish, red for likely bearish; model, effort and thinking chosen in the
-  module).
+  (green for likely bullish, red for likely bearish, gray for neutral; filters and counts per
+  rating; model, effort and thinking chosen in the module).
 - **AI Studio:** Claude Code (your subscription) with model, mode, effort and thinking settings.
   It researches like a quant through the app's own tools:
   - writes, compiles and runs scripts, measuring their predictive value
