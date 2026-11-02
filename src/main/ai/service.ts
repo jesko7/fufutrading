@@ -400,6 +400,27 @@ export class AIService {
     });
   }
 
+  /**
+   * Strategy from a transcript: Sonnet 5.5 at low effort condenses a video, podcast or article
+   * transcript into the trading rules it describes. The summary then goes to the chat's own
+   * model as a build request (the renderer sends it).
+   */
+  async summarizeTranscript(transcript: string, notes = ''): Promise<{ summary: string; cost: number; truncated: boolean }> {
+    const clean = transcript.replace(/\r\n?/g, '\n').trim();
+    if (clean.length < 200) throw new Error('Validation: the transcript is too short to describe a strategy');
+    const truncated = clean.length > MAX_TRANSCRIPT;
+    const prompt = transcriptPrompt(truncated ? clean.slice(0, MAX_TRANSCRIPT) : clean, notes);
+    try {
+      const r = await this.complete(prompt, { model: TRANSCRIPT_MODEL, effort: 'low', thinking: false }, 300000);
+      return { summary: r.text.trim(), cost: r.cost, truncated };
+    } catch (e) {
+      // an older Claude Code that doesn't know the model id yet: its "sonnet" alias
+      if (!/model/i.test((e as Error).message)) throw e;
+      const r = await this.complete(prompt, { model: 'sonnet', effort: 'low', thinking: false }, 300000);
+      return { summary: r.text.trim(), cost: r.cost, truncated };
+    }
+  }
+
   stop(chatId: string): boolean {
     const r = this.running.get(chatId);
     if (!r) return false;
@@ -542,6 +563,32 @@ export class AIService {
 
 const chatSession = new Map<string, string>();
 
+const TRANSCRIPT_MODEL = 'claude-sonnet-5-5';
+/** About 150k tokens of transcript. */
+const MAX_TRANSCRIPT = 600_000;
+
+export function transcriptPrompt(transcript: string, notes: string): string {
+  return [
+    'Below is a transcript (a trading video, podcast, course or article). Extract the trading strategy it describes, as a specification for a developer who will implement and backtest it.',
+    '',
+    'Write it in Markdown with these sections:',
+    '- **Market & timeframe**: what it trades on, if said.',
+    '- **Indicators**: every indicator with its exact settings.',
+    '- **Long entry** and **Short entry**: the exact conditions, in order.',
+    '- **Exits**: stop loss, take profit, trailing stops and time exits, with the numbers.',
+    '- **Position size & risk**.',
+    '- **Filters**: sessions, trend or volume filters, news, anything else that blocks trades.',
+    '- **Open points**: what the transcript leaves open, each with the most reasonable default.',
+    '- **Claimed results**: any performance the speaker claims, in one line, so it can be checked.',
+    'State only what the transcript says or clearly implies, and mark assumptions as assumptions. Leave out promotion, anecdotes and filler. Write "not specified" for sections it does not cover. If it describes no trading strategy, say so in one sentence instead.',
+    notes.trim() ? `\nThe user adds: ${notes.trim()}` : '',
+    '',
+    '<transcript>',
+    transcript,
+    '</transcript>',
+  ].join('\n');
+}
+
 function sanitize(s: Partial<AiSettings>): Partial<AiSettings> {
   const out: Partial<AiSettings> = {};
   if (typeof s.model === 'string' && /^[\w.\-[\]]{2,60}$/.test(s.model)) out.model = s.model;
@@ -562,6 +609,7 @@ export function registerAI(core: AppCore, deps: Omit<AiToolDeps, 'core' | 'docsD
   r.handle('ai:create', ([settings]) => svc.create(settings || {}));
   r.handle('ai:send', ([id, text, settings, context]) => svc.send(id ? String(id) : null, String(text || ''), settings || undefined, context || undefined));
   r.handle('ai:stop', ([id]) => svc.stop(String(id)));
+  r.handle('ai:summarizeTranscript', ([text, notes]) => svc.summarizeTranscript(String(text || ''), String(notes || '')));
   r.handle('ai:delete', ([id]) => {
     svc.remove(String(id));
     return true;

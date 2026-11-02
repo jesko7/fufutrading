@@ -1620,6 +1620,54 @@ const S = {
     const dataMid = await page.evaluate(() => document.querySelector('.stack:has(.data-mod) .stack-tab.on')?.getAttribute('data-mid'));
     if (dataMid) await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), dataMid);
   },
+  async transcript() {
+    console.log('scenario: strategy from a transcript');
+    await page.waitForSelector('.start, .workspace', { timeout: 30000 });
+    if (await page.isVisible('.start')) await openPreset('Trader');
+    if (!(await page.isVisible('.ai-studio'))) {
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('.palette input');
+      await page.fill('.palette input', 'Add AI Studio');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.ai-studio', { timeout: 15000 });
+    }
+    if (!(await page.isVisible('.ai-new'))) await page.click('.stack:has(.ai-studio) button:has-text("New chat")');
+    await page.waitForSelector('.ai-new .ai-input', { timeout: 15000 });
+    // the chat model: small, low effort, Ask (it answers without building, the test stops it anyway)
+    const sels = await page.$$('.ai-new .ai-composer select');
+    if (sels[0]) await sels[0].selectOption('haiku');
+    if (sels[1]) await sels[1].selectOption('low');
+    await page.click('.ai-new .ai-composer .seg button:has-text("Ask")');
+    await page.click('.ai-suggestion.from-transcript');
+    await page.waitForSelector('.tr-text', { timeout: 5000 });
+    const lines = [
+      'Hey traders, welcome back to the channel. Today I show you my favourite trend strategy on the four hour chart.',
+      'We use two exponential moving averages, the 9 EMA and the 21 EMA, plus the RSI with length 14.',
+      'We only go long when the 9 EMA crosses above the 21 EMA and the RSI is above 50 but below 70.',
+      'We go short when the 9 EMA crosses below the 21 EMA and the RSI is below 50 but above 30.',
+      'The stop loss goes 1.5 times the ATR of 14 below the entry for longs and above it for shorts.',
+      'Take profit is at two times the risk, so a two to one reward to risk, and we risk one percent of the account per trade.',
+      'Do not take trades on weekends, the volume is too thin. Smash that like button. With this I made 300 percent last year.',
+    ];
+    const srt = lines.map((l, k) => `${k + 1}\n00:00:${String(k * 5).padStart(2, '0')},000 --> 00:00:${String(k * 5 + 5).padStart(2, '0')},000\n${l}\n`).join('\n');
+    await page.fill('.tr-text', srt);
+    const meta = await page.textContent('.tr-meta');
+    check(/\d{3} words/.test(meta || '') && !(meta || '').includes('too short'), `caption timestamps are left out of the count (${(meta || '').replace(/\s+/g, ' ').trim()})`);
+    await shot('60-transcript-dialog');
+    await page.click('.modal button:has-text("Summarize & build")');
+    // Sonnet summarizes, then the chat starts with the summary as the build request
+    const started = await page.waitForSelector('.ai-chat .ai-msg.user', { timeout: 240000 }).then(() => true).catch(() => false);
+    const msg = started ? (await page.textContent('.ai-chat .ai-msg.user')) || '' : (await page.textContent('.modal').catch(() => '')) || '';
+    check(started && /Sonnet 5\.5 summarized it from a transcript of \d+ words/.test(msg) && /EMA/.test(msg) && /RSI/.test(msg), `Sonnet's summary starts the chat (${msg.replace(/\s+/g, ' ').slice(0, 160)})`);
+    const chats = await page.evaluate(() => window.fufu.invoke('ai:list'));
+    const chat = chats[0];
+    check(chat?.settings?.model === 'haiku', `the chat uses the selected model (${chat?.settings?.model})`);
+    if (chat) await page.evaluate((id) => window.fufu.invoke('ai:stop', id), chat.id);
+    await wait(800);
+    await page.evaluate(() => document.querySelector('.ai-chat .ai-msg.user')?.scrollIntoView({ block: 'start' }));
+    await wait(300);
+    await shot('61-transcript-chat');
+  },
   async options() {
     console.log('scenario: options & Greeks');
     await page.keyboard.press('Control+k');

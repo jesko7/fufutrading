@@ -12,6 +12,7 @@ import { openModule } from '../../app/moduleOps';
 import { isSymbol } from '../../../shared/symbols';
 import { Markdown } from './markdown';
 import { onAIRequest } from './requests';
+import { openTranscriptDialog } from './transcript';
 import './ai.css';
 
 // ------------------------------------------------------------------ types (mirror of main/ai/service)
@@ -302,6 +303,16 @@ function NewChat({ available, pending, onPendingUsed, onStarted }: { available: 
             <span>{s.text}</span>
           </button>
         ))}
+        <button
+          className="ai-suggestion from-transcript"
+          disabled={!available || busy}
+          onClick={() => openTranscriptDialog(`${MODELS.find((m) => m.value === settings.model)?.label || settings.model} (${EFFORTS.find((e) => e.value === settings.effort)?.label.toLowerCase() || settings.effort})`, (p) => void send(p, ctx, settings))}
+        >
+          <Icon name="news" size={14} />
+          <span>
+            <b>Strategy from a transcript…</b> Paste a trading video's transcript: Sonnet summarizes the strategy, then Claude builds and backtests it.
+          </span>
+        </button>
       </div>
       <Composer text={text} setText={setText} settings={settings} setSettings={setSettings} ctx={ctx} setCtx={setCtx} onSend={() => void send()} running={false} disabled={!available || busy} autoFocus />
     </div>
@@ -416,11 +427,20 @@ function ContextChips({ ctx }: { ctx?: Context }) {
   );
 }
 
+/** Structured requests (a transcript summary: headings, lists, tables) read better rendered. */
+const looksMarkdown = (t: string) => t.includes('\n') && /^(#{1,4}\s|\s*[-*]\s|\s*\|.*\|\s*$)/m.test(t);
+
 function UserMsg({ m }: { m: Message }) {
   return (
     <div className="ai-msg user">
       <div className="ai-bubble">
-        <div className="ai-user-text">{m.text}</div>
+        {looksMarkdown(m.text || '') ? (
+          <div className="ai-user-text md-user">
+            <Markdown text={m.text || ''} />
+          </div>
+        ) : (
+          <div className="ai-user-text">{m.text}</div>
+        )}
         <ContextChips ctx={m.context} />
       </div>
     </div>

@@ -103,6 +103,9 @@ an AI assistant that builds and tests strategies inside the app.
     timeframes and periods
   - optimizes out-of-sample and reports an honest verdict
   - reviews your own trades and journal, and can prepare a paper bot
+  - **strategy from a transcript:** paste the transcript of a trading video or load its
+    subtitles (.srt/.vtt); Sonnet 5.5 at low effort writes down the strategy it describes, then
+    the chosen model builds and backtests it
 
 ## Requirements
 
@@ -145,7 +148,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings book
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings book transcript
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

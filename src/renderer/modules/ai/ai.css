@@ -177,6 +177,12 @@
   line-height: 1.5;
   user-select: text;
 }
+.ai-user-text.md-user {
+  white-space: normal;
+}
+.ai-user-text.md-user .md > :first-child {
+  margin-top: 0;
+}
 .ai-avatar {
   width: 26px;
   height: 26px;
@@ -536,4 +542,35 @@
 }
 .ai-table tr + tr td {
   border-top: 1px solid var(--border);
+}
+
+/* strategy from a transcript */
+.ai-suggestion.from-transcript {
+  grid-column: 1 / -1;
+  border-style: dashed;
+}
+.ai-suggestion.from-transcript b {
+  font-weight: 650;
+  margin-right: 4px;
+}
+.tr-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tr-text {
+  min-height: 220px;
+  max-height: 46vh;
+  resize: vertical;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.tr-meta {
+  gap: 10px;
+}
+.tr-flow {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
