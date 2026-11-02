@@ -595,6 +595,10 @@ const S = {
     check(replayed, `the backtest replays live (${((await page.textContent('.overview').catch(() => '')) || '').match(/Reproducible live[^.]*\./)?.[0] || 'no verdict'})`);
     await wait(500);
     await shot('11-backtest-overview');
+    // the drawdown hangs from zero (an underwater curve)
+    await page.locator('.chart-card:has(.section-title:text-is("Drawdown"))').scrollIntoViewIfNeeded();
+    await wait(300);
+    await page.locator('.chart-card:has(.section-title:text-is("Drawdown"))').screenshot({ path: path.join(shots, '11b-backtest-drawdown.png') });
     await page.click('.results .tabs .tab:has-text("Trades")');
     const rows = await page.$$eval('.trades-table tbody tr.clickable', (r) => r.length);
     check(rows > 0, `trades listed (${rows})`);
@@ -1538,9 +1542,20 @@ const S = {
     await page.waitForSelector('.start, .workspace', { timeout: 30000 });
     if (!(await page.isVisible('.chart-host canvas'))) await openPreset('Trader');
     await page.waitForSelector('.chart-host canvas', { timeout: 30000 });
-    // record the spot BTC book (the chart's instrument)
+    // record the spot BTC book
     await page.evaluate(() => window.fufu.invoke('settings:set', { books: { record: ['spot:BTCUSDT'], keepDays: 30 } }));
-    await page.locator('button:has-text("Indicators")').first().click();
+    // a chart of its own, maximized (removed at the end)
+    const known = await page.evaluate(() => Object.keys(window.__charts || {}));
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Chart');
+    await page.click('.palette .p-item:has(span:text-is("Add Chart"))');
+    await page.waitForFunction((k) => Object.keys(window.__charts || {}).some((x) => !k.includes(x)), known, { timeout: 10000 });
+    const cid = await page.evaluate((k) => Object.keys(window.__charts).find((x) => !k.includes(x)), known);
+    await page.waitForFunction((id) => window.__charts[id].bars().n > 50, cid, { timeout: 30000 });
+    await page.locator(`.stack-tab[data-mid="${cid}"]`).dblclick();
+    await page.waitForSelector('.stack.maximized .chart-host', { timeout: 5000 });
+    await page.locator('.stack.maximized button:has-text("Indicators")').first().click();
     await page.waitForSelector('.picker-row', { timeout: 15000 });
     for (const q of ['Order Book Imbalance', 'Python: Book Walls']) {
       await page.fill('.picker-main input', q);
@@ -1549,16 +1564,20 @@ const S = {
     }
     await page.keyboard.press('Escape');
     // the forming bar reads the live book: a value between −1 and +1 in the legend
-    const imbOk = await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Book imbalance/.test(r.textContent || '') && [...r.querySelectorAll('.ind-val')].some((v) => /^[−-]?[01]\.\d{3}$/.test((v.textContent || '').trim()))), null, { timeout: 60000, polling: 500 }).then(() => true).catch(() => false);
-    const imbText = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Book imbalance/.test(t)).join(' | '));
+    const imbOk = await page.waitForFunction(() => [...document.querySelectorAll('.stack.maximized .ind-item')].some((r) => /Book imbalance/.test(r.textContent || '') && [...r.querySelectorAll('.ind-val')].some((v) => /^[−-]?[01]\.\d{3}$/.test((v.textContent || '').trim()))), null, { timeout: 60000, polling: 500 }).then(() => true).catch(() => false);
+    const imbText = await page.$$eval('.stack.maximized .ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Book imbalance/.test(t)).join(' | '));
     check(imbOk, `Order Book Imbalance shows the live book (${imbText.replace(/\s+/g, ' ').slice(0, 90)})`);
-    const wallsOk = await page.waitForFunction(() => [...document.querySelectorAll('.ind-item')].some((r) => /Walls/.test(r.textContent || '') && /\d{1,3}(,\d{3})+\.\d\d/.test(r.textContent || '')), null, { timeout: 120000, polling: 500 }).then(() => true).catch(() => false);
-    const wallsText = await page.$$eval('.ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Walls/.test(t)).join(' | '));
+    const wallsOk = await page.waitForFunction(() => [...document.querySelectorAll('.stack.maximized .ind-item')].some((r) => /Walls/.test(r.textContent || '') && /\d{1,3}(,\d{3})+\.\d\d/.test(r.textContent || '')), null, { timeout: 120000, polling: 500 }).then(() => true).catch(() => false);
+    const wallsText = await page.$$eval('.stack.maximized .ind-item', (rows) => rows.map((r) => r.textContent || '').filter((t) => /Walls/.test(t)).join(' | '));
     check(wallsOk, `Python Book Walls reads data.book (${wallsText.replace(/\s+/g, ' ').slice(0, 90)})`);
-    const errs = await page.$$eval('.ind-err', (e) => e.map((x) => x.textContent));
+    const errs = await page.$$eval('.stack.maximized .ind-err', (e) => e.map((x) => x.textContent));
     check(!errs.length, `no script errors (${JSON.stringify(errs)})`);
     await wait(1000);
     await shot('58-book-scripts');
+    await page.locator('.stack.maximized .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
+    await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), cid);
+    await page.waitForFunction((mid) => !window.__charts?.[mid], cid, { timeout: 5000 });
     // the Data panel: recording on, connected
     await page.keyboard.press('Control+k');
     await page.waitForSelector('.palette input');
@@ -1600,12 +1619,6 @@ const S = {
     // leave the workspace as it was: close the Data Manager, remove the two indicators
     const dataMid = await page.evaluate(() => document.querySelector('.stack:has(.data-mod) .stack-tab.on')?.getAttribute('data-mid'));
     if (dataMid) await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), dataMid);
-    for (const name of ['Book imbalance', 'Walls']) {
-      const row = page.locator('.ind-item', { hasText: name }).first();
-      if (!(await row.isVisible().catch(() => false))) continue;
-      await row.hover();
-      await row.locator('button[data-tip="Remove"]').click().catch(() => {});
-    }
   },
   async options() {
     console.log('scenario: options & Greeks');
