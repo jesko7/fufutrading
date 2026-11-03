@@ -179,6 +179,20 @@ export class LiveAggregator {
     return { index: i, bar, isNew: true };
   }
 
+  /**
+   * Series built from trades alone (no base klines, e.g. sub-minute perpetual bars): buckets before
+   * the one holding time `t` are final, so their trades leave the pending list.
+   */
+  settleBefore(t: number): void {
+    const b = bucketStart(this.tf, t);
+    const pend = this.pending;
+    let drop = 0;
+    while (drop < pend.length && pend[drop].t < b) drop++;
+    if (!drop) return;
+    pend.splice(0, drop);
+    if (b - 1 > this.watermark) this.watermark = b - 1;
+  }
+
   /** Latest price known to the aggregator. */
   lastPrice(): number {
     const s = this.series;

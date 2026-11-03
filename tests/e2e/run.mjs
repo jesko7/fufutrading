@@ -299,6 +299,10 @@ const S = {
     await shot('04a-trade-window');
     await page.keyboard.press('Escape');
     await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
+    // a disabled order button says why
+    const blocked = await page.$eval('.trade-panel button.btn.large', (b) => b.disabled);
+    const why = await page.textContent('.trade-panel .trade-block').catch(() => '');
+    check(blocked && /Enter an amount/.test(why || ''), `the disabled order button says why (${(why || '').trim()})`);
     await page.click('.trade-panel button:has-text("25%")');
     await wait(500);
     await page.click('.trade-panel button:has-text("Open long")');
@@ -367,7 +371,7 @@ const S = {
     // Binance's limit close: a reduce-only limit order for some or all of the position
     await page.click('.acct td button:has-text("Limit")');
     await page.waitForSelector('.popover .limit-close');
-    await page.locator('.popover .limit-close label:has-text("Price") input').fill(String(Math.round(last * 1.03)));
+    await page.locator('.popover .limit-close label:has-text("Price") input').fill(String(Math.round(last * 1.02)));
     await wait(300);
     await shot('05c-limit-close');
     await page.click('.popover .limit-close button:has-text("Place limit sell")');
@@ -377,14 +381,15 @@ const S = {
     await page.waitForFunction(() => document.querySelectorAll('.acct table.table tbody tr').length === 0, null, { timeout: 10000 });
     const tabs = await page.textContent('.acct .tabs');
     check(!/Orders\s*\d/.test(tabs || ''), 'closing the position canceled its TP/SL (OCO)');
-    // Binance's scaled order: four buy limits 1% to 3% below the market, growing in size
+    // Binance's scaled order: four buy limits 1% to 2.5% below the market, growing in size (inside
+    // Binance's price band around the mark price, ±3% on BTC perpetuals at the moment)
     await page.click('.trade-panel .buy-sell button:has-text("Long")');
     await page.locator('.trade-panel label:has-text("Reduce-only") [role=switch]').first().click();
     await page.waitForSelector('.trade-panel button.btn.large:has-text("Open long")', { timeout: 5000 });
     await orderType('Scaled');
     const field = (label) => page.locator(`.trade-panel .row:has(> span.muted:text-is("${label}")) input`).first();
     await field('Start').fill(String(Math.round(last * 0.99)));
-    await field('End').fill(String(Math.round(last * 0.97)));
+    await field('End').fill(String(Math.round(last * 0.975)));
     await field('Orders').fill('4');
     await page.click('.trade-panel .seg button:has-text("Increasing")');
     await page.click('.trade-panel button:has-text("25%")');
@@ -398,7 +403,7 @@ const S = {
     const prices = legs.map((o) => o.price);
     const sizes = legs.map((o) => o.qty);
     check(
-      legs.length === 4 && Math.abs(prices[0] - Math.round(last * 0.99)) < 1 && Math.abs(prices[3] - Math.round(last * 0.97)) < 1 && sizes.every((q, k) => k === 0 || q > sizes[k - 1]),
+      legs.length === 4 && Math.abs(prices[0] - Math.round(last * 0.99)) < 1 && Math.abs(prices[3] - Math.round(last * 0.975)) < 1 && sizes.every((q, k) => k === 0 || q > sizes[k - 1]),
       `scaled order: ${legs.map((o) => `${o.qty}@${o.price}`).join(', ')}`,
     );
     // the order book marks the levels of your resting orders (perpetual book, grouped by 100)
@@ -1689,15 +1694,20 @@ const S = {
       const now = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
       for (const e of now?.abs || []) {
         if (e.t < t0 - 5000) continue;
-        const k = `${e.t}:${e.price.toFixed(1)}:${e.side}`;
+        const k = e.id;
         if (e.state === 'live') liveSeen = true;
-        if (e.state === 'held' && seen.get(k)?.state === 'live') heldSeen = true;
+        if ((e.state === 'held' || e.state === 'broken') && seen.get(k)?.state === 'live') heldSeen = true;
         if (seen.has(k) && e.vol > seen.get(k).vol) grew = true;
         seen.set(k, e);
       }
     }
     const fresh = [...seen.values()];
-    check(liveSeen && heldSeen, `live bubbles appear on the forming bars and are confirmed when the level held (${fresh.length} new, ${fresh.filter((e) => e.shown !== null).length} with the book's resting size)`);
+    check(liveSeen && heldSeen, `live bubbles appear on the forming bars, then are confirmed or marked broken (${fresh.length} new: ${fresh.filter((e) => e.state === 'held').length} held, ${fresh.filter((e) => e.state === 'broken').length} broken; ${fresh.filter((e) => e.shown !== null).length} with the book's resting size)`);
+    // no bubble ever disappears once it was shown
+    const after = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
+    const keys = new Set(after.abs.map((e) => e.id));
+    const gone = [...seen.keys()].filter((k) => !keys.has(k));
+    check(!gone.length, `bubbles stay on the chart, also when price later breaks the level (${gone.length} gone)`);
     check(grew, "a live bubble's number grows while the level is hit");
     check(fresh.some((e) => e.shown !== null), "live bubbles carry the order book's resting size at the level");
     await page.evaluate(([mid, list]) => window.fufu.invoke('ws:op', { kind: 'setModuleConfig', moduleId: mid, config: { indicators: list }, merge: true }), [cid, inds]);
@@ -1721,6 +1731,34 @@ const S = {
     } else console.log('    (no bubble in view to hover)');
     await wait(500);
     await shot('62-orderflow');
+    // the perpetual on 10-second bars: built from aggregate trades (Binance has no futures klines under 1m)
+    await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'setModuleConfig', moduleId: mid, config: { market: 'futures' }, merge: true }), cid);
+    let pb = null;
+    for (const deadline = Date.now() + 120000; Date.now() < deadline; ) {
+      pb = await page.evaluate((id) => window.__charts[id].bars(), cid);
+      if (pb.n > 100) break;
+      await wait(1000);
+    }
+    const perpErr = await page.$$eval('.stack.maximized .legend-error', (e) => e.map((x) => x.textContent).join(' '));
+    check(pb?.n > 100 && !perpErr, `10-second perpetual bars from aggregate trades (${pb?.n} bars${perpErr ? `, ${perpErr}` : ''})`);
+    const p0 = pb;
+    let moved = false;
+    for (const deadline = Date.now() + 40000; Date.now() < deadline && !moved; ) {
+      await wait(1000);
+      const p1 = await page.evaluate((id) => window.__charts[id].bars(), cid);
+      moved = p1.last > p0.last || p1.close !== p0.close;
+    }
+    check(moved, 'the perpetual 10-second chart updates live');
+    const status = await page.$$eval('.stack.maximized .stack-head .badge', (b) => b.map((x) => (x.textContent || '').trim()));
+    check(status.includes('Live'), `perpetual 10-second series is live (${status.join(', ')})`);
+    let pof = null;
+    for (const deadline = Date.now() + 60000; Date.now() < deadline; ) {
+      pof = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
+      if (pof?.dom?.bids > 10 && pof?.hvn >= 0) break;
+      await wait(1000);
+    }
+    check(pof?.dom?.bids > 10, `the order-flow tools follow to the perpetual (DOM ${pof?.dom?.bids} bid rows)`);
+    await shot('63-perp-10s');
     await page.locator('.stack.maximized .stack-tab.on').dblclick();
     await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
     await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), cid);

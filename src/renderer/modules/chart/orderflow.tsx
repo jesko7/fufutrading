@@ -56,7 +56,7 @@ function requestFor(cfg: ChartModuleConfig): OrderFlowRequest | null {
     market: cfg.market,
     tf: cfg.tf,
     hvn: hi ? { row: +hi.row || 0, periodMs: PERIOD_MS[hi.period] || 0, periods: +hi.periods, count: +hi.count, strength: +hi.strength, band: +hi.band, untilTouched: hi.extend !== 'Always' } : null,
-    absorption: ai ? { row: +ai.row || 0, quantile: QUANTILE[ai.sensitivity] || 0.995, minVolume: +ai.minVolume || 0, gapMs: +ai.gap * 1000, holdMs: +ai.hold * 1000, tolerance: +ai.tolerance, bookOnly: !!ai.book } : null,
+    absorption: ai ? { row: +ai.row || 0, quantile: QUANTILE[ai.sensitivity] || 0.995, minVolume: +ai.minVolume || 0, gapMs: +ai.gap * 1000, minAgeMs: +ai.minAge * 1000, holdMs: +ai.hold * 1000, tolerance: +ai.tolerance, bookOnly: !!ai.book } : null,
     imbalance: mi ? { row: +mi.row || 0, ratio: +mi.ratio, stack: +mi.stack, minVolume: +mi.minVolume || 0, maxLevels: +mi.maxLevels } : null,
   };
 }

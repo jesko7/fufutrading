@@ -131,7 +131,7 @@ export function ChartModule({ module }: ModuleProps) {
       // order-flow tools as drawn: HVN bands, imbalance levels, absorption bubbles, DOM rows
       orderflow: () => {
         const o = e.orderFlow;
-        return o ? { hvn: o.hvn?.levels.length ?? null, imb: o.imb?.levels.length ?? null, abs: o.abs ? o.abs.events.map((x) => ({ side: x.side, vol: x.vol, price: x.price, t: x.t, state: x.state, shown: x.shown })) : null, thr: o.abs?.thr ?? null, dom: o.dom?.book ? { bids: o.dom.book.bp.length, asks: o.dom.book.ap.length, step: o.dom.book.step, bestBid: o.dom.book.bestBid, bestAsk: o.dom.book.bestAsk } : null } : null;
+        return o ? { hvn: o.hvn?.levels.length ?? null, imb: o.imb?.levels.length ?? null, abs: o.abs ? o.abs.events.map((x) => ({ id: x.id, side: x.side, vol: x.vol, price: x.price, t: x.t, state: x.state, shown: x.shown })) : null, thr: o.abs?.thr ?? null, dom: o.dom?.book ? { bids: o.dom.book.bp.length, asks: o.dom.book.ap.length, step: o.dom.book.step, bestBid: o.dom.book.bestBid, bestAsk: o.dom.book.bestAsk } : null } : null;
       },
       flowHit: (x: number, y: number) => e.orderFlowHit(x, y),
       lastBarX: () => e.x(e.lastIndex),

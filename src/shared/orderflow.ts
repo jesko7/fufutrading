@@ -71,12 +71,13 @@ export const ORDERFLOW_TOOLS: Record<OrderFlowKind, OrderFlowTool> = {
     kind: 'absorption',
     id: 'of:absorption',
     name: 'Heavy Absorption',
-    description: 'Bubbles where heavy aggressive volume hit one price level and the level held: passive limit orders absorbed it. Live from every trade, with the order book’s resting size for comparison.',
+    description: 'Bubbles where heavy aggressive volume hit one price level while it held: passive limit orders absorbed it. Live from every trade, with the order book’s resting size for comparison. A bubble stays; if price later trades through its level it gets a dashed outline.',
     inputs: [
       { key: 'sensitivity', type: 'string', title: 'Sensitivity', defval: 'Medium', options: ['Low', 'Medium', 'High'], tooltip: 'Automatic threshold: the absorbed volume must be in the top 1% (low), 2% (medium) or 5% (high) of recent hit clusters (runs of aggressive trades into one row)' },
       { key: 'minVolume', type: 'float', title: 'Min. absorbed volume (0 = auto)', defval: 0, min: 0, step: 0.1, tooltip: 'In the base asset (BTC, ETH, SOL). 0 adapts to the market' },
       { key: 'gap', type: 'float', title: 'Max. pause between hits (s)', defval: 3, min: 0.5, max: 30, step: 0.5 },
-      { key: 'hold', type: 'float', title: 'Level must hold for (s)', defval: 8, min: 0, max: 120, step: 1, tooltip: 'After the last hit, price must not trade through the level for this long; otherwise the bubble is removed' },
+      { key: 'minAge', type: 'float', title: 'Show once the level held for (s)', defval: 2, min: 0, max: 30, step: 0.5, tooltip: 'The level must take the hits and hold this long before the bubble prints, so a fast sweep through several levels is not shown as absorption. At most the pause between hits' },
+      { key: 'hold', type: 'float', title: 'Level must hold for (s)', defval: 8, min: 0, max: 120, step: 1, tooltip: 'After the last hit, the level is confirmed when price does not trade through it for this long. A bubble whose level breaks stays on the chart with a dashed outline' },
       { key: 'tolerance', type: 'int', title: 'Break tolerance (rows)', defval: 1, min: 0, max: 5 },
       ROW,
       { key: 'book', type: 'bool', title: 'Only when more traded than the book showed', defval: false, tooltip: 'Live only: keep bubbles where the volume absorbed exceeded the resting size the order book showed at the level when the hits began (refilled or hidden orders)' },
@@ -145,6 +146,8 @@ export interface AbsorptionParams {
   quantile: number;
   minVolume: number;
   gapMs: number;
+  /** The level must take hits and hold this long before the bubble shows (filters sweeps). */
+  minAgeMs: number;
   holdMs: number;
   tolerance: number;
   bookOnly: boolean;
@@ -228,8 +231,10 @@ export interface AbsorptionEvent {
   shown: number | null;
   /** Largest resting size seen at the level while it was hit (live only). */
   maxShown: number | null;
-  /** live: being hit or within the hold time; held: the level held. */
-  state: 'live' | 'held';
+  /** live: being hit or within the hold time; held: the level held; broken: price traded through it afterwards. */
+  state: 'live' | 'held' | 'broken';
+  /** When price traded through the level (state broken). */
+  broke: number | null;
 }
 
 export interface DomBook {

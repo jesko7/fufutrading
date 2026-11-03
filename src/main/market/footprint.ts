@@ -4,9 +4,8 @@
  * The aggressor side comes from Binance's maker flag on every aggregate trade; nothing is
  * estimated. Bars without trade data are simply not sent (the chart shows a plain candle).
  */
-import path from 'node:path';
 import type { AppCore } from '../core';
-import { TradeStore } from '../storage/tradeStore';
+import type { TradeStore } from '../storage/tradeStore';
 import { SYMBOL_SPECS, isSymbol, type Market, type SymbolId } from '../../shared/symbols';
 import { parseTimeframe, tfDurationMs, bucketStart, isFixedDuration } from '../../shared/timeframes';
 
@@ -46,7 +45,7 @@ class Accum {
 }
 
 export function registerFootprint(core: AppCore): TradeStore {
-  const store = new TradeStore(path.join(core.paths.data, 'trades'), core.hub.rest, core.log);
+  const store = core.trades;
   const r = core.router;
   r.topic('footprint', async (p: { symbol: SymbolId; market: Market; tf: string; bars?: number }, push) => {
     if (!isSymbol(p.symbol) || (p.market !== 'spot' && p.market !== 'futures')) throw new Error('Validation: invalid instrument');

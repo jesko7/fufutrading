@@ -13,6 +13,7 @@ import { MarketHub } from './market/hub';
 import { SeriesService, type SeriesHandle } from './market/series';
 import { FundingCache } from './market/funding';
 import { BookRecorder } from './market/bookRecorder';
+import { TradeStore } from './storage/tradeStore';
 import { isMetric } from '../shared/metrics';
 import { WorkspaceService, type WorkspaceOp } from './workspaces';
 import { WindowManager } from './windows';
@@ -50,6 +51,8 @@ export class AppCore {
   readonly funding: FundingCache;
   /** Order-book recording and the book frames scripts read. */
   readonly books: BookRecorder;
+  /** Cached Binance aggregate trades: footprints, order-flow tools, sub-minute perpetual candles. */
+  readonly trades: TradeStore;
   readonly workspaces: WorkspaceService;
   readonly windows: WindowManager;
   quitting = false;
@@ -66,7 +69,8 @@ export class AppCore {
     this.hub = new MarketHub(log);
     this.store = new CandleStore(paths.data, binanceKlineSource(this.hub.rest), log, () => this.hub.clock.now());
     this.funding = new FundingCache(path.join(paths.data, 'funding'), this.hub.rest, () => this.hub.clock.now());
-    this.series = new SeriesService(this.hub, this.store, log, this.funding);
+    this.trades = new TradeStore(path.join(paths.data, 'trades'), this.hub.rest, log);
+    this.series = new SeriesService(this.hub, this.store, log, this.funding, this.trades);
     this.books = new BookRecorder(this.hub, path.join(paths.data, 'books'), log);
     this.workspaces = new WorkspaceService(paths.userData);
     this.windows = new WindowManager(this.workspaces, this.router, log, {

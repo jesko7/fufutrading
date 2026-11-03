@@ -10,7 +10,8 @@
  *    at the first later bar trading back into them.
  *  - AbsorptionEngine: aggressive volume hitting one row from one side ("hit clusters"); a cluster
  *    whose volume crosses the threshold while price does not trade through the row is absorption.
- *    It is removed again if price breaks the row within the hold time.
+ *    The bubble stays: confirmed when the row holds for the hold time, marked broken if price
+ *    trades through it before that.
  */
 import type { AbsorptionEvent, AbsorptionParams, HvnLevel, HvnParams, ImbalanceLevel, ImbalanceParams } from '../../shared/orderflow';
 
@@ -289,7 +290,6 @@ export class AbsorptionEngine {
   private volPos = 0;
   private sinceThr = 0;
   private autoThr = Infinity;
-  private seq = 0;
   readonly events = new Map<string, AbsorptionEvent>();
   /** Bubbles added or changed / removed since the last drain. */
   readonly changed = new Set<string>();
@@ -330,6 +330,7 @@ export class AbsorptionEngine {
     const { gapMs, holdMs } = this.p;
     for (let i = this.active.length - 1; i >= 0; i--) {
       const c = this.active[i];
+      if (!c.closed) this.emitIfReady(c, Math.min(t, c.t1 + gapMs));
       if (!c.closed && (t - c.t1 > gapMs || t - c.t0 > MAX_CLUSTER_MS)) {
         this.closeCluster(c, i);
         if (!c.ev) continue;
@@ -347,7 +348,8 @@ export class AbsorptionEngine {
     const v = Math.abs(q);
     const r = rowOf(price, this.p.row);
     const tol = this.p.tolerance;
-    // a print beyond a level the hits came into breaks it: nothing was absorbed there
+    // a print beyond a level the hits came into breaks it: before the threshold the cluster is
+    // dropped; a bubble stays, marked broken (it did absorb that volume, then gave way)
     for (let i = this.active.length - 1; i >= 0; i--) {
       const c = this.active[i];
       if (c.side < 0 ? r < c.row - tol : r > c.row + tol) {
@@ -355,9 +357,9 @@ export class AbsorptionEngine {
         if (this.byKey.get(c.key) === c) this.byKey.delete(c.key);
         if (!c.closed) this.record(c.vol);
         if (c.ev) {
-          this.events.delete(c.ev.id);
-          this.changed.delete(c.ev.id);
-          this.removed.add(c.ev.id);
+          c.ev.state = 'broken';
+          c.ev.broke = t;
+          this.changed.add(c.ev.id);
         }
       }
     }
@@ -374,30 +376,40 @@ export class AbsorptionEngine {
     c.pv += price * v;
     c.n++;
     c.t1 = t;
-    // a fixed minimum counts from that volume on; the automatic one must be exceeded
-    if (!c.ev && (this.p.minVolume > 0 ? c.vol >= this.p.minVolume : c.vol > this.threshold())) {
-      const lo = r * this.p.row;
-      const hi = (r + 1) * this.p.row;
-      const shown = Number.isFinite(c.shown) ? c.shown : null;
-      c.ev = { id: `a${t.toString(36)}${(this.seq++).toString(36)}`, side, price: 0, lo, hi, t, t0: c.t0, t1: t, vol: 0, trades: 0, shown, maxShown: shown, state: 'live' };
-      this.events.set(c.ev.id, c.ev);
-      if (this.events.size > 1500) {
-        const old = [...this.events.keys()].slice(0, this.events.size - 1200);
-        for (const id of old) {
-          this.events.delete(id);
-          this.changed.delete(id);
-          this.removed.add(id);
-        }
+    this.emitIfReady(c, t);
+    if (c.ev) this.sync(c);
+  }
+
+  /**
+   * A cluster becomes a bubble once its volume crosses the threshold and its level has held for
+   * the minimum time since the first hit (a fixed minimum counts from that volume on; the
+   * automatic threshold must be exceeded).
+   */
+  private emitIfReady(c: Cluster, t: number): void {
+    if (c.ev || t - c.t0 < this.p.minAgeMs) return;
+    if (!(this.p.minVolume > 0 ? c.vol >= this.p.minVolume : c.vol > this.threshold())) return;
+    const shown = Number.isFinite(c.shown) ? c.shown : null;
+    // the id follows the cluster (row, side, first hit), so a rebuild from the same trades keeps it
+    c.ev = { id: `${c.side > 0 ? 'b' : 's'}${c.row}@${c.t0}`, side: c.side, price: 0, lo: c.row * this.p.row, hi: (c.row + 1) * this.p.row, t, t0: c.t0, t1: c.t1, vol: 0, trades: 0, shown, maxShown: shown, state: 'live', broke: null };
+    this.events.set(c.ev.id, c.ev);
+    this.sync(c);
+    if (this.events.size > 1500) {
+      const old = [...this.events.keys()].slice(0, this.events.size - 1200);
+      for (const id of old) {
+        this.events.delete(id);
+        this.changed.delete(id);
+        this.removed.add(id);
       }
     }
-    if (c.ev) {
-      const e = c.ev;
-      e.vol = c.vol;
-      e.price = c.pv / c.vol;
-      e.t1 = t;
-      e.trades = c.n;
-      this.changed.add(e.id);
-    }
+  }
+
+  private sync(c: Cluster): void {
+    const e = c.ev!;
+    e.vol = c.vol;
+    e.price = c.pv / c.vol;
+    e.t1 = c.t1;
+    e.trades = c.n;
+    this.changed.add(e.id);
   }
 
   /** Live: track the largest resting size at levels that are being hit. */

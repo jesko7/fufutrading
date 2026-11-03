@@ -172,7 +172,10 @@ export function drawOrderFlowFront(rc: RenderCtx, of: OrderFlowView, g: Geo): vo
     ctx.fill();
     ctx.lineWidth = e.state === 'live' ? 2 : 1.25;
     ctx.strokeStyle = withAlpha(col, e.state === 'live' ? 1 : 0.75);
+    // the level gave way after absorbing: dashed outline
+    if (e.state === 'broken') ctx.setLineDash([3, 3]);
     ctx.stroke();
+    ctx.setLineDash([]);
     // more traded at the level than the book showed: refilled / hidden orders
     if (e.shown !== null && e.vol > e.shown) {
       ctx.beginPath();
@@ -295,7 +298,7 @@ export function hitOrderFlow(rc: RenderCtx, of: OrderFlowView, g: Geo, mx: numbe
     if (best) {
       const e = best;
       const secs = Math.max(0, Math.round((e.t1 - e.t0) / 1000));
-      const lines = [`${q(e.vol)} in ${e.trades} trade${e.trades === 1 ? '' : 's'} at ${fmtPrice(e.lo)} – ${fmtPrice(e.hi)}`, `${fmtTime(e.t0)}${secs ? `, over ${secs} s` : ''}${e.state === 'live' ? ' · live: the level is holding so far' : ' · the level held'}`];
+      const lines = [`${q(e.vol)} in ${e.trades} trade${e.trades === 1 ? '' : 's'} at ${fmtPrice(e.lo)} – ${fmtPrice(e.hi)}`, `${fmtTime(e.t0)}${secs ? `, over ${secs} s` : ''}${e.state === 'live' ? ' · live: the level is holding so far' : e.state === 'broken' ? ` · price traded through the level at ${fmtTime(e.broke ?? e.t1)}` : ' · the level held'}`];
       if (e.shown !== null) {
         const ratio = e.shown > 0 ? e.vol / e.shown : Infinity;
         lines.push(`Order book showed ${q(e.shown)} at the first hit${e.maxShown !== null && e.maxShown > e.shown ? `, up to ${q(e.maxShown)}` : ''}${ratio > 1 ? ` · ${Number.isFinite(ratio) ? `${ratio.toFixed(1)}×` : 'all of it'} refilled or hidden` : ''}`);

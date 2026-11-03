@@ -14,6 +14,7 @@ import { baseIntervalFor, bucketStart, bucketEnd, intervalMs, parseTimeframe, ti
 import { SYMBOL_SPECS, type SymbolId } from '../../shared/symbols';
 import { METRICS, METRIC_STEP, fundingSamples, metricBars, type MetricKind } from '../../shared/metrics';
 import type { CandleStore } from '../storage/candleStore';
+import type { TradeStore, TradeArrays } from '../storage/tradeStore';
 import type { MarketHub } from './hub';
 import type { TapeListener } from './tape';
 import { MetricPoller, MetricSeries, replayMetricClock, type MetricClock, type MetricLoader } from './metricSeries';
@@ -73,10 +74,48 @@ export interface SeriesHandle {
 const DECOMP_SPOT = ['1d', '12h', '4h', '1h', '15m', '1m', '1s'];
 const DECOMP_FUT = ['1d', '12h', '4h', '1h', '15m', '1m'];
 
+/** Trade-built series: first load, each load-more step, and how far back the trade cache reaches. */
+const TRADE_FIRST_MS = 30 * MIN;
+const TRADE_MORE_MS = 60 * MIN;
+const TRADE_BACK_MS = 5 * DAY;
+
+/** Perpetual bars under a minute: Binance has no futures klines below 1m, so they come from trades. */
+export function isTradeBuilt(tf: Timeframe, market: string): boolean {
+  return market === 'futures' && tfDurationMs(tf) < MIN;
+}
+
+/** Bars from aggregate trades in time order (q < 0: seller-initiated). */
+export function barsFromTrades(tf: Timeframe, tr: Pick<TradeArrays, 't' | 'p' | 'q' | 'length'>): CandleSeries {
+  const s = new CandleSeries(256);
+  let b = NaN;
+  for (let i = 0; i < tr.length; i++) {
+    const p = tr.p[i];
+    const q = tr.q[i];
+    const a = Math.abs(q);
+    const k = bucketStart(tf, tr.t[i]);
+    if (k !== b) {
+      s.push(k, p, p, p, p, a, p * a, 1, q > 0 ? a : 0);
+      b = k;
+      continue;
+    }
+    const j = s.length - 1;
+    if (p > s.h[j]) s.h[j] = p;
+    if (p < s.l[j]) s.l[j] = p;
+    s.c[j] = p;
+    s.v[j] += a;
+    s.qv[j] += p * a;
+    s.n[j] += 1;
+    if (q > 0) s.tbv[j] += a;
+  }
+  return s;
+}
+
 export class ManagedSeries {
   readonly key: string;
   readonly tf: Timeframe;
   readonly histInterval: string | null;
+  /** Built from aggregate trades (sub-minute perpetual bars), not klines. */
+  readonly tradeBuilt: boolean;
   agg: LiveAggregator | null = null;
   out: CandleSeries = new CandleSeries(16);
   status: SeriesStatus = 'loading';
@@ -100,12 +139,14 @@ export class ManagedSeries {
     private log: Logger,
     initialBars: number,
     keySuffix = '',
+    private trades: TradeStore | null = null,
   ) {
     this.key = seriesKey(spec) + keySuffix;
     const tf = parseTimeframe(spec.tf);
     if (!tf) throw new Error(`Invalid timeframe "${spec.tf}"`);
     this.tf = tf;
     this.histInterval = baseIntervalFor(tf, spec.market);
+    this.tradeBuilt = !this.histInterval && isTradeBuilt(tf, spec.market) && !!trades;
     this.info = { key: this.key, baseInterval: this.histInterval, construction: '' };
     this.ready = this.init(initialBars).catch((e) => {
       this.status = 'error';
@@ -116,6 +157,8 @@ export class ManagedSeries {
   }
 
   private describe(): string {
+    const ct0 = this.spec.chartType === 'heikinashi' ? ' · Heikin-Ashi' : this.spec.chartType === 'renko' ? ' · Renko' : '';
+    if (this.tradeBuilt) return `built from Binance aggregate trades (perpetuals have no klines under 1 minute); live: aggregate trades${ct0}`;
     const histTf = parseTimeframe((this.histInterval || '').replace('d', 'D').replace('w', 'W'));
     const built = histTf && sameTf(histTf, this.tf) ? `Binance native ${this.histInterval} klines` : `aggregated from Binance ${this.histInterval} klines`;
     const live = `live: ${this.feed.baseInterval} klines + aggregate trades`;
@@ -124,6 +167,7 @@ export class ManagedSeries {
   }
 
   private async init(initialBars: number): Promise<void> {
+    if (this.tradeBuilt) return this.initFromTrades(initialBars);
     if (!this.histInterval) {
       throw new Error(`${this.spec.tf} cannot be built from Binance klines on ${this.spec.market === 'futures' ? 'futures (no 1s klines; use ≥1m or spot)' : this.spec.market}`);
     }
@@ -154,10 +198,49 @@ export class ManagedSeries {
     this.unlisten = this.feed.listen({
       onTrade: (t) => this.onUpdates(this.agg!.applyTrade(t)),
       onKline: (k) => this.onUpdates(this.agg!.applyBaseKline(k)),
-      onStatus: (s) => {
-        this.status = s === 'live' ? 'live' : s === 'degraded' ? 'degraded' : s === 'reconnecting' ? 'reconnecting' : s === 'stopped' ? 'error' : 'syncing';
-        this.emit({ key: this.key, index: this.out.length, packed: new Float64Array(0), length: this.out.length, status: this.status });
+      onStatus: (s) => this.onFeedStatus(s),
+    });
+    if (this.agg.series.length) this.lastPrice = this.agg.lastPrice();
+  }
+
+  private onFeedStatus(s: string): void {
+    this.status = s === 'live' ? 'live' : s === 'degraded' ? 'degraded' : s === 'reconnecting' ? 'reconnecting' : s === 'stopped' ? 'error' : 'syncing';
+    this.emit({ key: this.key, index: this.out.length, packed: new Float64Array(0), length: this.out.length, status: this.status });
+  }
+
+  /**
+   * Sub-minute perpetual bars: the last half hour of aggregate trades from the trade cache up to
+   * the feed's watermark, then the tape's trades after it (every trade, in id order). Older bars
+   * load in steps as the chart scrolls back (loadMore).
+   */
+  private async initFromTrades(initialBars: number): Promise<void> {
+    if (this.feed.kind !== 'live') throw new Error(`${this.spec.tf} perpetual bars are built from live aggregate trades and are not available in a replay; use 1m or longer`);
+    await this.feed.ready();
+    const { market, symbol } = this.spec;
+    const W = this.feed.watermark();
+    const tfMs = tfDurationMs(this.tf);
+    const from = bucketStart(this.tf, W + 1 - Math.min(initialBars * tfMs, TRADE_FIRST_MS));
+    const hist = await this.trades!.get(market, symbol, from, W + 1);
+    this.agg = new LiveAggregator(this.tf, barsFromTrades(this.tf, hist), W);
+    if (hist.length) this.agg.lastTradeId = hist.id[hist.length - 1];
+    let last = W;
+    for (const t of this.feed.pendingTrades()) {
+      this.agg.applyTrade(t);
+      last = Math.max(last, t.t);
+    }
+    this.agg.settleBefore(last);
+    this.hasMore = true;
+    this.rebuildOut();
+    this.status = this.feed.status();
+    this.info.construction = this.describe();
+    if (this.disposed) return;
+    this.unlisten = this.feed.listen({
+      onTrade: (t) => {
+        const ups = this.agg!.applyTrade(t);
+        this.agg!.settleBefore(t.t);
+        this.onUpdates(ups);
       },
+      onStatus: (s) => this.onFeedStatus(s),
     });
     if (this.agg.series.length) this.lastPrice = this.agg.lastPrice();
   }
@@ -267,6 +350,7 @@ export class ManagedSeries {
   /** Load `count` older bars. Emits a reset so clients refetch. Returns false when no more data. */
   async loadMore(count: number): Promise<boolean> {
     await this.ready;
+    if (this.tradeBuilt) return this.loadMoreTrades(count);
     if (!this.agg || !this.histInterval) return false;
     const src = this.agg.series;
     if (!src.length) return false;
@@ -281,6 +365,30 @@ export class ManagedSeries {
     const older = sameTf(histTf, this.tf) ? hist : aggregate(hist, this.tf);
     const lb = older.lowerBound(firstT);
     this.agg.series = older.slice(0, lb).merge(src);
+    this.rebuildOut();
+    this.emit({ key: this.key, index: 0, packed: new Float64Array(0), length: this.out.length, reset: true, status: this.status });
+    return true;
+  }
+
+  /** Older trade-built bars: up to an hour of trades per step, within the trade cache's reach. */
+  private async loadMoreTrades(count: number): Promise<boolean> {
+    if (!this.agg) return false;
+    const src = this.agg.series;
+    const firstT = src.length ? src.t[0] : bucketStart(this.tf, this.feed.watermark() + 1);
+    // the trade cache keeps whole UTC days: stay a little inside its reach
+    const oldest = Date.now() - TRADE_BACK_MS + MIN;
+    const from = bucketStart(this.tf, Math.max(oldest, firstT - Math.min(count * tfDurationMs(this.tf), TRADE_MORE_MS)));
+    if (from >= firstT) {
+      this.hasMore = false;
+      return false;
+    }
+    const hist = await this.trades!.get(this.spec.market, this.spec.symbol, from, firstT);
+    if (!hist.length) {
+      this.hasMore = false;
+      return false;
+    }
+    const older = barsFromTrades(this.tf, hist);
+    this.agg.series = older.slice(0, older.lowerBound(firstT)).merge(this.agg.series);
     this.rebuildOut();
     this.emit({ key: this.key, index: 0, packed: new Float64Array(0), length: this.out.length, reset: true, status: this.status });
     return true;
@@ -322,6 +430,7 @@ export class SeriesService {
     private store: CandleStore,
     private log: Logger,
     private funding: FundingCache,
+    private trades: TradeStore | null = null,
   ) {}
 
   defaultBars(spec: SeriesSpec): number {
@@ -412,7 +521,7 @@ export class SeriesService {
         s = new MetricSeries(spec, clock, this.metricLoader(spec.symbol, spec.metric), this.log, bars, opts.keySuffix || '');
       } else {
         const feed = opts.feed || liveFeed(this.hub, spec);
-        s = new ManagedSeries(spec, feed, this.store, this.log, bars, opts.keySuffix || '');
+        s = new ManagedSeries(spec, feed, this.store, this.log, bars, opts.keySuffix || '', this.trades);
       }
       this.map.set(key, s);
     } else if (opts.feed) {
@@ -468,6 +577,17 @@ export class SeriesService {
     const tf = parseTimeframe(spec.tf);
     if (!tf) throw new Error(`Invalid timeframe ${spec.tf}`);
     const iv = baseIntervalFor(tf, spec.market);
+    if (!iv && isTradeBuilt(tf, spec.market) && this.trades) {
+      // sub-minute perpetual bars from aggregate trades, as far back as the trade cache reaches
+      const now = this.hub.clock.now();
+      const a = bucketStart(tf, from);
+      const b = Math.min(to, now);
+      if (a < now - TRADE_BACK_MS) throw new Error(`${spec.tf} perpetual bars are built from aggregate trades, available for the last ${TRADE_BACK_MS / DAY} days; choose a later start or 1m and longer`);
+      const raw = await this.trades.get(spec.market, spec.symbol, a, b, (p) => onProgress?.({ done: p.done, total: p.total, phase: `aggregate trades (${p.trades.toLocaleString('en-US')})` }));
+      let s = barsFromTrades(tf, raw);
+      if (s.length && bucketEnd(tf, s.t[s.length - 1]) > b) s = s.slice(0, s.length - 1);
+      return s;
+    }
     if (!iv) throw new Error(`${spec.tf} cannot be built from Binance klines on ${spec.market}`);
     const a = bucketStart(tf, from);
     const b = Math.min(to, this.hub.clock.now());

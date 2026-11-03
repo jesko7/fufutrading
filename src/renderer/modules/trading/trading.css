@@ -274,3 +274,19 @@
   height: 100%;
   background: var(--accent);
 }
+
+/* why the order button is disabled */
+.trade-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: -2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.trade-block svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-3);
+}

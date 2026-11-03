@@ -196,11 +196,29 @@ export function OrderEntryModule({ module }: ModuleProps) {
     return liquidationPrice({ symbol, side: signed > 0 ? 1 : -1, qty: Math.abs(signed), entry, wallet });
   }, [market, acct, qty, fillPrice, side, pos, mode, lev, symbol, reduceOnly]);
 
-  const canSubmit =
-    !!acct &&
-    qty >= spec.minQty &&
-    !busy &&
-    (type === 'market' || (type === 'limit' && price) || (type === 'stop' && stop) || (type === 'stopLimit' && stop && price) || (type === 'trailingStop' && !!callback && callback > 0) || (type === 'scaled' && scaled.length >= SCALED_MIN_ORDERS && !scaledIssue) || (type === 'twap' && !!twap && !('error' in twap) && !replay));
+  // why the order button is disabled (null: it can be sent)
+  const base = SYMBOL_SPECS[symbol].base;
+  const blockReason = ((): string | null => {
+    if (!acct) return replay ? 'The replay account is not ready yet.' : `Choose a ${market === 'futures' ? 'futures' : 'spot'} paper account above, or create one.`;
+    if (!(last > 0)) return replay ? 'Waiting for the replay price…' : 'Waiting for the live price from Binance…';
+    if (type === 'limit' && !price) return 'Enter a limit price.';
+    if (type === 'stop' && !stop) return 'Enter a stop price.';
+    if (type === 'stopLimit' && !stop) return 'Enter a stop price.';
+    if (type === 'stopLimit' && !price) return 'Enter a limit price.';
+    if (type === 'trailingStop' && !(callback && callback > 0)) return 'Enter a callback rate.';
+    if (type === 'scaled' && (!scFrom || !scTo)) return 'Enter the start and end prices.';
+    if (type === 'twap' && replay) return 'TWAP orders run in real time and are not available in a replay.';
+    if (!size) return 'Enter an amount.';
+    if (unit === 'pct' && market === 'spot' && side === 'sell' && !(pos?.qty && pos.qty > 0)) return `You hold no ${base} to sell.`;
+    if (unit === 'pct' && !(acct.available > 0) && !(market === 'spot' && side === 'sell')) return 'No available balance.';
+    if (reduceOnly && market === 'futures' && !(pos && pos.side !== (side === 'buy' ? 1 : -1))) return `Reduce-only: there is no ${side === 'buy' ? 'short' : 'long'} position to reduce.`;
+    if (qty < spec.minQty) return `The quantity (${fmtNum(qty, qd)} ${base}) is below Binance's minimum of ${spec.minQty} ${base}.`;
+    if (type === 'scaled' && scaled.length < SCALED_MIN_ORDERS) return `A scaled order needs at least ${SCALED_MIN_ORDERS} orders.`;
+    if (type === 'scaled' && scaledIssue) return scaledIssue;
+    if (type === 'twap' && twap && 'error' in twap) return `${twap.error}.`.replace(/\.\.$/, '.');
+    return null;
+  })();
+  const canSubmit = !busy && !blockReason;
 
   const submitScaled = async () => {
     if (!acct) return;
@@ -558,9 +576,14 @@ export function OrderEntryModule({ module }: ModuleProps) {
         {market === 'futures' && <Row k="Est. liquidation" v={isFinite(estLiq) && estLiq > 0 ? fmtNum(estLiq, pd) : '—'} />}
         <Row k="Max" v={`${fmtNum(maxQty, qd)} ${SYMBOL_SPECS[symbol].base}`} />
       </div>
-      <button className={clsx('btn large', side === 'buy' ? 'buy' : 'sell')} disabled={!canSubmit} onClick={submit}>
+      <button className={clsx('btn large', side === 'buy' ? 'buy' : 'sell')} disabled={!canSubmit} onClick={submit} data-tip={!busy && blockReason ? blockReason : undefined}>
         {busy ? 'Sending…' : `${reduceOnly && market === 'futures' ? (side === 'buy' ? 'Reduce short' : 'Reduce long') : side === 'buy' ? (market === 'futures' ? 'Open long' : 'Buy') : market === 'futures' ? 'Open short' : 'Sell'} ${SYMBOL_SPECS[symbol].base}${type === 'trailingStop' ? ' (trailing)' : type === 'scaled' && scaled.length ? ` (${scaled.length} orders)` : type === 'twap' ? ` (TWAP ${TWAP_DURATIONS.find((d) => +d.value === twapMs)?.label})` : ''}`}
       </button>
+      {!busy && blockReason && (
+        <div className="trade-block" data-testid="trade-block">
+          <Icon name="info" size={13} /> {blockReason}
+        </div>
+      )}
       {pos && (
         <div className="card row" style={{ padding: 8 }}>
           <span className={pos.side === 1 ? 'up' : 'down'} style={{ fontWeight: 650 }}>

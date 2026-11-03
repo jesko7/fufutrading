@@ -116,7 +116,7 @@ describe('order flow: imbalance levels', () => {
 });
 
 describe('order flow: heavy absorption', () => {
-  const P: AbsorptionParams = { row: 1, quantile: 0.99, minVolume: 10, gapMs: 3000, holdMs: 10000, tolerance: 1, bookOnly: false };
+  const P: AbsorptionParams = { row: 1, quantile: 0.99, minVolume: 10, gapMs: 3000, minAgeMs: 0, holdMs: 10000, tolerance: 1, bookOnly: false };
 
   it('marks selling absorbed at a level that holds, live and then confirmed', () => {
     const e = new AbsorptionEngine(P, (side, lo, hi) => (side === 'bid' && lo === 100 && hi === 101 ? 4 : 0));
@@ -133,16 +133,28 @@ describe('order flow: heavy absorption', () => {
     expect(d.changed.map((x) => x.state)).toEqual(['held']);
   });
 
-  it('removes the bubble when price breaks through the level within the hold time', () => {
+  it('keeps the bubble when price breaks through the level, marked broken', () => {
     const e = new AbsorptionEngine(P);
     for (let i = 0; i < 6; i++) e.add(i * 500, 100.3, -2);
     expect(e.list()).toHaveLength(1);
-    const id = e.list()[0].id;
     e.add(4000, 99.5, -1); // one row below: within tolerance
-    expect(e.list()).toHaveLength(1);
+    expect(e.list()[0].state).toBe('live');
     e.add(5000, 98.5, -1); // two rows below: broken
+    expect(e.list()).toEqual([expect.objectContaining({ state: 'broken', broke: 5000, vol: 12 })]);
+    const d = e.drain();
+    expect(d.removed).toEqual([]);
+    expect(d.changed.map((x) => x.state)).toEqual(['broken']);
+    // later prints don't touch it any more
+    e.add(6000, 100.3, -5);
+    expect(e.list()[0]).toMatchObject({ state: 'broken', vol: 12 });
+  });
+
+  it('drops a cluster that breaks before reaching the threshold', () => {
+    const e = new AbsorptionEngine(P);
+    for (let i = 0; i < 4; i++) e.add(i * 500, 100.3, -2);
+    e.add(2500, 98.5, -1);
+    for (let i = 0; i < 2; i++) e.add(3000 + i * 100, 100.3, -2);
     expect(e.list()).toHaveLength(0);
-    expect(e.drain().removed).toEqual([id]);
   });
 
   it('a level that held stays, whatever price does later', () => {
@@ -152,6 +164,39 @@ describe('order flow: heavy absorption', () => {
     expect(e.list()[0].state).toBe('held');
     e.add(30000, 90.5, -5);
     expect(e.list()).toHaveLength(1);
+  });
+
+  it('gives a bubble the same id when the trades are processed again', () => {
+    const run = (extra: boolean) => {
+      const e = new AbsorptionEngine(P);
+      if (extra) for (let i = 0; i < 5; i++) e.add(-60000 + i * 1000, 150.5, 0.1); // older history first
+      for (let i = 0; i < 6; i++) e.add(i * 500, 100.3, -2);
+      return e.list().map((x) => x.id);
+    };
+    expect(run(false)).toEqual(['s100@0']);
+    expect(run(true)).toEqual(run(false));
+  });
+
+  it('a sweep through the level prints nothing; a level that keeps holding prints after the minimum time', () => {
+    const e = new AbsorptionEngine({ ...P, minAgeMs: 1500 });
+    // 12 bought into row 200 within 300 ms, then price runs two rows higher: a sweep
+    for (let i = 0; i < 4; i++) e.add(i * 100, 200.5, 3);
+    expect(e.list()).toHaveLength(0);
+    e.add(400, 202.5, 1);
+    e.tick(5000);
+    expect(e.list()).toHaveLength(0);
+    // 12 sold into row 100 over 2 s while it holds: the bubble prints at 1.5 s
+    for (let i = 0; i < 4; i++) e.add(10000 + i * 300, 100.4, -3);
+    expect(e.list()).toHaveLength(0);
+    e.tick(11500);
+    expect(e.list()).toEqual([expect.objectContaining({ side: -1, vol: 12, t: 11500, state: 'live' })]);
+    // all hits came early: the bubble still prints once the level held long enough
+    const f = new AbsorptionEngine({ ...P, minAgeMs: 1500 });
+    for (let i = 0; i < 4; i++) f.add(i * 10, 300.5, -3);
+    f.tick(1000);
+    expect(f.list()).toHaveLength(0);
+    f.tick(1600);
+    expect(f.list()).toEqual([expect.objectContaining({ vol: 12, t: 1600 })]);
   });
 
   it('buying absorbed at the highs is side 1', () => {
@@ -172,7 +217,7 @@ describe('order flow: heavy absorption', () => {
 
 describe('order flow: combined engine and service helpers', () => {
   it('feeds every tool from the same trades', () => {
-    const e = new OrderFlowEngine({ bucket, hvn: { row: 1, periodMs: HOUR, periods: 1, count: 3, strength: 1.2, band: 1, untilTouched: true }, imbalance: { row: 1, ratio: 3, stack: 3, minVolume: 0.5, maxLevels: 5 }, absorption: { row: 1, quantile: 0.99, minVolume: 5, gapMs: 3000, holdMs: 1000, tolerance: 1, bookOnly: false } });
+    const e = new OrderFlowEngine({ bucket, hvn: { row: 1, periodMs: HOUR, periods: 1, count: 3, strength: 1.2, band: 1, untilTouched: true }, imbalance: { row: 1, ratio: 3, stack: 3, minVolume: 0.5, maxLevels: 5 }, absorption: { row: 1, quantile: 0.99, minVolume: 5, gapMs: 3000, minAgeMs: 0, holdMs: 1000, tolerance: 1, bookOnly: false } });
     for (let i = 0; i < 10; i++) e.add(i * 100, 100.5, -1);
     for (let p = 101; p <= 105; p++) e.add(2000 + p, p + 0.5, 0.1);
     expect(e.trades).toBe(15);

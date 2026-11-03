@@ -14,7 +14,9 @@ an AI assistant that builds and tests strategies inside the app.
 - **Charts:**
   - candles, hollow, bars, line, area, Heikin-Ashi, Renko and footprint (buyer/seller volume
     per price level from real aggregate trades)
-  - any timeframe, including custom ones like 30s, 7m or 90m
+  - any timeframe, including custom ones like 30s, 7m or 90m; perpetual bars under a minute
+    (Binance has no futures klines below 1m) are built from aggregate trades: the last half hour
+    at once, older hours as you scroll back
   - drawings (with trendline alerts, Ctrl+Z / Ctrl+Y and Ctrl+C / Ctrl+V), volume profile,
     compare and multi-timeframe overlays, options levels (walls, gamma flip, max pain, expected
     move), synced crosshairs, candlestick pattern detection (choose the patterns)
@@ -30,9 +32,11 @@ an AI assistant that builds and tests strategies inside the app.
     trades back into them
   - **Heavy Absorption:** bubbles where heavy aggressive volume hit one price level and the
     level held, sized and numbered by the volume absorbed. Live trade by trade (a bubble appears
-    as the volume crosses the threshold, its number grows with each hit, and it is removed if
-    price breaks through within the hold time), with the order book's resting size at the level;
-    a dotted ring marks more traded than the book showed (refilled or hidden orders)
+    once the volume crossed the threshold and the level held for 2 s, so sweeps don't count, and
+    its number grows with each hit; bubbles stay, and a
+    dashed outline marks a level that price traded through afterwards), with the order book's
+    resting size at the level; a dotted ring marks more traded than the book showed (refilled or
+    hidden orders)
   - **Imbalance Levels:** stacked diagonal bid/ask imbalances from each bar's footprint,
     extended until price comes back ("ratio× | volume")
   - **DOM:** every level of the live order book as a depth histogram on the price axis, asks

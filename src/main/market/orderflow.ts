@@ -106,6 +106,7 @@ function sanitize(p: any, row: number, tfMs: number, tick = 0.01): { hvn: HvnPar
           quantile: num(a.quantile, 0.98, 0.5, 0.9999),
           minVolume: num(a.minVolume, 0, 0, 1e9),
           gapMs: num(a.gapMs, 3000, 200, 60000),
+          minAgeMs: Math.min(num(a.minAgeMs, 2000, 0, 60000), num(a.gapMs, 3000, 200, 60000)),
           holdMs: num(a.holdMs, 8000, 0, 600000),
           tolerance: Math.round(num(a.tolerance, 1, 0, 10)),
           bookOnly: !!a.bookOnly,
