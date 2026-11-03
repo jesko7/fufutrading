@@ -23,7 +23,20 @@ an AI assistant that builds and tests strategies inside the app.
     lines, and one click back to the latest bar
   - chart images with the instrument, timeframe and OHLC (Alt+S copies, right-click saves)
 - **Order flow:** live order book with grouping, imbalance and your own resting orders marked,
-  depth chart, liquidity heatmap with large-order tracking, time & sales.
+  depth chart, liquidity heatmap with large-order tracking, time & sales, and four order-flow
+  tools for charts (Indicators → Order flow), all from real Binance data rather than candles:
+  - **HVN Profile:** the high-volume nodes of a volume profile built from every aggregate trade,
+    per period (1h to 1D); amber bands labelled "volume | buyers' share" that end where price
+    trades back into them
+  - **Heavy Absorption:** bubbles where heavy aggressive volume hit one price level and the
+    level held, sized and numbered by the volume absorbed. Live trade by trade (a bubble appears
+    as the volume crosses the threshold, its number grows with each hit, and it is removed if
+    price breaks through within the hold time), with the order book's resting size at the level;
+    a dotted ring marks more traded than the book showed (refilled or hidden orders)
+  - **Imbalance Levels:** stacked diagonal bid/ask imbalances from each bar's footprint,
+    extended until price comes back ("ratio× | volume")
+  - **DOM:** every level of the live order book as a depth histogram on the price axis, asks
+    red above the price and bids green below; the latest candles stay left of it
 - **Workspaces:** dockable, multi-window layouts and presets. Panels move by their tab or header
   (drop on an edge to split, on a tab strip to join or reorder, outside the window to detach), and
   any panel can be maximized over the workspace (double-click its tab or Alt+Enter, Esc
@@ -148,7 +161,7 @@ so bots resume automatically.
 npm test             # unit tests (engine, trading, bots, replay, alerts, optimizer, …)
 npm run typecheck
 npm run test:live    # against the real Binance API and the Claude CLI
-npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings book transcript
+npm run e2e -- smoke presets perf charts drawings trading scripts editor backtest optimizer experiments bots botlive replay alerts ai aitools footprint news derivatives options repaint prop builder help light layout settings book transcript orderflow
 ```
 
 The end-to-end runner drives the real app with Playwright on an isolated profile and saves

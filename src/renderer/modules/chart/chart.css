@@ -506,6 +506,41 @@
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
 }
+.lang-badge.flow {
+  background: color-mix(in srgb, var(--up) 16%, transparent);
+  color: var(--up);
+}
+.of-load {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+}
+.of-desc {
+  margin-bottom: 8px;
+  line-height: 1.45;
+}
+.of-tip {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  max-width: 340px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong, var(--border));
+  border-left: 3px solid var(--of-color, var(--accent));
+  box-shadow: var(--shadow, 0 4px 16px rgba(0, 0, 0, 0.35));
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.of-tip b {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
 .tag {
   font-size: 10px;
   font-weight: 600;

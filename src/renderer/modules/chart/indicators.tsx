@@ -21,6 +21,8 @@ import { clsx, fmtNum, autoDecimals, fmtPct, fmtSignedUsd, orderIdLabel } from '
 import { useScripts, openScriptInEditor, loadScripts, type ScriptMeta } from '../scripts/client';
 import { openRepaintCheck, warningKinds } from '../scripts/repaint';
 import { STANDARD_TIMEFRAMES } from '../../../shared/timeframes';
+import { ORDERFLOW_KINDS, ORDERFLOW_TOOLS, orderFlowKind, type OrderFlowTool } from '../../../shared/orderflow';
+import { NativeLegendRow, openOrderFlowSettings } from './orderflow';
 
 // ------------------------------------------------------------------ live state
 
@@ -59,7 +61,7 @@ export function useChartIndicators(moduleId: string, cfg: ChartModuleConfig, sto
     const want = new Map<string, string>();
     // in replay, scripts run on the replay session's series (nothing beyond the replay point)
     const rref = replay.active ? replay.ref || null : null;
-    if (!replay.active || rref) for (const ind of indicators) want.set(ind.id, JSON.stringify([ind.scriptId, ind.inputs, ind.strategy ?? null, spec, rref]));
+    if (!replay.active || rref) for (const ind of indicators) if (!orderFlowKind(ind.scriptId)) want.set(ind.id, JSON.stringify([ind.scriptId, ind.inputs, ind.strategy ?? null, spec, rref]));
     for (const [id, s] of subs.current) {
       if (want.get(id) !== s.hash) {
         s.unsub();
@@ -180,6 +182,9 @@ function chartIndexOf(store: BarStore, t: number): number {
 }
 
 function toOutput(ind: IndicatorInstance, live: Live | undefined, store: BarStore): IndicatorOutput | null {
+  // order-flow tools draw through the engine's own layer; they only need a legend row
+  const of = orderFlowKind(ind.scriptId);
+  if (of) return { id: ind.id, title: ORDERFLOW_TOOLS[of].name, overlay: true, plots: [], shapes: [], hlines: [], fills: [], visible: ind.visible !== false };
   const r = live?.result;
   const name = r?.meta.shortTitle || live?.script?.name || 'Script';
   const base: IndicatorOutput = { id: ind.id, title: name, shortTitle: name, overlay: r ? r.meta.overlay : true, plots: [], shapes: [], hlines: [], fills: [], visible: ind.visible !== false, error: live?.error };
@@ -436,7 +441,8 @@ export function IndicatorLegend({ moduleId, cfg, outputs, lives, index, store, u
   if (!rows.length) return null;
   const collapsed = !!cfg.legendCollapsed;
   const fit = rows.length > maxRows ? Math.max(0, maxRows - 1) : rows.length;
-  const row = (ind: IndicatorInstance) => <LegendRow key={ind.id} moduleId={moduleId} ind={ind} live={lives.get(ind.id)} output={byId.get(ind.id)} index={index} store={store} cfg={cfg} update={update} />;
+  const row = (ind: IndicatorInstance) =>
+    orderFlowKind(ind.scriptId) ? <NativeLegendRow key={ind.id} moduleId={moduleId} ind={ind} cfg={cfg} update={update} /> : <LegendRow key={ind.id} moduleId={moduleId} ind={ind} live={lives.get(ind.id)} output={byId.get(ind.id)} index={index} store={store} cfg={cfg} update={update} />;
   const warned = rows.some((ind) => (byId.get(ind.id)?.warnings || []).some((w) => w.kind === 'lookahead'));
   return (
     <div className="ind-legend">
@@ -481,13 +487,15 @@ export function PaneLegends({ moduleId, cfg, outputs, lives, index, store, updat
 
 // ------------------------------------------------------------------ picker
 
-const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Patterns', 'Futures', 'Order book', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
+const CATEGORY_ORDER = ['Favorites', 'My scripts', 'Order flow', 'Trend', 'Oscillators', 'Volatility', 'Volume', 'Patterns', 'Futures', 'Order book', 'Statistics', 'Structure', 'Multi-timeframe', 'Strategies', 'Python'];
 
 export function addIndicator(moduleId: string, scriptId: string): void {
   const st = useApp.getState();
   const m = st.workspace?.modules[moduleId];
   if (!m) return;
   const cur = (m.config.indicators || []) as IndicatorInstance[];
+  // one of each order-flow tool per chart
+  if (orderFlowKind(scriptId) && cur.some((x) => x.scriptId === scriptId)) return;
   st.setModuleConfig(moduleId, { indicators: [...cur, { id: newId('i'), scriptId, inputs: {}, visible: true }] });
 }
 
@@ -521,8 +529,19 @@ function IndicatorPicker({ moduleId, onClose }: { moduleId: string; onClose: () 
       .filter((s) => !needle || s.name.toLowerCase().includes(needle) || (s.description || '').toLowerCase().includes(needle) || (s.category || '').toLowerCase().includes(needle))
       .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Number(b.favorite) - Number(a.favorite) || Number(a.builtin) - Number(b.builtin) || a.name.localeCompare(b.name));
   }, [scripts, q, cat]);
+  const flows = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (cat !== 'All' && cat !== 'Order flow') return [];
+    return ORDERFLOW_KINDS.map((k) => ORDERFLOW_TOOLS[k]).filter((t) => !needle || `${t.name} ${t.description} order flow orderflow`.toLowerCase().includes(needle));
+  }, [q, cat]);
+  const onChart = new Set(((useApp.getState().workspace?.modules[moduleId]?.config.indicators || []) as IndicatorInstance[]).map((x) => x.scriptId));
+  const addFlow = (t: OrderFlowTool) => {
+    addIndicator(moduleId, t.id);
+    setAdded((a) => ({ ...a, [t.id]: 1 }));
+  };
   const cats = useMemo(() => {
     const present = new Set((scripts || []).map((s) => (s.builtin ? s.category || 'Other' : 'My scripts')));
+    present.add('Order flow');
     return ['All', 'Favorites', ...CATEGORY_ORDER.filter((c) => c !== 'Favorites' && present.has(c)), ...[...present].filter((c) => !CATEGORY_ORDER.includes(c))];
   }, [scripts]);
   const add = (s: ScriptMeta) => {
@@ -552,16 +571,31 @@ function IndicatorPicker({ moduleId, onClose }: { moduleId: string; onClose: () 
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                setSel((x) => Math.min(list.length - 1, x + 1));
+                setSel((x) => Math.min(flows.length + list.length - 1, x + 1));
               } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
                 setSel((x) => Math.max(0, x - 1));
-              } else if (e.key === 'Enter' && list[sel]) add(list[sel]);
+              } else if (e.key === 'Enter' && sel < flows.length) addFlow(flows[sel]);
+              else if (e.key === 'Enter' && list[sel - flows.length]) add(list[sel - flows.length]);
             }}
           />
           <div className="picker-list">
             {!scripts && <Spinner />}
-            {scripts && !list.length && (
+            {flows.map((t, k) => (
+              <div key={t.id} className={clsx('picker-row', k === sel && 'sel')} onClick={() => addFlow(t)} onMouseEnter={() => setSel(k)}>
+                <span className="lang-badge flow" data-tip="Native order-flow tool: Binance trades and the live order book">
+                  Flow
+                </span>
+                <div className="picker-text">
+                  <div className="picker-name">
+                    {t.name}
+                    {added[t.id] || onChart.has(t.id) ? <span className="tag ok">on chart</span> : null}
+                  </div>
+                  <div className="picker-desc">{t.description}</div>
+                </div>
+              </div>
+            ))}
+            {scripts && !list.length && !flows.length && (
               <Empty icon="search" title="No scripts found">
                 {q.trim() ? (
                   <>
@@ -576,7 +610,7 @@ function IndicatorPicker({ moduleId, onClose }: { moduleId: string; onClose: () 
               </Empty>
             )}
             {list.map((s, k) => (
-              <div key={s.id} className={clsx('picker-row', k === sel && 'sel')} onClick={() => add(s)} onMouseEnter={() => setSel(k)}>
+              <div key={s.id} className={clsx('picker-row', k + flows.length === sel && 'sel')} onClick={() => add(s)} onMouseEnter={() => setSel(k + flows.length)}>
                 <span className={clsx('lang-badge', s.language)}>{s.language === 'python' ? 'Py' : 'Pine'}</span>
                 <div className="picker-text">
                   <div className="picker-name">
@@ -866,6 +900,8 @@ export function ParamSetPicker({ scriptId, onPick, current, scriptName }: { scri
 }
 
 export function openIndicatorSettings(moduleId: string, indId: string): void {
+  const ind = ((useApp.getState().workspace?.modules[moduleId]?.config.indicators || []) as IndicatorInstance[]).find((x) => x.id === indId);
+  if (ind && orderFlowKind(ind.scriptId)) return openOrderFlowSettings(moduleId, indId);
   openModal(`ind-settings-${indId}`, (close) => <IndicatorSettings moduleId={moduleId} indId={indId} onClose={close} />);
 }
 

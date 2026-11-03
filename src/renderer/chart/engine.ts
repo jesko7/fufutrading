@@ -19,6 +19,7 @@ import type {
   FootprintOptions,
   IndicatorOutput,
   MtfSeries,
+  OrderFlowView,
   ScaleMode,
   SeriesStyle,
   TradeLine,
@@ -31,7 +32,8 @@ import { drawIndicatorBase, indicatorRange } from './drawPlots';
 import { drawCompare, drawMtf, drawVolumeProfile, drawTradeLines, drawExecutions, hitTradeLine, drawStrategyTrades, drawLevels } from './drawExtras';
 import { DrawingLayer } from './drawings';
 import { drawFootprint } from './drawFootprint';
-import { fmtDateTime, timeParts } from '../lib/format';
+import { drawOrderFlowBack, drawOrderFlowFront, hitOrderFlow, domRowStep, type FlowHit } from './drawOrderFlow';
+import { fmtDate, fmtDateTime, timeParts } from '../lib/format';
 
 /** A sub-pane value in its indicator's format: indicator(format=format.volume) shows K/M/B. */
 function paneValue(pane: { id: string; indicators: { format?: string }[] }, v: number, dec: number): string {
@@ -127,6 +129,7 @@ export class ChartEngine {
   executions: Execution[] = [];
   volumeProfile: VolumeProfileOptions = { mode: 'off', rows: 24, valueArea: 70 };
   footprint: { bars: Map<number, FootprintBar>; opts: FootprintOptions } | null = null;
+  orderFlow: OrderFlowView | null = null;
   barCloseTime: number | null = null;
   lastPrice = NaN;
   syncedCrosshairTime: number | null = null;
@@ -303,6 +306,45 @@ export class ChartEngine {
     this.invalidate();
   }
 
+  setOrderFlow(v: OrderFlowView | null): void {
+    const before = this.restOffset();
+    this.orderFlow = v;
+    // the DOM sits on the right edge: keep the latest candles left of it when they are in view
+    const after = this.restOffset();
+    if (after !== before && this.bars.length && Math.abs(this.rightOffset - before) < 1.5) this.scrollToLatest();
+    this.invalidate();
+  }
+
+  /** Bars of empty space right of the latest bar at rest: room for the DOM when it is shown. */
+  restOffset(): number {
+    const dom = this.orderFlow?.dom;
+    return dom ? 6 + Math.ceil((this.plotW * dom.width) / 100 / Math.max(0.3, this.barSpacing)) : 6;
+  }
+
+  /** The order-flow element under a point of the main pane (bubbles, levels, DOM rows). */
+  orderFlowHit(x: number, y: number): FlowHit | null {
+    const of = this.orderFlow;
+    const main = this.panes[0];
+    if (!of || !this.bars.length || x < 0 || x > this.plotW || y < main.top || y > main.top + main.height) return null;
+    const rc = this.ctxFor(this.octx, main);
+    const dec = this.priceDecimals;
+    const today = fmtDate(serverNow());
+    return hitOrderFlow(rc, of, this.flowGeo(), x, y, (p) => formatAxis(p, dec), (t) => {
+      const s = fmtDateTime(t, true);
+      return s.startsWith(today) ? s.slice(today.length).trim() : s;
+    });
+  }
+
+  /** Price step for DOM rows of about 2 px at the current zoom. */
+  domStepFor(step: number): number {
+    const s = this.mainScale;
+    return domRowStep(Math.abs(s.toY(1000) - s.toY(1001)), step);
+  }
+
+  private flowGeo() {
+    return { x: (i: number) => this.x(i), indexOfTime: (t: number) => this.indexOfTime(t), lastIndex: this.lastIndex, lastPrice: this.lastPrice };
+  }
+
   setShowVolume(v: boolean): void {
     this.showVolume = v;
     this.invalidate();
@@ -345,7 +387,7 @@ export class ChartEngine {
     if (fit) for (const p of this.panes) p.scale.auto = true;
     cancelAnimationFrame(this.scrollAnim);
     const from = this.rightOffset;
-    const to = 6;
+    const to = this.restOffset();
     const t0 = performance.now();
     const step = () => {
       const k = Math.min(1, (performance.now() - t0) / 280);
@@ -370,7 +412,7 @@ export class ChartEngine {
   resetView(): void {
     this.stopGlide();
     this.barSpacing = 8;
-    this.rightOffset = 6;
+    this.rightOffset = this.restOffset();
     for (const p of this.panes) p.scale.auto = true;
     this.invalidate();
     this.cb.onViewChange?.();
@@ -733,12 +775,14 @@ export class ChartEngine {
         for (const ind of pane.indicators) if (ind.visible && ind.bgcolors) drawBg(rc, ind.bgcolors);
         if (this.volumeProfile.mode !== 'off') drawVolumeProfile(rc, this.volumeProfile, this.footprint?.bars || null);
         for (const m of this.mtf) drawMtf(rc, m, this);
+        if (this.orderFlow) drawOrderFlowBack(rc, this.orderFlow, this.flowGeo());
         if (this.showVolume && this.style !== 'footprint') drawVolume(rc);
         const barcolors = pane.indicators.find((i) => i.visible && i.barcolors)?.barcolors || null;
         if (this.style === 'footprint' && this.footprint) drawFootprint(rc, this.footprint.bars, this.footprint.opts, this.tick);
         else drawSeries(rc, this.style, barcolors);
         for (const ind of pane.indicators) if (ind.visible) drawIndicatorBase(rc, ind);
         for (const ind of pane.indicators) if (ind.visible && ind.trades) drawStrategyTrades(rc, ind.trades);
+        if (this.orderFlow) drawOrderFlowFront(rc, this.orderFlow, this.flowGeo());
         if (this.compare.length) drawCompare(rc, this.compare, this.mainScale);
         if (this.levels.length || this.levelBands.length) drawLevels(rc, this.levels, this.levelBands, this, pane);
         if (this.executions.length) drawExecutions(rc, this.executions, this);

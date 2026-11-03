@@ -156,6 +156,9 @@ export class TradeStore {
     };
     while (t < to) {
       if (signal?.cancelled) break;
+      // long downloads (perpetual trades cost 20 weight a page) leave half the minute's budget
+      // to everything else, so charts and the book keep loading
+      while (this.rest.weightShare?.(market) > 0.5 && !signal?.cancelled) await new Promise((r) => setTimeout(r, 1000));
       const page: TradeTick[] = fromId !== null ? await this.rest.aggTrades(market, symbol, { fromId, limit: 1000 }) : await this.rest.aggTrades(market, symbol, { startTime: t, endTime: Math.min(t + HOUR, to) - 1, limit: 1000 });
       if (!page.length) {
         if (fromId !== null) break;
@@ -250,6 +253,21 @@ export class TradeStore {
       }
     }
     return { id: id.subarray(0, k), t: t.subarray(0, k), p: p.subarray(0, k), q: q.subarray(0, k), length: k };
+  }
+
+  /** Cached trades in [from, to), in id order, day file by day file (no large arrays); returns the count. */
+  scan(market: Market, symbol: SymbolId, from: number, to: number, fn: (id: number, t: number, p: number, q: number) => void): number {
+    let n = 0;
+    for (let d = from - (from % DAY); d < to; d += DAY) {
+      const a = this.readDay(market, symbol, dayKey(d));
+      for (let i = 0; i < a.length; i += STRIDE) {
+        const tt = a[i + 1];
+        if (tt < from || tt >= to) continue;
+        fn(a[i], tt, a[i + 2], a[i + 3]);
+        n++;
+      }
+    }
+    return n;
   }
 
   /** Keep only the newest `maxDays` day files per instrument. */

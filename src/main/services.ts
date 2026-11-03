@@ -12,6 +12,7 @@ import { registerReplay, type ReplayService } from './market/replay';
 import { registerAlerts, type AlertService } from './alerts';
 import { registerAI, type AIService } from './ai/service';
 import { registerFootprint } from './market/footprint';
+import { registerOrderFlow } from './market/orderflow';
 import { registerDataManager } from './dataManager';
 import { registerNews } from './news';
 import { registerJournal } from './trading/journal';
@@ -50,6 +51,7 @@ export async function registerServices(core: AppCore): Promise<Services> {
   trading.beforeRemove.add((id) => journal.remove(id));
   const ai = registerAI(core, { scripts, backtests, optimizer, derivatives, options, alerts, trading, journal });
   const trades = registerFootprint(core);
+  registerOrderFlow(core, trades);
   registerDataManager(core, trades);
   news.setClaude(ai);
   const services: Services = { trading, scripts, backtests, optimizer, experiments, bots, replay, alerts, ai, trades };

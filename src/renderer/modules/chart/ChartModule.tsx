@@ -23,6 +23,8 @@ import { useChartIndicators, IndicatorLegend, PaneLegends, openIndicatorPicker, 
 import { useChartTrading } from './trading';
 import { useAccounts, openCreateAccount } from '../trading/accounts';
 import { useFootprint } from './footprint';
+import { useOrderFlow } from './orderflow';
+import type { FlowHit } from '../../chart/drawOrderFlow';
 import { useReplayForChart, ReplayButton } from './replay';
 import { useAlertLines } from '../alerts/chartLines';
 import './chart.css';
@@ -126,6 +128,14 @@ export function ChartModule({ module }: ModuleProps) {
         return { n: b.length, last: b.length ? b.t[b.length - 1] : null, close: b.length ? b.c[b.length - 1] : null };
       },
       footprint: () => e.footprint?.bars.size ?? 0,
+      // order-flow tools as drawn: HVN bands, imbalance levels, absorption bubbles, DOM rows
+      orderflow: () => {
+        const o = e.orderFlow;
+        return o ? { hvn: o.hvn?.levels.length ?? null, imb: o.imb?.levels.length ?? null, abs: o.abs ? o.abs.events.map((x) => ({ side: x.side, vol: x.vol, price: x.price, t: x.t, state: x.state, shown: x.shown })) : null, thr: o.abs?.thr ?? null, dom: o.dom?.book ? { bids: o.dom.book.bp.length, asks: o.dom.book.ap.length, step: o.dom.book.step, bestBid: o.dom.book.bestBid, bestAsk: o.dom.book.bestAsk } : null } : null;
+      },
+      flowHit: (x: number, y: number) => e.orderFlowHit(x, y),
+      lastBarX: () => e.x(e.lastIndex),
+      bubbles: () => (e.orderFlow?.abs?.events || []).map((ev) => ({ x: e.x(Math.floor(e.indexOfTime(ev.t) + 1e-9)), y: e.mainScale.toY(ev.price), vol: ev.vol, side: ev.side, plotW: e.plotW, plotH: e.plotH })),
       levels: () => e.levels.map((l) => ({ id: l.id, price: l.price, label: l.label })),
       tradeLines: () => e.tradeLines.map((l) => ({ id: l.id, kind: l.kind, price: l.price, label: l.label })),
       // pane geometry inside the chart host (CSS px): the main price pane first
@@ -255,6 +265,8 @@ export function ChartModule({ module }: ModuleProps) {
     eng?.setVolumeProfile({ mode: cfg.volumeProfile?.mode || 'off', rows: cfg.volumeProfile?.rows || 24, valueArea: cfg.volumeProfile?.valueArea || 70, from: cfg.volumeProfile?.from, to: cfg.volumeProfile?.to });
   }, [eng, JSON.stringify(cfg.volumeProfile)]);
   const fp = useFootprint(cfg, storeRef, dataVersion, eng, replay.active);
+  const flow = useOrderFlow(module.id, cfg, eng, replay.active);
+  const [flowTip, setFlowTip] = useState<{ x: number; y: number; hit: FlowHit } | null>(null);
   useEffect(() => {
     if (!eng) return;
     eng.setFootprint(fp.bars ? { bars: fp.bars as Map<number, FootprintBar>, opts: { group: cfg.footprint?.group || 0, mode: cfg.footprint?.mode || 'bidask', imbalanceRatio: cfg.footprint?.imbalanceRatio || 3 } } : null);
@@ -399,6 +411,7 @@ export function ChartModule({ module }: ModuleProps) {
     onCrosshair: (c) => {
       const pr = plusRef.current;
       if (!c) {
+        setFlowTip(null);
         setLegend({ index: -1, hover: false });
         bus.emit('crosshair', { time: null, from: module.id });
         // keep the "+" while the pointer moves onto it
@@ -408,6 +421,10 @@ export function ChartModule({ module }: ModuleProps) {
       }
       setLegend({ index: c.index, hover: true });
       bus.emit('crosshair', { time: c.time, from: module.id });
+      if (flow.active) {
+        const hit = engRef.current?.orderFlowHit(c.x, c.y) || null;
+        setFlowTip((t) => (hit ? { x: c.x, y: c.y, hit } : t ? null : t));
+      }
       const e = engRef.current;
       if (c.pane === 0 && e && c.y < e.plotH && Number.isFinite(c.price) && !replay.picking) {
         window.clearTimeout(pr.timer);
@@ -612,6 +629,14 @@ export function ChartModule({ module }: ModuleProps) {
           <PaneLegends moduleId={module.id} cfg={cfg} outputs={indicators.outputs} lives={indicators.lives} index={li} store={store} update={update} panes={panes} />
           {replay.overlay}
           {fp.overlay}
+          {flowTip && eng && (
+            <div className="of-tip" style={{ left: flowTip.x + 16, top: Math.max(4, Math.min(flowTip.y + 14, eng.plotH - 90)), transform: flowTip.x + 370 > eng.plotW ? 'translateX(calc(-100% - 32px))' : undefined, ['--of-color' as string]: flowTip.hit.color }}>
+              <b>{flowTip.hit.title}</b>
+              {flowTip.hit.lines.map((l, k) => (
+                <div key={k}>{l}</div>
+              ))}
+            </div>
+          )}
           <div className="axis-btns">
             {scaleBtn('percent', '%', 'Percentage scale')}
             {scaleBtn('log', 'log', 'Logarithmic scale')}

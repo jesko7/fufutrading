@@ -255,6 +255,16 @@ export interface FootprintBar {
   sell: Float64Array; // aggressive sell volume at level (bid side)
 }
 
+/** Order-flow tools on the main pane (HVN Profile, Imbalance Levels, Heavy Absorption, DOM). */
+export interface OrderFlowView {
+  /** Base asset, for tooltips. */
+  unit: string;
+  hvn: { levels: import('../../shared/orderflow').HvnLevel[]; color: string; labels: boolean } | null;
+  imb: { levels: import('../../shared/orderflow').ImbalanceLevel[]; buy: string; sell: string } | null;
+  abs: { events: import('../../shared/orderflow').AbsorptionEvent[]; thr: number; buy: string; sell: string; numbers: boolean } | null;
+  dom: { book: import('../../shared/orderflow').DomBook | null; width: number; bid: string; ask: string; sqrt: boolean } | null;
+}
+
 export interface FootprintOptions {
   group: number;
   mode: 'bidask' | 'delta' | 'volume';

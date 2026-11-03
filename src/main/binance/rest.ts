@@ -80,6 +80,11 @@ export class BinanceRest {
     return market === 'spot' ? SPOT_HOSTS[this.spotHostIdx] : FUT_HOST;
   }
 
+  /** Share of the per-minute request weight used in the current minute (0..1). */
+  weightShare(market: Market): number {
+    return Date.now() < this.weightResetAt[market] ? this.usedWeight[market] / WEIGHT_LIMIT[market] : 0;
+  }
+
   /** Low-level GET with retries, throttling and host rotation. */
   async get<T = unknown>(market: Market, pathname: string, params: Record<string, string | number | undefined> = {}, weight = 1): Promise<T> {
     const qs = Object.entries(params)

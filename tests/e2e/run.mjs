@@ -1620,6 +1620,112 @@ const S = {
     const dataMid = await page.evaluate(() => document.querySelector('.stack:has(.data-mod) .stack-tab.on')?.getAttribute('data-mid'));
     if (dataMid) await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), dataMid);
   },
+  async orderflow() {
+    console.log('scenario: order-flow tools (HVN Profile, Heavy Absorption, Imbalance Levels, DOM)');
+    await page.waitForSelector('.start, .workspace', { timeout: 30000 });
+    if (!(await page.isVisible('.chart-host canvas'))) await openPreset('Trader');
+    await page.waitForSelector('.chart-host canvas', { timeout: 30000 });
+    // a chart of its own: BTC spot, 10-second candles, maximized (removed at the end)
+    const known = await page.evaluate(() => Object.keys(window.__charts || {}));
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('.palette input');
+    await page.fill('.palette input', 'Add Chart');
+    await page.click('.palette .p-item:has(span:text-is("Add Chart"))');
+    await page.waitForFunction((k) => Object.keys(window.__charts || {}).some((x) => !k.includes(x)), known, { timeout: 10000 });
+    const cid = await page.evaluate((k) => Object.keys(window.__charts).find((x) => !k.includes(x)), known);
+    await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'setModuleConfig', moduleId: mid, config: { symbol: 'BTCUSDT', market: 'spot', tf: '10s', showVolume: false }, merge: true }), cid);
+    await page.waitForFunction((id) => window.__charts[id].bars().n > 50, cid, { timeout: 30000 });
+    await page.locator(`.stack-tab[data-mid="${cid}"]`).dblclick();
+    await page.waitForSelector('.stack.maximized .chart-host', { timeout: 5000 });
+    // the four tools from the picker's Order flow category
+    await page.locator('.stack.maximized button:has-text("Indicators")').first().click();
+    await page.waitForSelector('.picker-row', { timeout: 15000 });
+    await page.click('.picker-cat:has-text("Order flow")');
+    for (const name of ['HVN Profile', 'Heavy Absorption', 'Imbalance Levels', 'DOM']) {
+      await page.locator('.picker-row .picker-name', { hasText: name }).first().click();
+      await wait(150);
+    }
+    const tags = await page.$$eval('.picker-row .tag.ok', (t) => t.length);
+    check(tags === 4, `the picker marks all four as on the chart (${tags})`);
+    await page.keyboard.press('Escape');
+    const rows = await page.$$eval('.stack.maximized .ind-item .ind-name', (r) => r.map((x) => x.textContent));
+    check(['HVN Profile', 'Heavy Absorption', 'Imbalance Levels', 'DOM'].every((n) => rows.includes(n)), `legend rows for the four tools (${rows.join(', ')})`);
+    // the live book in the DOM within seconds
+    let of = null;
+    for (const deadline = Date.now() + 30000; Date.now() < deadline; ) {
+      of = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
+      if (of?.dom?.bids > 10 && of?.dom?.asks > 10) break;
+      await wait(500);
+    }
+    check(of?.dom?.bids > 10 && of?.dom?.asks > 10 && of.dom.bestBid < of.dom.bestAsk, `DOM draws the live book (${of?.dom?.bids} bid rows, ${of?.dom?.asks} ask rows of ${of?.dom?.step}, ${of?.dom?.bestBid} / ${of?.dom?.bestAsk})`);
+    // trades: the newest half hour first, then the rest of the window
+    for (const deadline = Date.now() + 240000; Date.now() < deadline; ) {
+      of = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
+      const loading = await page.$$eval('.stack.maximized .of-load', (e) => e.length);
+      if (of?.hvn > 0 && of?.abs?.length > 0 && !loading) break;
+      await wait(1000);
+    }
+    const errs = await page.$$eval('.stack.maximized .ind-err', (e) => e.map((x) => x.textContent));
+    check(!errs.length, `no errors (${JSON.stringify(errs)})`);
+    check(of?.hvn > 0, `HVN Profile found high-volume nodes (${of?.hvn})`);
+    check(of?.imb !== null && of?.imb >= 0, `Imbalance Levels computed (${of?.imb} levels)`);
+    // each bubble crossed the threshold of its own time (the threshold adapts to the market)
+    check(of?.abs?.length > 0 && Number.isFinite(of.thr) && of.abs.every((e) => e.vol > 0 && Number.isFinite(e.price)), `absorption bubbles from the trades (${of?.abs?.length}, threshold now ${of?.thr?.toFixed?.(3)} BTC)`);
+    // the latest candles stay left of the DOM
+    const geo = await page.evaluate((id) => ({ last: window.__charts[id].lastBarX(), plotW: window.__charts[id].panes().plotW }), cid);
+    check(geo.last < geo.plotW * 0.78, `the latest bar stays left of the DOM (x ${Math.round(geo.last)} of ${Math.round(geo.plotW)})`);
+    const legend = await page.$eval('.stack.maximized .ind-legend', (e) => e.textContent || '');
+    check(/Heavy Absorption\s*Medium · > [\d.]+ BTC/.test(legend), `the absorption legend shows the learned threshold (${(legend.match(/Heavy Absorption[^A-Z]*/) || [''])[0].trim()})`);
+    // live: with a small fixed minimum, bubbles appear on the forming bars and their volume grows
+    const inds = await page.evaluate((mid) => window.fufu.invoke('ws:get').then((w) => w.workspace.modules[mid].config.indicators), cid);
+    await page.evaluate(([mid, list]) => window.fufu.invoke('ws:op', { kind: 'setModuleConfig', moduleId: mid, config: { indicators: list.map((i) => (i.scriptId === 'of:absorption' ? { ...i, inputs: { ...i.inputs, minVolume: 0.2, hold: 3 } } : i)) }, merge: true }), [cid, inds]);
+    const seen = new Map();
+    let grew = false;
+    let liveSeen = false;
+    let heldSeen = false;
+    const t0 = Date.now();
+    for (const deadline = Date.now() + 120000; Date.now() < deadline && !(grew && liveSeen && heldSeen); ) {
+      await wait(400);
+      const now = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
+      for (const e of now?.abs || []) {
+        if (e.t < t0 - 5000) continue;
+        const k = `${e.t}:${e.price.toFixed(1)}:${e.side}`;
+        if (e.state === 'live') liveSeen = true;
+        if (e.state === 'held' && seen.get(k)?.state === 'live') heldSeen = true;
+        if (seen.has(k) && e.vol > seen.get(k).vol) grew = true;
+        seen.set(k, e);
+      }
+    }
+    const fresh = [...seen.values()];
+    check(liveSeen && heldSeen, `live bubbles appear on the forming bars and are confirmed when the level held (${fresh.length} new, ${fresh.filter((e) => e.shown !== null).length} with the book's resting size)`);
+    check(grew, "a live bubble's number grows while the level is hit");
+    check(fresh.some((e) => e.shown !== null), "live bubbles carry the order book's resting size at the level");
+    await page.evaluate(([mid, list]) => window.fufu.invoke('ws:op', { kind: 'setModuleConfig', moduleId: mid, config: { indicators: list }, merge: true }), [cid, inds]);
+    for (const deadline = Date.now() + 120000; Date.now() < deadline; ) {
+      await wait(1000);
+      const o = await page.evaluate((id) => window.__charts[id].orderflow(), cid);
+      const loading = await page.$$eval('.stack.maximized .of-load', (e) => e.length);
+      if (o?.abs && !loading && Number.isFinite(o.thr) && o.thr > 0.5) break;
+    }
+    // hovering a bubble explains it
+    const bubbles = await page.evaluate((id) => window.__charts[id].bubbles(), cid);
+    const vis = bubbles.filter((b) => b.x > 30 && b.x < b.plotW - 30 && b.y > 30 && b.y < b.plotH - 30);
+    if (vis.length) {
+      const b = vis[vis.length - 1];
+      const box = await page.locator('.stack.maximized .chart-host').boundingBox();
+      await page.mouse.move(box.x + b.x, box.y + b.y);
+      const tip = await page.waitForSelector('.stack.maximized .of-tip', { timeout: 3000 }).then((e) => e.textContent()).catch(() => '');
+      check(/absorbed/.test(tip || '') && /trade/.test(tip || ''), `hovering a bubble explains it (${(tip || '').slice(0, 110)})`);
+      await shot('62-orderflow-tooltip');
+      await page.mouse.move(box.x + 40, box.y + box.height - 60);
+    } else console.log('    (no bubble in view to hover)');
+    await wait(500);
+    await shot('62-orderflow');
+    await page.locator('.stack.maximized .stack-tab.on').dblclick();
+    await page.waitForSelector('.stack.maximized', { state: 'detached', timeout: 5000 });
+    await page.evaluate((mid) => window.fufu.invoke('ws:op', { kind: 'removeModule', moduleId: mid }), cid);
+    await page.waitForFunction((mid) => !window.__charts?.[mid], cid, { timeout: 5000 });
+  },
   async transcript() {
     console.log('scenario: strategy from a transcript');
     await page.waitForSelector('.start, .workspace', { timeout: 30000 });
