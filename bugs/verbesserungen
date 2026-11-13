@@ -1,0 +1,3 @@
+1. drawdown chart should be inverted
+2. for news add a neutral
+3. add a: strategy from transcript function where the transcript gets summarized by sonnet 5.5 low and then sent in as a prompt to the selected model
